@@ -1,0 +1,16 @@
+{
+    "cmake.useCMakePresets": "always",
+    "cmake.configureOnOpen": true,
+    "cmake.configureOnEdit": false,
+    "cmake.clearOutputBeforeBuild": true,
+    "cmake.deleteBuildDirOnCleanConfigure": true, 
+    "cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
+    "clangd.useScriptAsExecutable": true,
+    "clangd.path": "${workspaceFolder}/.vscode/clangd-selector.cmd",
+    "clangd.arguments": [
+        "--header-insertion=never",
+        "--compile-commands-dir=${workspaceFolder}",
+        "--background-index",
+        "--clang-tidy=false"
+    ]
+}

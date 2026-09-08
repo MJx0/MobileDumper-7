@@ -39,7 +39,7 @@ bld/
 .xmake/
 
 # VSCode
-.vscode/
+#.vscode/
 
 # CMake
 out/
