@@ -1,0 +1,107 @@
+---
+# MobileDumper-7 — Unreal Engine naming, Allman braces, tab indentation.
+# Applies to all languages (C++, ObjC++).
+BasedOnStyle: Microsoft
+
+# ── Indentation ───────────────────────────────────────────────────────────────
+IndentWidth:             4
+TabWidth:                4
+UseTab:                  ForIndentation
+ContinuationIndentWidth: 4
+
+# ── Column limit ──────────────────────────────────────────────────────────────
+ColumnLimit: 0
+
+# ── Brace wrapping (Allman) ───────────────────────────────────────────────────
+BreakBeforeBraces: Allman
+
+# ── Pointer/reference — attached to type ─────────────────────────────────────
+PointerAlignment:   Left
+ReferenceAlignment: Left
+
+# ── Spaces ────────────────────────────────────────────────────────────────────
+SpaceBeforeParens:                 ControlStatements
+SpaceAfterCStyleCast:              false
+SpaceAroundPointerQualifiers:      Default
+SpaceBeforeAssignmentOperators:    true
+SpaceBeforeCpp11BracedList:        false
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyParentheses:           false
+SpaceAfterTemplateKeyword:         true
+
+# ── Short constructs ──────────────────────────────────────────────────────────
+AllowShortFunctionsOnASingleLine:    All
+AllowShortLambdasOnASingleLine:      All
+AllowShortBlocksOnASingleLine:       Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine:        false
+AllowShortCaseLabelsOnASingleLine:   false
+
+# ── Lambdas ───────────────────────────────────────────────────────────────────
+# Body indented from the enclosing scope, not from the lambda signature column.
+LambdaBodyIndentation: OuterScope
+
+# ── Access modifiers ──────────────────────────────────────────────────────────
+AccessModifierOffset:          -4
+IndentAccessModifiers:          false
+EmptyLineAfterAccessModifier:   Never
+EmptyLineBeforeAccessModifier:  LogicalBlock
+
+# ── Constructor initializer lists ─────────────────────────────────────────────
+BreakConstructorInitializers:      BeforeColon
+ConstructorInitializerIndentWidth: 4
+PackConstructorInitializers:       Never
+
+# ── Alignment ─────────────────────────────────────────────────────────────────
+AlignConsecutiveAssignments:
+  Enabled:          true
+  AcrossEmptyLines: false
+  AcrossComments:   false
+  AlignCompound:    true
+  PadOperators:     true
+
+AlignConsecutiveDeclarations:
+  Enabled: false
+
+AlignConsecutiveMacros:
+  Enabled:          true
+  AcrossEmptyLines: false
+  AcrossComments:   false
+
+AlignTrailingComments:
+  Kind:           Always
+  OverEmptyLines: 1
+
+AlignOperands:        Align
+AlignEscapedNewlines: Right
+
+# ── Namespace ─────────────────────────────────────────────────────────────────
+NamespaceIndentation: All
+CompactNamespaces:    false
+FixNamespaceComments: false
+
+# ── Templates ─────────────────────────────────────────────────────────────────
+AlwaysBreakTemplateDeclarations: Yes
+
+# ── Line breaking ─────────────────────────────────────────────────────────────
+BinPackArguments:                          false
+BinPackParameters:                         false
+AllowAllParametersOfDeclarationOnNextLine: true
+BreakBeforeBinaryOperators:                None
+BreakBeforeTernaryOperators:               true
+BreakStringLiterals:                       false
+AlwaysBreakBeforeMultilineStrings:         false
+
+# ── Includes ──────────────────────────────────────────────────────────────────
+SortIncludes:  Never
+IncludeBlocks: Preserve
+
+# ── Blank lines ───────────────────────────────────────────────────────────────
+MaxEmptyLinesToKeep:              2
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+Cpp11BracedListStyle:   true
+DerivePointerAlignment: false
+InsertTrailingCommas:   None
+

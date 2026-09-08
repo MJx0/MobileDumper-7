@@ -1,0 +1,73 @@
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+tombstones/
+AndKittyInjector/
+AndKittyInjector
+
+SDKTest/
+
+__pycache__/
+
+# Build results
+[Bb]uild/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+.vs/
+
+# JetBrains
+.idea/
+
+# Xmake
+.xmake/
+
+# VSCode
+.vscode/
+
+# CMake
+out/
+
+# CMake build output directories
+builds/
+build_android/
+build_android_debug/
+build_android_src/
+build_ios/
+
+# release output
+dist/
+
+# clangd compile_commands.json (copied here by cmake.copyCompileCommands)
+/compile_commands.json
+
+# Theos (iOS) build cache and package output
+Theos/.theos/
+packages/
+
+# macOS
+.DS_Store
+
+# Compiled / binary artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.deb
+*.cache

@@ -1,0 +1,9 @@
+[submodule "libs/fmt"]
+	path = libs/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "libs/KittyMemory"]
+	path = libs/KittyMemory
+	url = https://github.com/MJx0/KittyMemory
+[submodule "libs/KittyMemoryEx"]
+	path = libs/KittyMemoryEx
+	url = https://github.com/MJx0/KittyMemoryEx

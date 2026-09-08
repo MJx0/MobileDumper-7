@@ -1,0 +1,11 @@
+---
+# Suppress all diagnostics inside third-party library headers.
+If:
+  PathMatch: libs/.*
+Diagnostics:
+  Suppress: '*'
+---
+# Suppress #error directives from system headers (triggered by macOS cdefs.h
+# when Apple clangd injects its own SDK paths into Android/cross-compile builds).
+Diagnostics:
+  Suppress: ['pp_hash_error']

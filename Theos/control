@@ -1,0 +1,9 @@
+Package: io.mobile.dumper7
+Name: MobileDumper-7
+Version: 0.0.1
+Architecture: iphoneos-arm
+Description: MobileDumper-7 — UE Dumper & SDK generator for iOS
+Maintainer: CyberCat
+Author: CyberCat
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000)
