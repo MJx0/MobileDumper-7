@@ -521,7 +521,7 @@ bool Generator::InitOffsets(std::string& OutErrorString)
 	{
 		GLogger.FmtWrite(ELogLevel::Info, "FName::CompIdx: 0x{:X}\n", (uint32_t)GOffsets.FName.CompIdx);
 		GLogger.FmtWrite(ELogLevel::Info, "FName::Number: 0x{:X}\n", (uint32_t)GOffsets.FName.Number);
-		GLogger.FmtWrite(ELogLevel::Info, "FName::Size: 0x{:X}\n", (uint32_t)GOffsets.FName.SizeOf);
+		GLogger.FmtWrite(ELogLevel::Info, "FName::SizeOf: 0x{:X}\n", (uint32_t)GOffsets.FName.SizeOf);
 	}
 
 	{
