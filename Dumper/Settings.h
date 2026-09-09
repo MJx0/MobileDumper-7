@@ -284,7 +284,7 @@ namespace InternalSettings
 	inline bool bUseUint8ArrayDim = false;
 
 	/// Whether the engine uses @c char16_t for FName strings (UE 4.21+).
-	/// Auto-detected by @c OffsetFinder::DetectIsUsingChar32().
+	/// Auto-detected by @c UEAnalyzer::GetTCharKind() and @c FInSDKOffsets::InitFText().
 	inline bool bUseChar16String = true;
 
 	/// Detect and set @c bIsWeakObjectPtrWithoutTag.
