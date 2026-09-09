@@ -20,12 +20,12 @@ Mobile-focused dumper for all Unreal Engine games on iOS and Android, based on [
 ## Platform Support
 
 | Platform | Entry Point | Deployment |
-|---|---|---|
+| --- | --- | --- |
 | Android | `Dumper/main_android.cpp` | Injected `.so`, or standalone CLI executable |
 | iOS | `Dumper/main_ios.mm` | MobileSubstrate tweak (`.deb`) on jailbroken devices, or a standalone `.dylib` for jailed devices |
 
 > **Architecture Support**
-
+>
 > - **ARM64** — Fully supported.
 > - **ARM32** — Partial support; results may vary.
 > - **Emulators** — Use the native `x86_64` or `x86` builds; do not use the ARM builds even if the emulator supports ARM translation.
@@ -89,6 +89,72 @@ cd MobileDumper-7
 ```
 
 On Windows, use `build.cmd` with the same flags. Omit all flags to be prompted interactively.
+
+## Custom Game Profiles
+
+Most games work out of the box without a custom profile. A profile is only needed when a game applies custom encryption to its UE internals — typically to GNames pointers, name strings, or object items.
+
+To add one, create a header in `Dumper/Profile/CustomProfiles/` that inherits from `IProfile` and override only the methods the game requires:
+
+```cpp
+// Dumper/Profile/CustomProfiles/Shared/MyGame.h
+#pragma once
+#include "../../IProfile.h"
+
+class MyGameProfile : public IProfile
+{
+public:
+    // Bundle ID on iOS / package name on Android.
+    // The profile is activated automatically when a supported game is detected.
+    std::vector<std::string> GetSupportedGames() const override
+    {
+        return {"com.example.mygame"};
+    }
+
+    // Override only what the game encrypts — leave everything else out.
+};
+```
+
+Then register it in the platform entry point alongside the existing profiles:
+
+- **iOS** — `Dumper/main_ios.mm` → `GetUECustomProfiles()`
+- **Android** — `Dumper/main_android.cpp` → `GetUECustomProfiles()`
+
+```cpp
+UECustomProfiles.push_back(std::make_shared<MyGameProfile>());
+```
+
+### Available overrides
+
+| Method | When to override |
+| -------- | ----------------- |
+| `GetGObjects()` | GObjects pointer cannot be found automatically |
+| `DecryptGObjects(uintptr_t&)` | GObjects pointer is encrypted after retrieval |
+| `GetGNames()` | GNames pointer cannot be found automatically — see PUBG example below |
+| `DecryptGNames(uintptr_t&)` | GNames pointer is encrypted after retrieval — see PUBG example below |
+| `DecryptNameChunk(...)` | Name chunk addresses are encrypted |
+| `DecryptNameEntry(...)` | Individual name entry addresses are encrypted |
+| `DecryptUTF8/UTF16/UTF32(...)` | Name strings are encrypted in memory — see Delta Force example below |
+| `DecryptObjectItem(uintptr_t&)` | Object item pointers are encrypted |
+| `ResolveGObjectsLayout(...)` | Auto layout detection fails; provide the layout manually |
+| `ResolveGNamesLayout(...)` | Auto layout detection fails; provide the layout manually |
+| `OverrideSettings(FSettings&)` | Tweak Generator settings for this game |
+
+### Examples
+
+**PUBG Mobile** ([Dumper/Profile/CustomProfiles/Shared/PUBG.h](Dumper/Profile/CustomProfiles/Shared/PUBG.h)) — GNames is encrypted, so the profile scans the executable for a known byte pattern, decodes the ADRP instruction to locate it, then decrypts the pointer chain:
+
+```cpp
+uintptr_t GetGNames() const override { /* pattern scan → ADRP decode */ }
+void DecryptGNames(uintptr_t& NamesPtr) const override { /* pointer chain walk */ }
+```
+
+**Delta Force** ([Dumper/Profile/CustomProfiles/Shared/DeltaForce.h](Dumper/Profile/CustomProfiles/Shared/DeltaForce.h)) — GNames resolves normally; only the name strings are XOR-encrypted with a length-derived key:
+
+```cpp
+void DecryptUTF8(char* Data, int32_t Len) const override { /* XOR each byte */ }
+void DecryptUTF16(char16_t* Data, int32_t Len) const override { /* XOR each char16 */ }
+```
 
 ## Credits & Thanks
 
