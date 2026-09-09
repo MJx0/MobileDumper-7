@@ -267,7 +267,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 	auto Elapsed = std::chrono::high_resolution_clock::now() - DumpStartTime;
 	GLogger.FmtWrite(ELogLevel::Info, "Dumping completed in {}\n", Utils::ChronoDurationToString(Elapsed));
 
-	GLogger.FmtWrite(ELogLevel::Info, "Dump Folder:  {}\n", DumperDir);
+	GLogger.FmtWrite(ELogLevel::Info, "Dump Folder: {}\n", DumperDir);
 	GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 
 	// log file will be zipped
