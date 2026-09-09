@@ -167,7 +167,10 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
 		this->PostInit_FName();
 	}
 
-	kSET_UE_OFFSET(FieldPathProperty.FieldClass, Property.SizeOf);
+	if (InternalSettings::bUseFProperty)
+	{
+		kSET_UE_OFFSET(FieldPathProperty.FieldClass, Property.SizeOf);
+	}
 
 	kSET_UE_OFFSET(OptionalProperty.ValueProperty, Property.SizeOf);
 
@@ -2842,15 +2845,18 @@ void FInSDKOffsets::Init()
 	GLogger.FmtWrite(ELogLevel::Info, "FText.InTextDataString: 0x{:X}\n", FText.InTextDataString);
 	GLogger.FmtWrite(ELogLevel::Info, "InternalSettings::bUseChar16String: {}\n", InternalSettings::bUseChar16String);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding TDelegateSize...\n");
+	GLogger.FmtWrite(ELogLevel::Info, "Finding size of DelegateProperty...\n");
 	this->InitTDelegateSize();
 	GLogger.FmtWrite(ELogLevel::Info, "DelegateProperty.SizeOf = 0x{:X}\n", (uint32_t)DelegateProperty.SizeOf);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding FFieldPathSize...\n");
-	this->InitFFieldPathSize();
-	GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty.SizeOf = 0x{:X}\n", (uint32_t)FieldPathProperty.SizeOf);
+	if (InternalSettings::bUseFProperty)
+	{
+		GLogger.FmtWrite(ELogLevel::Info, "Finding size of FieldPathProperty...\n");
+		this->InitFFieldPathSize();
+		GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty.SizeOf = 0x{:X}\n", (uint32_t)FieldPathProperty.SizeOf);
+	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding TMulticastInlineDelegateSize...\n");
+	GLogger.FmtWrite(ELogLevel::Info, "Finding size of MulticastInlineDelegateProperty...\n");
 	this->InitTMulticastInlineDelegateSize();
 	GLogger.FmtWrite(ELogLevel::Info, "MulticastInlineDelegateProperty.SizeOf = 0x{:X}\n", (uint32_t)MulticastInlineDelegateProperty.SizeOf);
 }
