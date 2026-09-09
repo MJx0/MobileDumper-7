@@ -60,7 +60,6 @@ void ShowDumpResult(KittyAlertView* WaitingAlert,
                     const std::string& ErrorStr,
                     const std::string& ZipPath,
                     const std::string& Elapsed);
-void PresentShareZIP(const std::string& ZipPath);
 
 NSArray<NSString*>* GetModuleCandidatePaths();
 bool IsUnrealGame();
