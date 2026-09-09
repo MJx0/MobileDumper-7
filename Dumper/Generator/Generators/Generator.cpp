@@ -32,7 +32,7 @@ bool Generator::InitUnrealModule(std::string& OutErrorString)
 		if (ModInfo.IsValid())
 			break;
 
-		GLogger.FmtWrite(ELogLevel::Warning, "{}\n", "Failed to find Unreal Engine module, retrying in {} seconds...", RetryAfterSec);
+		GLogger.FmtWrite(ELogLevel::Warning, "Failed to find Unreal Engine module, retrying in {} seconds...", RetryAfterSec);
 		sleep(RetryAfterSec);
 	} while (--Retries > 0);
 
@@ -586,7 +586,8 @@ bool Generator::InitOffsets(std::string& OutErrorString)
 		GLogger.FmtWrite(ELogLevel::Info, "MapProperty::Base: 0x{:X}\n", (uint32_t)GOffsets.MapProperty.Base);
 		GLogger.FmtWrite(ELogLevel::Info, "SetProperty::ElementProp: 0x{:X}\n", (uint32_t)GOffsets.SetProperty.ElementProp);
 		GLogger.FmtWrite(ELogLevel::Info, "EnumProperty::Base: 0x{:X}\n", (uint32_t)GOffsets.EnumProperty.Base);
-		GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty::FieldClass: 0x{:X}\n", (uint32_t)GOffsets.FieldPathProperty.FieldClass);
+		if (InternalSettings::bUseFProperty)
+			GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty::FieldClass: 0x{:X}\n", (uint32_t)GOffsets.FieldPathProperty.FieldClass);
 		GLogger.FmtWrite(ELogLevel::Info, "OptionalProperty::ValueProperty: 0x{:X}\n", (uint32_t)GOffsets.OptionalProperty.ValueProperty);
 		GLogger.FmtWrite(ELogLevel::Info, "FInstancedStruct::ScriptStruct: 0x{:X}\n", (uint32_t)GOffsets.FInstancedStruct.ScriptStruct);
 		GLogger.FmtWrite(ELogLevel::Info, "FInstancedStruct::StructMemory: 0x{:X}\n", (uint32_t)GOffsets.FInstancedStruct.StructMemory);
@@ -611,7 +612,8 @@ bool Generator::InitOffsets(std::string& OutErrorString)
 	GLogger.FmtWrite(ELogLevel::Info, "ULevel::Actors: 0x{:X}\n", (uint32_t)GInSDKOffsets.ULevel.Actors);
 	GLogger.FmtWrite(ELogLevel::Info, "UDataTable::RowMap: 0x{:X}\n", (uint32_t)GInSDKOffsets.UDataTable.RowMap);
 	GLogger.FmtWrite(ELogLevel::Info, "DelegateProperty::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.DelegateProperty.SizeOf);
-	GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.FieldPathProperty.SizeOf);
+	if (InternalSettings::bUseFProperty)
+		GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.FieldPathProperty.SizeOf);
 	GLogger.FmtWrite(ELogLevel::Info, "MulticastInlineDelegateProperty::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.MulticastInlineDelegateProperty.SizeOf);
 
 	GLogger.FmtWrite(ELogLevel::Info, "Printing first 10 objects...\n");
