@@ -498,8 +498,15 @@ bool ChooseUserProcess(pid_t& OutPid, std::string& OutId)
 	std::stringstream LayoutStream;
 	LayoutStream << "\n"
 	             << COLOR_BOLD << COLOR_CYAN << "┌── User Processes" << COLOR_RESET << "\n"
-	             << COLOR_CYAN << "│" << COLOR_RESET << "   Select the target process (user apps only):\n"
+	             << COLOR_CYAN << "│" << COLOR_RESET << "   Select the target process:\n"
 	             << COLOR_CYAN << "│" << COLOR_RESET << "\n";
+
+	size_t MaxProcessNameLength = 0;
+
+	for (const auto& Process : UserProcesses)
+	{
+		MaxProcessNameLength = std::max(MaxProcessNameLength, Process.Name.length());
+	}
 
 	for (size_t i = 0; i < UserProcesses.size(); ++i)
 	{
@@ -515,9 +522,9 @@ bool ChooseUserProcess(pid_t& OutPid, std::string& OutId)
 		             << std::right
 		             << std::setfill('0') << std::setw(2) << (i + 1)
 		             << std::setfill(' ') << "]  "
-		             << COLOR_BOLD << Color << std::left << std::setw(44)
+		             << COLOR_BOLD << Color << std::left << std::setw(MaxProcessNameLength)
 		             << UserProcesses[i].Name << COLOR_RESET
-		             << "  PID: " << COLOR_BOLD << UserProcesses[i].Pid << COLOR_RESET
+		             << "  PID: " << COLOR_BOLD << Color << UserProcesses[i].Pid << COLOR_RESET
 		             << "\n";
 	}
 
