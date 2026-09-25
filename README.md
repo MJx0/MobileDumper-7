@@ -42,10 +42,10 @@ Inject the built `.dylib` into a UE game's `.ipa`, launch then tap the floating 
 Load into the target process, The dump runs automatically after 60 seconds once it's loaded, check logcat "MobileDumper-7" for logs.
 
 **Android - Standalone executable:**  
-If a required argument is missing, MobileDumper7 will ask user input for it.
+If a required argument is missing, MobileDumper-7 will ask user input for it.
 
 ```text
-$ ./MobileDumper7 --help
+$ ./MobileDumper-7 --help
 Usage: MobileDumper-7 [--help] [--version] [--package <name>] [--output <path>] [--dump] [--suspend] [--mem {1,2}]
 
 Optional arguments:
