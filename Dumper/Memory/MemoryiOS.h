@@ -142,6 +142,9 @@ public:
 	/// @copydoc IMemory::FindUnrealSymbol
 	uintptr_t FindUnrealSymbol(const std::string& SymbolName) override;
 
+	/// @copydoc IMemory::FindUnrealImportSlot
+	uintptr_t FindUnrealImportSlot(const std::string& SymbolName) override;
+
 	/// @copydoc IMemory::FindPatternInRange
 	uintptr_t FindPatternInRange(uintptr_t Start, size_t Range, const std::string& Pattern, int Step = 0, uint32_t SkipCount = 0) const override;
 

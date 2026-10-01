@@ -616,6 +616,23 @@ public:
 	 */
 	virtual uintptr_t FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName) = 0;
 
+	/**
+	 * @brief Finds the slot an imported symbol is called through in the Unreal module.
+	 *
+	 * An import is never called directly: the call lands on a stub that loads the real address
+	 * from a slot the loader fills in. That slot's address identifies the import whether or not
+	 * it has been bound yet, which makes it the stable thing to compare a call target against -
+	 * the value inside it is not, since it depends on binding and on where the provider landed.
+	 *
+	 * @param SymbolName Imported symbol name, as written in the module's import table.
+	 * @return Runtime slot address, or 0 when the symbol is not imported or the format is unsupported.
+	 */
+	virtual uintptr_t FindUnrealImportSlot(const std::string& SymbolName)
+	{
+		((void)SymbolName);
+		return 0;
+	}
+
 	/// @brief Returns information about the Unreal Engine module.
 	virtual ModuleInfo GetUnrealModule() = 0;
 

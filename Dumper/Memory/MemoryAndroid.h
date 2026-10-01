@@ -149,6 +149,9 @@ public:
 	/// @copydoc IMemory::FindUnrealSymbol
 	uintptr_t FindUnrealSymbol(const std::string& SymbolName) override;
 
+	/// @copydoc IMemory::FindUnrealImportSlot
+	uintptr_t FindUnrealImportSlot(const std::string& SymbolName) override;
+
 	/// @copydoc IMemory::DumpUnrealModule
 	bool DumpUnrealModule(const std::string& DestinationPath) override;
 

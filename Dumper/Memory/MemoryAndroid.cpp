@@ -337,6 +337,100 @@ ModuleInfo FMemoryAndroid::GetUnrealModule()
 	return ModuleInfo{};
 }
 
+/*
+ * Walks .rel(a).plt to find the slot a named import is called through.
+ *
+ * The slot is identified by address rather than by the pointer inside it: that pointer only
+ * becomes meaningful once the loader has bound it, and it points wherever the provider happened
+ * to land. The relocation table gives the address directly and is valid either way.
+ */
+uintptr_t FMemoryAndroid::FindUnrealImportSlot(const std::string& SymbolName)
+{
+	if (SymbolName.empty())
+		return 0;
+
+	if (!CachedUnrealModule.first.isValid())
+		((void)GetUnrealModule());
+
+	const ElfScanner& Elf = CachedUnrealModule.first;
+	if (!Elf.isValid())
+		return 0;
+
+	const uintptr_t LoadBias  = Elf.loadBias();
+	const uintptr_t SymTab    = Elf.symbolTable();
+	const uintptr_t StrTab    = Elf.stringTable();
+	const size_t SymEntSize   = Elf.symbolEntrySize();
+	if (!LoadBias || !SymTab || !StrTab || !SymEntSize)
+		return 0;
+
+	// Link-time addresses in the dynamic array are below the load bias; runtime ones are not.
+	auto ToRuntime = [LoadBias](uintptr_t Address) -> uintptr_t
+	{
+		return Address && Address < LoadBias ? LoadBias + Address : Address;
+	};
+
+	uintptr_t JmpRel = 0;
+	size_t PltRelSz  = 0;
+	size_t PltRel    = 0;
+	for (const KT_ElfW(Dyn)& Dyn : Elf.dynamics())
+	{
+		switch (Dyn.d_tag)
+		{
+		case DT_JMPREL:
+			JmpRel = ToRuntime(static_cast<uintptr_t>(Dyn.d_un.d_ptr));
+			break;
+		case DT_PLTRELSZ:
+			PltRelSz = static_cast<size_t>(Dyn.d_un.d_val);
+			break;
+		case DT_PLTREL:
+			PltRel = static_cast<size_t>(Dyn.d_un.d_val);
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!JmpRel || !PltRelSz)
+		return 0;
+
+	// ARM64 uses RELA, ARM32 uses REL; the entry layouts differ in size but share the leading
+	// r_offset/r_info pair, which is all that is needed here.
+	const bool bIsRela      = PltRel == DT_RELA;
+	const size_t EntrySize  = bIsRela ? sizeof(KT_ElfW(Rela)) : sizeof(KT_ElfW(Rel));
+	const size_t EntryCount = PltRelSz / EntrySize;
+
+	std::vector<char> NameBuffer(SymbolName.size() + 1);
+
+	for (size_t i = 0; i < EntryCount; i++)
+	{
+		const uintptr_t EntryAddr = JmpRel + i * EntrySize;
+
+		KT_ElfW(Rel) Entry{};
+		if (ReadBytes(EntryAddr, &Entry, sizeof(Entry)) != sizeof(Entry))
+			continue;
+
+		KT_ElfW(Sym) Symbol{};
+		const uintptr_t SymAddr =
+#if defined(__LP64__)
+		    SymTab + ELF64_R_SYM(Entry.r_info) * SymEntSize;
+#else
+		    SymTab + ELF32_R_SYM(Entry.r_info) * SymEntSize;
+#endif
+		if (ReadBytes(SymAddr, &Symbol, sizeof(Symbol)) != sizeof(Symbol) || Symbol.st_name == 0)
+			continue;
+
+		// Reads only as much as the candidate name needs, and requires the terminator so a
+		// longer symbol sharing the same prefix does not match.
+		if (ReadBytes(StrTab + Symbol.st_name, NameBuffer.data(), NameBuffer.size()) != NameBuffer.size())
+			continue;
+
+		if (NameBuffer.back() == '\0' && std::memcmp(NameBuffer.data(), SymbolName.data(), SymbolName.size()) == 0)
+			return ToRuntime(static_cast<uintptr_t>(Entry.r_offset));
+	}
+
+	return 0;
+}
+
 uintptr_t FMemoryAndroid::FindUnrealSymbol(const std::string& SymbolName)
 {
 	if (!CachedUnrealModule.first.isValid())

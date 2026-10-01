@@ -6,6 +6,8 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#include <mach-o/nlist.h>
 
 #import <Foundation/Foundation.h>
 #include <KittyMemory/KittyScanner.hpp>
@@ -315,6 +317,105 @@ uintptr_t FMemoryiOS::FindUnrealSymbol(const std::string& SymbolName)
 
 	if (CachedUnrealModule.first.isValid())
 		return CachedUnrealModule.first.findSymbol(SymbolName);
+
+	return 0;
+}
+
+/*
+ * Finds the pointer slot a named import is called through.
+ *
+ * Mach-O names these indirectly: a pointer section carries no symbol names itself, but its
+ * reserved1 field indexes the indirect symbol table, which maps each slot in order onto a
+ * symbol table entry. Walking that gives the slot address without decoding any stub.
+ */
+uintptr_t FMemoryiOS::FindUnrealImportSlot(const std::string& SymbolName)
+{
+	if (SymbolName.empty())
+		return 0;
+
+	if (!CachedUnrealModule.first.isValid())
+		((void)GetUnrealModule());
+
+	if (!CachedUnrealModule.first.isValid())
+		return 0;
+
+	const mach_header_64* Header = CachedUnrealModule.first.header();
+	if (!Header)
+		return 0;
+
+	const uintptr_t Slide = CachedUnrealModule.first.slide();
+
+	const symtab_command* SymCmd     = nullptr;
+	const dysymtab_command* DySymCmd = nullptr;
+	uintptr_t LinkEditBase           = 0;
+
+	const load_command* Cmd = reinterpret_cast<const load_command*>(Header + 1);
+	for (uint32_t i = 0; i < Header->ncmds; i++)
+	{
+		if (Cmd->cmd == LC_SYMTAB)
+		{
+			SymCmd = reinterpret_cast<const symtab_command*>(Cmd);
+		}
+		else if (Cmd->cmd == LC_DYSYMTAB)
+		{
+			DySymCmd = reinterpret_cast<const dysymtab_command*>(Cmd);
+		}
+		else if (Cmd->cmd == LC_SEGMENT_64)
+		{
+			const segment_command_64* Segment = reinterpret_cast<const segment_command_64*>(Cmd);
+
+			// Every __LINKEDIT-relative table is addressed by file offset, so this is the base
+			// the symbol, string and indirect tables are resolved against.
+			if (std::strcmp(Segment->segname, SEG_LINKEDIT) == 0)
+				LinkEditBase = Slide + static_cast<uintptr_t>(Segment->vmaddr) - static_cast<uintptr_t>(Segment->fileoff);
+		}
+
+		Cmd = reinterpret_cast<const load_command*>(reinterpret_cast<const uint8_t*>(Cmd) + Cmd->cmdsize);
+	}
+
+	if (!SymCmd || !DySymCmd || !LinkEditBase || DySymCmd->nindirectsyms == 0)
+		return 0;
+
+	const nlist_64* SymbolTable   = reinterpret_cast<const nlist_64*>(LinkEditBase + SymCmd->symoff);
+	const char* StringTable       = reinterpret_cast<const char*>(LinkEditBase + SymCmd->stroff);
+	const uint32_t* IndirectTable = reinterpret_cast<const uint32_t*>(LinkEditBase + DySymCmd->indirectsymoff);
+
+	Cmd = reinterpret_cast<const load_command*>(Header + 1);
+	for (uint32_t i = 0; i < Header->ncmds; i++)
+	{
+		if (Cmd->cmd == LC_SEGMENT_64)
+		{
+			const segment_command_64* Segment = reinterpret_cast<const segment_command_64*>(Cmd);
+			const section_64* Sections        = reinterpret_cast<const section_64*>(Segment + 1);
+
+			for (uint32_t s = 0; s < Segment->nsects; s++)
+			{
+				const section_64& Section = Sections[s];
+				const uint8_t SectionType = Section.flags & SECTION_TYPE;
+
+				if (SectionType != S_NON_LAZY_SYMBOL_POINTERS && SectionType != S_LAZY_SYMBOL_POINTERS)
+					continue;
+
+				const size_t SlotCount = Section.size / sizeof(uintptr_t);
+				for (size_t Slot = 0; Slot < SlotCount; Slot++)
+				{
+					const uint32_t IndirectIndex = Section.reserved1 + static_cast<uint32_t>(Slot);
+					if (IndirectIndex >= DySymCmd->nindirectsyms)
+						break;
+
+					const uint32_t SymbolIndex = IndirectTable[IndirectIndex];
+					if (SymbolIndex == INDIRECT_SYMBOL_ABS || SymbolIndex == INDIRECT_SYMBOL_LOCAL || SymbolIndex >= SymCmd->nsyms)
+						continue;
+
+					const char* Name = StringTable + SymbolTable[SymbolIndex].n_un.n_strx;
+					if (SymbolName == Name)
+						return Slide + static_cast<uintptr_t>(Section.addr) + Slot * sizeof(uintptr_t);
+				}
+			}
+		}
+
+		Cmd = reinterpret_cast<const load_command*>(reinterpret_cast<const uint8_t*>(Cmd) + Cmd->cmdsize);
+	}
 
 	return 0;
 }
