@@ -9,7 +9,7 @@ namespace FDumperMain
 	/// @brief Dumper name.
 	static constexpr const char* kProgramName = "MobileDumper-7";
 	/// @brief Dumper version.
-	static constexpr const char* kProgramVer = "1.1.1";
+	static constexpr const char* kProgramVer = "1.2.0";
 	/// @brief Dumper repo link.
 	static constexpr const char* kProgramRepo = "https://github.com/MJx0/MobileDumper-7";
 
