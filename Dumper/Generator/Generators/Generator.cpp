@@ -69,8 +69,9 @@ bool Generator::InitUnrealModule(std::string& OutErrorString)
 bool Generator::InitUEAnalyzerKitty(std::string& OutErrorString)
 {
 	UEAnalyzerKitty::AnalyzerOptions Options;
-	Options.ThreadMode = UEAnalyzerKitty::EThreadMode::Two;
-	Options.Targets    = {UEAnalyzerKitty::Targets::Names, UEAnalyzerKitty::Targets::GUObjectArray, UEAnalyzerKitty::Targets::ObjObjects};
+	Options.ThreadMode    = UEAnalyzerKitty::EThreadMode::Two;
+	Options.Targets       = {UEAnalyzerKitty::Targets::Names, UEAnalyzerKitty::Targets::GUObjectArray, UEAnalyzerKitty::Targets::ObjObjects};
+	Options.MaxCandidates = 50;
 
 	Analyzer = UEAnalyzerKitty::UEAnalyzer::Analyze(GMemory.get(), GArchDecoder.get(), Options);
 	if (!Analyzer.IsValid())

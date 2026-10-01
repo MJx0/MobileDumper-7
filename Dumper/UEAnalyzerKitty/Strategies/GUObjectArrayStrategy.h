@@ -28,7 +28,9 @@ namespace UEAnalyzerKitty
 		std::span<const Anchor> ResolutionAnchors() const override;
 
 		/// FUObjectArray: named by code, pointer-aligned, and holding an
-		/// ObjObjects-shaped table as an interior member rather than at +0.
+		/// ObjObjects-shaped table - ordinarily as an interior member, though a
+		/// build that strips the bookkeeping fields ahead of it can put the table
+		/// at +0 of the container itself; see Verify()'s own comment.
 		StructureEvidence Verify(const StructureVerifier& Verifier, uint64_t Address) const override;
 
 		/// Weights tuning this strategy. Starting values rather than fitted ones.

@@ -7,6 +7,7 @@
 #include "../Analysis/StringAnchors.h"
 #include "../Analysis/StructureVerifier.h"
 #include "../Core/Scoring.h"
+#include "../Core/UEConstants.h"
 #include "ObjObjectsStrategy.h"
 
 namespace UEAnalyzerKitty
@@ -49,15 +50,41 @@ namespace UEAnalyzerKitty
 			return E;
 		}
 
-		// The table has to be a member, not the object itself. A container whose hot
-		// pointer sits at +0 is the array, and reporting it as the container would
-		// hand back an address one struct too low.
+		// The table usually has to be a member, not the object itself: a container
+		// whose hot pointer sits at +0 is ordinarily the array, and reporting it as
+		// the container would hand back an address one struct too low. But a build
+		// that strips the bookkeeping fields ahead of the table puts it at +0 of the
+		// container itself, with nothing preceding it - so "+0" alone cannot tell
+		// the two apart. What can: whether a *better* base exists. Scan backward for
+		// an address that itself verifies as an object array whose table lands
+		// exactly on Address. If one does, that address is the true container and
+		// this one is its member; if none does, nothing precedes this table, so
+		// there is no struct-too-low mistake to make and this address is the
+		// container.
 		if (E.PrimaryFieldOffset <= 0)
 		{
-			E.Verdict = EVerdict::Rejected;
-			E.Passed  = false;
-			E.Why     = "the table is at +0, so this is the array, not its container";
-			return E;
+			// The full check, not just the array shape: a "better base" has to be
+			// independently named and pointer-aligned too, or an unrelated global
+			// that merely happens to sit a few bytes before the table - and whose
+			// own header window therefore also sees it - would be mistaken for one.
+			bool bBetterBaseExists = false;
+			for (int64_t Back = 4; Back <= kStructHeaderWindow; Back += 4)
+			{
+				const uint64_t Base           = Address - static_cast<uint64_t>(Back);
+				const StructureEvidence Outer = Verify(Verifier, Base);
+				if (Outer.Passed && Outer.PrimaryFieldOffset == Back)
+				{
+					bBetterBaseExists = true;
+					break;
+				}
+			}
+			if (bBetterBaseExists)
+			{
+				E.Verdict = EVerdict::Rejected;
+				E.Passed  = false;
+				E.Why     = "the table is at +0, and a container holding it sits below this address";
+				return E;
+			}
 		}
 
 		// The container is identified by holding an array, not by being one, so the

@@ -123,6 +123,16 @@ namespace UEAnalyzerKitty
 			// Header-sized window. The element table lives in FUObjectArray's header
 			// in every shipped layout, including reordered forks, not out into the
 			// trailing TArray members. Anything further out is a different object.
+			//
+			// Addr == Container is deliberately excluded, not just Addr < Container:
+			// a function that dereferences the container's own pointer value (a
+			// plain null check, an early field read through `this`) records that
+			// read under the container's own address in Local, indistinguishable
+			// here from a table living at the container's own offset 0. Accepting
+			// it collapsed several anchors' precision across unrelated games - see
+			// GUObjectArrayStrategy::Verify() for the corresponding shape-only
+			// check, which can safely make this distinction because it looks at
+			// the whole binary's evidence rather than one function's.
 			if (Addr <= Container || Addr - Container > 0x40)
 				continue;
 			if (!IsWritableData(Module_, Addr))
@@ -797,9 +807,35 @@ namespace UEAnalyzerKitty
 				}
 			}
 
-			// Deliberately no fallback: if the container and offset cannot both be
-			// recovered, this anchor contributes nothing rather than guessing at the
-			// first address-taken global, which would emit unrelated globals with
+			// DeriveMember only looks *above* each container, on purpose - see its own
+			// comment on why Addr == Container has to stay excluded there. But a build
+			// that strips the bookkeeping fields ahead of the table puts it at the
+			// container's own address, and that case has a safe answer: ask the
+			// strategy, whose Verify() judges from the whole binary's evidence for an
+			// address rather than one function's local reads, which is exactly the
+			// distinction a local scan cannot make.
+			//
+			// Tried only after every container has had its chance at the ordinary
+			// derivation above, not interleaved with it: this check is looser than
+			// DeriveMember's (it has no local corroboration to demand), so a container
+			// that is merely named in this function without being the one the anchor
+			// actually identifies must not win a race it would otherwise lose.
+			const StructureVerifier Verifier(Module_, Harvester_);
+			for (uint64_t C : Containers)
+			{
+				const StructureEvidence Self = Strategy.Verify(Verifier, C);
+				if (Self.Passed && Self.PrimaryFieldOffset == 0)
+				{
+					Out.Container    = C;
+					Out.MemberOffset = 0;
+					Out.Result       = C;
+					return true;
+				}
+			}
+
+			// Deliberately no other fallback: if the container and offset cannot both
+			// be recovered, this anchor contributes nothing rather than guessing at
+			// the first address-taken global, which would emit unrelated globals with
 			// unwarranted confidence.
 			return false;
 		}
