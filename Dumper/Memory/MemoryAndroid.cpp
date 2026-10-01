@@ -290,7 +290,7 @@ ModuleInfo FMemoryAndroid::GetModuleInfo(const std::string& ModuleName)
 
 uintptr_t FMemoryAndroid::FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName)
 {
-	if (!ModuleName.empty() || !SymbolName.empty())
+	if (ModuleName.empty() || SymbolName.empty())
 		return 0;
 
 	auto Module = GetOrInsertModuleCache(ModuleName);

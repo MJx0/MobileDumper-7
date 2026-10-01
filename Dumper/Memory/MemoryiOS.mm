@@ -269,7 +269,7 @@ ModuleInfo FMemoryiOS::GetModuleInfo(const std::string& ModuleName)
 
 uintptr_t FMemoryiOS::FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName)
 {
-	if (!ModuleName.empty() || !SymbolName.empty())
+	if (ModuleName.empty() || SymbolName.empty())
 		return 0;
 
 	auto Module = GetOrInsertModuleCache(ModuleName);
@@ -282,6 +282,8 @@ uintptr_t FMemoryiOS::FindModuleSymbol(const std::string& ModuleName, const std:
 			std::string PrefixedSymbolName = "_" + SymbolName;
 			return Module->first.findSymbol(PrefixedSymbolName);
 		}
+
+		return Address;
 	}
 
 	return 0;
