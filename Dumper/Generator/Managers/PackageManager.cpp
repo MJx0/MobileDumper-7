@@ -355,15 +355,26 @@ void PackageManager::HelperMarkStructDependenciesOfPackage(UEStruct Struct, int3
 	if (bIsClass)
 		return;
 
+	/*
+	 * A struct reached only through a container property is just as cyclic as a direct member, and
+	 * needs the same fixup: TMap stores its value inside a TPair by value, so an unmarked cyclic
+	 * value type is emitted as an incomplete type and the SDK will not compile. 
+	 * GetPropertyDependency already walks Array/Set/Map/Optional/Delegate properties
+	 * for #include tracking -- which is why the *cycle itself* was detected here while the struct
+	 * behind it never got marked -- so reuse it rather than re-implement that traversal.
+	 */
 	for (UEProperty Child : Struct.GetProperties())
 	{
-		if (!Child.IsA(EClassCastFlags::StructProperty))
-			continue;
+		std::unordered_set<int32> Dependencies;
+		PackageManagerUtils::GetPropertyDependency(Child, Dependencies);
 
-		const UEStruct UnderlayingStruct = Child.Cast<UEStructProperty>().GetUnderlayingStruct();
+		for (int32 DependencyIdx : Dependencies)
+		{
+			const UEObject DependencyObject = ObjectArray::GetByIndex(DependencyIdx);
 
-		if (UnderlayingStruct.GetPackageIndex() == RequiredPackageIdx)
-			StructManager::PackageManagerSetCycleForStruct(UnderlayingStruct.GetIndex(), OwnPackageIdx);
+			if (DependencyObject.IsA(EClassCastFlags::ScriptStruct) && DependencyObject.GetPackageIndex() == RequiredPackageIdx)
+				StructManager::PackageManagerSetCycleForStruct(DependencyObject.GetIndex(), OwnPackageIdx);
+		}
 	}
 }
 
@@ -380,15 +391,20 @@ int32 PackageManager::HelperCountStructDependenciesOfPackage(UEStruct Struct, in
 	if (bIsClass)
 		return RetCount;
 
+	/* Must count the same references the marking pass above will act on, or the two disagree about
+	   which side of a cycle carries fewer dependencies and the wrong package gets fixed up. */
 	for (UEProperty Child : Struct.GetProperties())
 	{
-		if (!Child.IsA(EClassCastFlags::StructProperty))
-			continue;
+		std::unordered_set<int32> Dependencies;
+		PackageManagerUtils::GetPropertyDependency(Child, Dependencies);
 
-		const int32 UnderlayingStructPackageIdx = Child.Cast<UEStructProperty>().GetUnderlayingStruct().GetPackageIndex();
+		for (int32 DependencyIdx : Dependencies)
+		{
+			const UEObject DependencyObject = ObjectArray::GetByIndex(DependencyIdx);
 
-		if (UnderlayingStructPackageIdx == RequiredPackageIdx)
-			RetCount++;
+			if (DependencyObject.IsA(EClassCastFlags::ScriptStruct) && DependencyObject.GetPackageIndex() == RequiredPackageIdx)
+				RetCount++;
+		}
 	}
 
 	return RetCount;
