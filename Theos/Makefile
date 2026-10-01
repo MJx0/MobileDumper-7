@@ -10,8 +10,6 @@ FINALPACKAGE ?= $(DEBUG)
 KITTYMEMORY_PATH = ../libs/KittyMemory/KittyMemory
 KITTYMEMORY_SRC  = $(wildcard $(KITTYMEMORY_PATH)/*.cpp)
 
-FMT_PATH = ../libs/fmt
-
 DUMPER_PATH = ../Dumper
 DUMPER_SRC = $(shell find $(DUMPER_PATH) -name "*.cpp" -o -name "*.mm" -o -name "*.c" \
                | grep -v "MemoryAndroid" \
@@ -44,7 +42,6 @@ $(TWEAK_NAME)_CCFLAGS = \
     -fvisibility-inlines-hidden \
     -fobjc-arc \
     $(_OPT_CCFLAGS) \
-    -I$(FMT_PATH)/include \
     -I$(KITTYMEMORY_PATH)/.. \
     $(DISABLED_WARNINGS)
 

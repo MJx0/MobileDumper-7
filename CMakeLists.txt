@@ -31,8 +31,6 @@ endif()
 
 # ── Third-party ───────────────────────────────────────────────────────────────
 
-set(FMT_PATH "${DUMPER_ROOT}/libs/fmt")
-
 if(PLATFORM_ANDROID)
     set(KITTYMEM_PATH "${DUMPER_ROOT}/libs/KittyMemoryEx/KittyMemoryEx")
 elseif(PLATFORM_IOS)
@@ -71,9 +69,6 @@ endif()
 target_include_directories(MobileDumper-7 PRIVATE
     # KittyMemory
     ${KITTYMEM_PATH}/..
-
-    # fmt header-only
-    ${FMT_PATH}/include
 )
 
 target_compile_definitions(MobileDumper-7 PRIVATE

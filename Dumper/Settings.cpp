@@ -1,7 +1,5 @@
 #include "Settings.h"
 
-#include <fmt/format.h>
-
 #include "Utils/Logger.h"
 
 #include "Engine/Unreal/ObjectArray.h"

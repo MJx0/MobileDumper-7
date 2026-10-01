@@ -5,8 +5,8 @@
 #include <mutex>
 #include <string>
 
-#include <fmt/format.h>
-#include <fmt/xchar.h>
+#include "fmt/format.h"
+#include "fmt/xchar.h"
 
 namespace LogDetail
 {
