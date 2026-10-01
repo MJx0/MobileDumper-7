@@ -13,7 +13,7 @@ Mobile-focused dumper for all Unreal Engine games on iOS and Android, based on [
 - **Per-game overrides when you need them.**  
   Most games work out of the box; an `IProfile` interface exists for the rare games that need custom offsets or decryptions.
 - **Multiple dump outputs.**  
-  C++ SDK, `.usmap` Mappings, IDA Mappings `.idmap`, and Dumpspace `.json`. The generated C++ SDK avoids MSVC-only calling conventions, so it compiles cleanly under clang/gcc.
+  C++ SDK (see [UsingTheSDK](UsingTheSDK.md)), `.usmap` Mappings, IDA Mappings `.idmap`, and Dumpspace `.json`. The generated C++ SDK avoids MSVC-only calling conventions, so it compiles cleanly under clang/gcc.
 - **IDA & Ghidra mappings importer scripts.**  
   Generated `.idmap` mapping files can be imported directly into IDA Pro or Ghidra, automatically restoring global symbols, exec function names, and VTable names. Global pointer references are also detected and renamed, making globals such as GObjects and their pointer slots easy to identify.
 
@@ -57,6 +57,10 @@ Optional arguments:
   -s, --suspend          Send SIGSTOP to the game while dumping, then SIGCONT.
   -m, --mem {1,2}        Specify memory access type (1: process_vm_readv, 2: pread).
 ```
+
+**Recommended - Suspend the game while dumping:**  
+A running game keeps creating objects while it is being dumped, which may cause issues.  
+Freeze it with adding `-s` to the Android Executable, or the **Suspend Threads** toggle on iOS UI menu.  
 
 ## Build
 
