@@ -1,5 +1,7 @@
 #include "EnumManager.h"
 
+#include <iterator>
+
 #include <algorithm>
 #include <cstdint>
 
@@ -268,34 +270,205 @@ void EnumManager::InitInternal()
 	}
 }
 
+/*
+ * Names a generated enum value may not use, because the toolchain has already claimed them.
+ *
+ * Most are object-like macros from the C library headers the SDK ends up including, so a value
+ * with the same spelling is textually replaced before the compiler ever sees it. UE's own
+ * generated "_MAX" sentinel makes that collision easy to hit, since so many system limits are
+ * spelled the same way. The remainder are C++ keywords and the few identifiers GCC and Clang
+ * predefine outside strict-conformance mode.
+ */
 void EnumManager::InitIllegalNames()
 {
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("IN").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("OUT").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("TRUE").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("FALSE").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("DELETE").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("PF_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("SW_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("MM_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("INT_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("UINT_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("LONG_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("ULONG_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("SIZE_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("PATH_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("RELATIVE").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("TRANSPARENT").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("NO_ERROR").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("EVENT_MAX").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("IGNORE").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("small").first);
+	static const char* const Illegal[] = {
+	    // Windows-style names UE itself leaks through its platform headers.
+	    "IN",
+	    "OUT",
+	    "TRUE",
+	    "FALSE",
+	    "DELETE",
+	    "RELATIVE",
+	    "TRANSPARENT",
+	    "NO_ERROR",
+	    "IGNORE",
+	    "small",
+	    "PF_MAX",
+	    "SW_MAX",
+	    "MM_MAX",
+	    "EVENT_MAX",
 
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("short").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("long").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("int").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("signed").first);
-	IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd("unsigned").first);
+	    // <limits.h>
+	    "CHAR_MAX",
+	    "CHAR_MIN",
+	    "SCHAR_MAX",
+	    "SCHAR_MIN",
+	    "UCHAR_MAX",
+	    "SHRT_MAX",
+	    "SHRT_MIN",
+	    "USHRT_MAX",
+	    "INT_MAX",
+	    "INT_MIN",
+	    "UINT_MAX",
+	    "LONG_MAX",
+	    "LONG_MIN",
+	    "ULONG_MAX",
+	    "LLONG_MAX",
+	    "LLONG_MIN",
+	    "ULLONG_MAX",
+	    "SIZE_MAX",
+	    "SSIZE_MAX",
+	    "MB_LEN_MAX",
+	    "WORD_BIT",
+	    "LONG_BIT",
+	    "PATH_MAX",
+	    "NAME_MAX",
+	    "HOST_NAME_MAX",
+	    "LOGIN_NAME_MAX",
+	    "TTY_NAME_MAX",
+	    "LINE_MAX",
+	    "IOV_MAX",
+	    "ARG_MAX",
+	    "OPEN_MAX",
+	    "LINK_MAX",
+	    "NGROUPS_MAX",
+	    "PIPE_BUF",
+
+	    // <stdint.h>
+	    "INT8_MAX",
+	    "INT16_MAX",
+	    "INT32_MAX",
+	    "INT64_MAX",
+	    "INT8_MIN",
+	    "INT16_MIN",
+	    "INT32_MIN",
+	    "INT64_MIN",
+	    "UINT8_MAX",
+	    "UINT16_MAX",
+	    "UINT32_MAX",
+	    "UINT64_MAX",
+	    "INTPTR_MAX",
+	    "INTPTR_MIN",
+	    "UINTPTR_MAX",
+	    "INTMAX_MAX",
+	    "INTMAX_MIN",
+	    "UINTMAX_MAX",
+	    "PTRDIFF_MAX",
+	    "PTRDIFF_MIN",
+	    "SIG_ATOMIC_MAX",
+	    "SIG_ATOMIC_MIN",
+	    "WCHAR_MAX",
+	    "WCHAR_MIN",
+	    "WINT_MAX",
+	    "WINT_MIN",
+
+	    // <float.h>
+	    "FLT_MAX",
+	    "FLT_MIN",
+	    "DBL_MAX",
+	    "DBL_MIN",
+	    "LDBL_MAX",
+	    "LDBL_MIN",
+	    "FLT_EPSILON",
+	    "DBL_EPSILON",
+
+	    // <stdlib.h> / <stdio.h>
+	    "RAND_MAX",
+	    "EOF",
+	    "BUFSIZ",
+	    "stdin",
+	    "stdout",
+	    "stderr",
+
+	    // <math.h> - DOMAIN/OVERFLOW/UNDERFLOW come from the matherr exception codes.
+	    "INFINITY",
+	    "NAN",
+	    "HUGE_VAL",
+	    "HUGE_VALF",
+	    "DOMAIN",
+	    "OVERFLOW",
+	    "UNDERFLOW",
+	    "FP_NAN",
+	    "FP_INFINITE",
+	    "FP_ZERO",
+	    "FP_NORMAL",
+	    "FP_SUBNORMAL",
+
+	    // <signal.h>
+	    "SIG_DFL",
+	    "SIG_IGN",
+	    "SIG_ERR",
+
+	    // <sys/sysmacros.h> - lowercase, and function-like, so an unparenthesised value still breaks.
+	    "major",
+	    "minor",
+
+	    // <endian.h>
+	    "BYTE_ORDER",
+	    "BIG_ENDIAN",
+	    "LITTLE_ENDIAN",
+	    "PDP_ENDIAN",
+
+	    // <elf.h> machine-type table, which ends in a sentinel spelled like UE's own.
+	    "EM_MAX",
+	    "EM_NONE",
+	    "EM_NUM",
+
+	    // <errno.h> - bare names, so an error enum lands on them directly.
+	    "EDOM",
+	    "ERANGE",
+	    "EPERM",
+	    "ENOENT",
+	    "EINTR",
+	    "EIO",
+	    "EAGAIN",
+	    "ENOMEM",
+	    "EACCES",
+	    "EBUSY",
+	    "EEXIST",
+	    "ENODEV",
+	    "EINVAL",
+	    "ENOSPC",
+	    "EPIPE",
+	    "ENOSYS",
+	    "ETIMEDOUT",
+	    "EOVERFLOW",
+	    "ENAMETOOLONG",
+
+	    // Predefined by GCC and Clang unless -std=c++NN (no GNU extensions) is used.
+	    "linux",
+	    "unix",
+	    "i386",
+
+	    // C++ keywords and alternative operator tokens.
+	    "short",
+	    "long",
+	    "int",
+	    "signed",
+	    "unsigned",
+	    "char",
+	    "float",
+	    "double",
+	    "void",
+	    "bool",
+	    "and",
+	    "or",
+	    "not",
+	    "xor",
+	    "compl",
+	    "bitand",
+	    "bitor",
+	    "and_eq",
+	    "or_eq",
+	    "xor_eq",
+	    "not_eq",
+	};
+
+	IllegalNames.reserve(std::size(Illegal));
+	for (const char* Name : Illegal)
+	{
+		IllegalNames.push_back(UniqueEnumValueNames.FindOrAdd(Name).first);
+	}
 }
 
 void EnumManager::Init()
