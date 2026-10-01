@@ -488,13 +488,51 @@ bool Generator::InitNames(std::string& OutErrorString)
 
 	{
 		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Printing the first 10 name entries...\n");
-		for (int i = 0; i <= 10; i++)
-		{
-			std::string EntryStr = NameArray::GetNameEntry(i).GetString();
-			if (EntryStr.length() <= 0)
-				continue;
 
-			GLogger.FmtWrite(ELogLevel::Info, "[{:02}] {}\n", i, EntryStr);
+		const FNamePoolLayout* PoolLayout = GLayouts.NamesLayout->GetType() == ENamesType::Pool
+		                                        ? static_cast<const FNamePoolLayout*>(GLayouts.NamesLayout.get())
+		                                        : nullptr;
+
+		constexpr int32 MaxEntriesToPrint = 10;
+		constexpr int32 MaxSlotsToScan    = 64;
+
+		int32 Idx        = 0x0;
+		int32 NumPrinted = 0x0;
+
+		for (int32 NumScanned = 0x0; NumPrinted < MaxEntriesToPrint && NumScanned < MaxSlotsToScan; NumScanned++)
+		{
+			FNameEntry Entry           = NameArray::GetNameEntry(Idx);
+			const uintptr_t EntryAddr  = reinterpret_cast<uintptr_t>(Entry.GetAddress());
+			const std::string EntryStr = Entry.GetString();
+
+			if (!EntryStr.empty())
+			{
+				GLogger.FmtWrite(ELogLevel::Info, "[{:02}] {}\n", Idx, EntryStr);
+				NumPrinted++;
+			}
+
+			if (!PoolLayout)
+			{
+				Idx++;
+				continue;
+			}
+
+			if (!EntryAddr)
+				break;
+
+			const uintptr_t HeaderAddr = EntryAddr + PoolLayout->FNameEntry.Header;
+			const uint16 Header        = GDecryptCallbacks.NamePool.FNameEntry.Header(GMemory->Read<uint16>(HeaderAddr), HeaderAddr);
+			const int32 NameLen        = PoolLayout->FNameEntry.GetLength(Header);
+
+			/* Length 0 marks an entry whose payload is an id/number pair rather than characters;
+			   its size is not derivable from the header, so stop rather than guess a stride. */
+			if (NameLen <= 0)
+				break;
+
+			const int32 CharSize   = PoolLayout->FNameEntry.GetIsWide(Header) ? (InternalSettings::bUseChar16String ? 2 : 4) : 1;
+			const int32 EntryBytes = PoolLayout->FNameEntry.String + (NameLen * CharSize);
+
+			Idx += Utils::Memory::AlignUp(EntryBytes, PoolLayout->FNameEntry.Stride) / PoolLayout->FNameEntry.Stride;
 		}
 	}
 
