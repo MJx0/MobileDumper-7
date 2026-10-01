@@ -2438,8 +2438,9 @@ void FInSDKOffsets::InitProcessEvent()
 {
 	/* ---- Detection tuning ---- */
 	constexpr int32 kMaxVTableEntries = 100;   // virtual slots probed
-	constexpr int32 kScanBytes        = 0x200; // bytes of each virtual decoded before next-function detection kicks in
+	constexpr int32 kScanBytes        = 0x400; // bytes of each virtual decoded before next-function detection kicks in
 	constexpr int32 kMinScore         = 4;     // distinct signals required to accept a slot
+	constexpr int32 kMinStorePairs    = 3;     // callee-saved STP pairs expected in a ProcessEvent prologue (ARM64)
 
 	// ProcessEvent may reference the outer FUObjectArray or the ObjObjects sub-struct
 	// embedded within it, so anchors are matched by proximity rather than equality.
@@ -2447,7 +2448,7 @@ void FInSDKOffsets::InitProcessEvent()
 
 	if (!GArchDecoder)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: no architecture decoder is active!\n");
+		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: No architecture decoder is active!\n");
 		return;
 	}
 
@@ -2456,13 +2457,13 @@ void FInSDKOffsets::InitProcessEvent()
 	 * object is an equally trustworthy source for it: an Actor or Blueprint-generated
 	 * class can carry extra virtuals ahead of the inherited UObject ones on some
 	 * engine configurations, and the first object encountered in ObjectArray order is
-	 * unpredictable. UEngine and UWorld are always native, non-Blueprint singleton
-	 * classes, so their CDO's vtable is a reliable stand-in for "the real UObject
-	 * vtable layout" without hardcoding an index.
+	 * unpredictable. The candidates below are all native, non-Blueprint classes, so
+	 * their CDO's vtable is a reliable stand-in for "the real UObject vtable layout"
+	 * without hardcoding an index. More than one is tried because a game may encrypt
+	 * or hook whichever the dumper reaches for first.
 	 */
-	auto GetClassVTable = [](const char* ClassName) -> uintptr_t
+	auto GetVTableFromClass = [](const UEClass Class) -> uintptr_t
 	{
-		const UEClass Class = ObjectArray::FindClassFast(ClassName);
 		if (!Class)
 			return 0;
 
@@ -2478,15 +2479,82 @@ void FInSDKOffsets::InitProcessEvent()
 		return GMemory->IsAddressReadable(Candidate, sizeof(void*) * 8) ? Candidate : 0;
 	};
 
-	uintptr_t VTable = GetClassVTable("Engine");
+	auto GetClassVTable = [&GetVTableFromClass](const char* ClassName) -> uintptr_t
+	{
+		return GetVTableFromClass(ObjectArray::FindClassFast(ClassName));
+	};
+
+	/*
+	 * Several sources are tried because a game may encrypt or hook the vtable of the obvious
+	 * ones. All of these are native engine classes that exist in every title and are neither
+	 * Actor- nor Blueprint-derived, so each carries the plain inherited UObject layout.
+	 */
+	constexpr const char* VTableCandidates[] = {
+	    "Engine",
+	    "World",
+	    "GameInstance",
+	    "Package",
+	    "Class",
+	    "Object",
+	    "Font",
+	    "Texture2D",
+	    "DataTable",
+	    "GameViewportClient",
+	};
+
+	std::string VTableSource;
+	uintptr_t VTable = 0;
+
+	for (const char* ClassName : VTableCandidates)
+	{
+		VTable = GetClassVTable(ClassName);
+		if (VTable != 0)
+		{
+			VTableSource = ClassName;
+			break;
+		}
+
+		GLogger.FmtWrite(ELogLevel::Debug, "InitProcessEvent: U{} is not a usable vtable source, trying the next.\n", ClassName);
+	}
+
+	/*
+	 * Every named candidate can still come back unusable, so as a last resort take any class
+	 * that is neither Actor-derived nor Blueprint-generated. ProcessEvent is inherited from
+	 * UObject, so it sits at the same slot in all of them.
+	 */
 	if (VTable == 0)
-		VTable = GetClassVTable("World");
+	{
+		for (UEObject Obj : ObjectArray())
+		{
+			if (!Obj.IsA(EClassCastFlags::Class))
+				continue;
+
+			const UEClass AsClass = Obj.Cast<UEClass>();
+			if (!AsClass || AsClass.IsType(EClassCastFlags::Actor))
+				continue;
+
+			// Blueprint-generated classes carry the "_C" suffix and can place extra
+			// virtuals ahead of the inherited UObject ones.
+			const std::string ClassName = AsClass.GetName();
+			if (ClassName.ends_with("_C"))
+				continue;
+
+			VTable = GetVTableFromClass(AsClass);
+			if (VTable != 0)
+			{
+				VTableSource = ClassName + " (scanned)";
+				break;
+			}
+		}
+	}
 
 	if (VTable == 0)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: could not read the UEngine or UWorld vtable!\n");
+		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: Could not read a usable class vtable from any source!\n");
 		return;
 	}
+
+	GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: Scanning U{} vtable at 0x{:X}.\n", VTableSource, VTable);
 
 	const int64_t ExpUObjectIndex  = GOffsets.UObject.Index;
 	const int64_t ExpFunctionFlags = GOffsets.UFunction.FunctionFlags;
@@ -2523,7 +2591,7 @@ void FInSDKOffsets::InitProcessEvent()
 
 	if (SymbolAddr == 0 && ExpUObjectIndex == -1 && ExpFunctionFlags == -1 && ExpStructSize == -1)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: no symbol and no reflected offsets to match against!\n");
+		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: No symbol and no reflected offsets to match against!\n");
 		return;
 	}
 
@@ -2573,17 +2641,45 @@ void FInSDKOffsets::InitProcessEvent()
 		bool bFunctionFlag2 = false;
 		bool bChildren2     = false;
 
+		/* ARM64 only - the instruction shapes below cannot be expressed on ARM32. */
+		bool bTestBitBranch = false;
+		bool bStorePairs    = false;
+
+		/* ProcessEvent zeroes and fills a parameter frame, so it calls both of these. */
+		bool bMemSet  = false;
+		bool bMemCopy = false;
+
+		/*
+		 * ObjectsArray, UObjectIndex and ItemSize all come from one idiom - the IndexToObject
+		 * lookup in the IsUnreachable guard - so counting three looks like counting one thing
+		 * thrice. It is deliberately left as three: the real ProcessEvent of two other games
+		 * performs that lookup, and folding it into one would cost each of them two points.
+		 */
 		int32 Count() const
 		{
 			return static_cast<int32>(bObjectsArray) + static_cast<int32>(bUObjectIndex) + static_cast<int32>(bItemSize) +
 			       static_cast<int32>(bFunctionFlag1) + static_cast<int32>(bStructSize) + static_cast<int32>(bParamSize1) +
 			       static_cast<int32>(bParamSize2) + static_cast<int32>(bChildren1) + static_cast<int32>(bFunctionFlag2) +
+			       static_cast<int32>(bChildren2) + static_cast<int32>(bTestBitBranch) + static_cast<int32>(bStorePairs) +
+			       static_cast<int32>(bMemSet) + static_cast<int32>(bMemCopy);
+		}
+
+		/*
+		 * Only the offsets ProcessEvent is defined by: its walk over the UFunction it was handed.
+		 * Used to settle a tie, where the raw count cannot - the object-array trio is excluded
+		 * because every virtual that resolves an object from an index earns it, and the two
+		 * prologue-shape signals because a great many functions earn those.
+		 */
+		int32 ReflectionCount() const
+		{
+			return static_cast<int32>(bFunctionFlag1) + static_cast<int32>(bFunctionFlag2) + static_cast<int32>(bStructSize) +
+			       static_cast<int32>(bParamSize1) + static_cast<int32>(bParamSize2) + static_cast<int32>(bChildren1) +
 			       static_cast<int32>(bChildren2);
 		}
 
 		std::string Describe() const
 		{
-			return fmt::format("Objs={} Idx={} Item={} Flags1={} Size={} Parms1={} Parms2={} Children1={} Flags2={} Children2={}",
+			return fmt::format("Objs={} Idx={} Item={} Flags1={} Size={} Parms1={} Parms2={} Children1={} Flags2={} Children2={} TestBit={} StorePairs={} MemSet={} MemCopy={}",
 			                   bObjectsArray,
 			                   bUObjectIndex,
 			                   bItemSize,
@@ -2593,8 +2689,114 @@ void FInSDKOffsets::InitProcessEvent()
 			                   bParamSize2,
 			                   bChildren1,
 			                   bFunctionFlag2,
-			                   bChildren2);
+			                   bChildren2,
+			                   bTestBitBranch,
+			                   bStorePairs,
+			                   bMemSet,
+			                   bMemCopy);
 		}
+	};
+
+	/*
+	 * ProcessEvent zeroes a parameter frame and copies arguments in and out, so it calls the
+	 * C memory helpers. Which symbol that is differs by target: ARM64 calls memcpy/memset
+	 * directly, ARM32 goes through the EABI helpers instead (and its "set" is really memclr),
+	 * and Mach-O keeps the leading underscore plus fortified _chk variants.
+	 *
+	 * Imports are matched by the slot they are called through rather than by the address inside
+	 * it: the slot identifies the import whether or not the loader has bound it yet.
+	 */
+	std::vector<uintptr_t> MemSetSlots;
+	std::vector<uintptr_t> MemCopySlots;
+	{
+		auto Collect = [](std::vector<uintptr_t>& Out, std::initializer_list<const char*> Names)
+		{
+			for (const char* Name : Names)
+			{
+				const uintptr_t Slot = GMemory->FindUnrealImportSlot(Name);
+				if (Slot != 0)
+					Out.push_back(Slot);
+			}
+		};
+
+		Collect(MemSetSlots,
+		        {"memset", "__aeabi_memset", "__aeabi_memset4", "__aeabi_memset8",
+		         "__aeabi_memclr", "__aeabi_memclr4", "__aeabi_memclr8",
+		         "bzero", "__bzero",
+		         "_memset", "___memset_chk", "_bzero", "___bzero"});
+
+		Collect(MemCopySlots,
+		        {"memcpy", "__aeabi_memcpy", "__aeabi_memcpy4", "__aeabi_memcpy8",
+		         "_memcpy", "___memcpy_chk"});
+
+		GLogger.FmtWrite(ELogLevel::Debug, "InitProcessEvent: Resolved {} memset and {} memcpy import slot(s).\n", MemSetSlots.size(), MemCopySlots.size());
+	}
+
+	/*
+	 * Maps a call target onto the import slot it ends up loading from, or 0 when the target is
+	 * an ordinary function. A call never lands on the slot itself: it reaches a stub that loads
+	 * from it, and on ARM32 a long-branch veneer sits in front of that stub as well, because the
+	 * PLT is routinely further away than a BL can reach.
+	 */
+	auto ResolveImportSlot = [](uintptr_t Target) -> uintptr_t
+	{
+		auto Insn = [](uintptr_t At) -> uint32_t
+		{
+			return GMemory->IsAddressReadable(At, sizeof(uint32_t)) ? GMemory->Read<uint32_t>(At) : 0;
+		};
+
+		if (GArchDecoder->Arch() == EArch::Arm64)
+		{
+			// ADRP x16, page ; LDR x16/x17, [x16, #off]
+			const uint32_t Adrp = Insn(Target);
+			const uint32_t Ldr  = Insn(Target + 4);
+			if ((Adrp & 0x9F00001F) != 0x90000010 || (Ldr & 0xFFC003E0) != 0xF9400200)
+				return 0;
+
+			int64_t Imm = static_cast<int64_t>((((Adrp >> 5) & 0x7FFFF) << 2) | ((Adrp >> 29) & 3));
+			if (Imm & (1LL << 20))
+				Imm -= (1LL << 21);
+
+			return ((Target & ~static_cast<uintptr_t>(0xFFF)) + (Imm << 12)) + ((Ldr >> 10) & 0xFFF) * 8;
+		}
+
+		// ARM32: rotate-right encoded immediates throughout.
+		auto Expand = [](uint32_t Encoded) -> uint32_t
+		{
+			const uint32_t Rotate = ((Encoded >> 8) & 0xF) * 2;
+			const uint32_t Value  = Encoded & 0xFF;
+			return Rotate ? ((Value >> Rotate) | (Value << (32 - Rotate))) : Value;
+		};
+
+		uintptr_t Stub = Target;
+
+		// MOVW r12,#lo ; MOVT r12,#hi ; ADD r12,r12,pc ; BX r12
+		const uint32_t MovW = Insn(Stub);
+		const uint32_t MovT = Insn(Stub + 4);
+		if ((MovW & 0x0FF0F000) == 0x0300C000 && (MovT & 0x0FF0F000) == 0x0340C000 && Insn(Stub + 8) == 0xE08CC00F)
+		{
+			const uint32_t Lo = ((MovW >> 4) & 0xF000) | (MovW & 0xFFF);
+			const uint32_t Hi = ((MovT >> 4) & 0xF000) | (MovT & 0xFFF);
+			Stub              = static_cast<uintptr_t>(Lo | (Hi << 16)) + (Stub + 8 + 8);
+		}
+
+		// ADD r12,pc,#a ; ADD r12,r12,#b ; LDR pc,[r12,#c]!
+		const uint32_t Add1 = Insn(Stub);
+		const uint32_t Add2 = Insn(Stub + 4);
+		const uint32_t Load = Insn(Stub + 8);
+		if ((Add1 & 0x0FFFF000) != 0x028FC000 || (Add2 & 0x0FFFF000) != 0x028CC000 || (Load & 0x0FFFF000) != 0x05BCF000)
+			return 0;
+
+		return (Stub + 8) + Expand(Add1 & 0xFFF) + Expand(Add2 & 0xFFF) + (Load & 0xFFF);
+	};
+
+	/* Why a walk ended and what it saw, so a slot's score can be explained rather than guessed at. */
+	struct FScanTrace
+	{
+		size_t EndCursor        = 0;
+		int32 StorePairCount    = 0;
+		bool bUnreadable        = false;
+		bool bStoppedAtNeighbor = false;
 	};
 
 	/*
@@ -2603,16 +2805,24 @@ void FInSDKOffsets::InitProcessEvent()
 	 * that word is the address or a PC-relative displacement is only settled by what
 	 * follows, so both readings are tested.
 	 */
-	auto ScoreFunction = [&](uintptr_t FuncAddr) -> FSignals
+	auto ScoreFunction = [&](uintptr_t FuncAddr, FScanTrace* OutTrace = nullptr) -> FSignals
 	{
 		FSignals Signals;
+		FScanTrace Trace;
 
 		std::vector<uint8_t> Code(kScanBytes, 0);
 		if (!GMemory->IsAddressReadable(FuncAddr, kScanBytes) || !GMemory->ReadBytes(FuncAddr, Code.data(), Code.size()))
+		{
+			Trace.bUnreadable = true;
+			if (OutTrace)
+				*OutTrace = Trace;
+
 			return Signals;
+		}
 
 		const int32 RegCount  = GArchDecoder->RegisterCount();
 		const uint32_t Stride = GArchDecoder->InstructionStride();
+		const bool bIsArm64   = GArchDecoder->Arch() == EArch::Arm64;
 
 		std::vector<uintptr_t> RegValue(static_cast<size_t>(RegCount), 0);
 		std::vector<bool> bRegKnown(static_cast<size_t>(RegCount), false);
@@ -2622,6 +2832,29 @@ void FInSDKOffsets::InitProcessEvent()
 		size_t Cursor = 0;
 		while (Cursor + 2 <= Code.size())
 		{
+			/*
+			 * Matched on the raw word, ahead of the decode below: the signed-offset STP is
+			 * not a form KittyAsm recognises, so those instructions never produce a
+			 * successful decode and would be invisible to any NormalizedInsn-based test.
+			 */
+			if (bIsArm64 && Cursor + sizeof(uint32_t) <= Code.size())
+			{
+				uint32_t Word = 0;
+				memcpy(&Word, Code.data() + Cursor, sizeof(Word));
+
+				/* TBNZ <reg>, #0x1E, <loc> */
+				if ((Word & 0x7F000000u) == 0x37000000u && ((((Word >> 31) & 1u) << 5) | ((Word >> 19) & 0x1Fu)) == 0x1Eu)
+					Signals.bTestBitBranch = true;
+
+				/*
+				 * STP <Xt1>, <Xt2>, [SP, #imm] - the callee-saved register block. The
+				 * pre-indexed form is left out on purpose: it already registers as
+				 * EKind::Prologue, so counting it here would score one thing twice.
+				 */
+				if ((Word & 0xFFC003E0u) == 0xA90003E0u)
+					Trace.StorePairCount++;
+			}
+
 			NormalizedInsn Insn;
 			const bool bDecoded  = GArchDecoder->DecodeLocalBytes(Code.data() + Cursor, Code.size() - Cursor, FuncAddr + Cursor, Insn);
 			const size_t Advance = Insn.Length ? Insn.Length : (Stride ? Stride : 4);
@@ -2644,7 +2877,10 @@ void FInSDKOffsets::InitProcessEvent()
 			 * Return", not "the second Prologue".
 			 */
 			if (Insn.Kind == NormalizedInsn::EKind::Prologue && bSeenReturn)
+			{
+				Trace.bStoppedAtNeighbor = true;
 				break;
+			}
 
 			if (Insn.Kind == NormalizedInsn::EKind::Return)
 				bSeenReturn = true;
@@ -2780,6 +3016,18 @@ void FInSDKOffsets::InitProcessEvent()
 				break;
 
 			case NormalizedInsn::EKind::Call:
+				if (Insn.Value != 0 && (!MemSetSlots.empty() || !MemCopySlots.empty()))
+				{
+					const uintptr_t Slot = ResolveImportSlot(static_cast<uintptr_t>(Insn.Value));
+					if (Slot != 0)
+					{
+						if (std::find(MemSetSlots.begin(), MemSetSlots.end(), Slot) != MemSetSlots.end())
+							Signals.bMemSet = true;
+						else if (std::find(MemCopySlots.begin(), MemCopySlots.end(), Slot) != MemCopySlots.end())
+							Signals.bMemCopy = true;
+					}
+				}
+
 				for (int32 Reg = 0; Reg < RegCount; Reg++)
 				{
 					if (GArchDecoder->CallClobbers(Reg))
@@ -2800,6 +3048,12 @@ void FInSDKOffsets::InitProcessEvent()
 			Cursor += Advance;
 		}
 
+		Signals.bStorePairs = Trace.StorePairCount >= kMinStorePairs;
+
+		Trace.EndCursor = Cursor;
+		if (OutTrace)
+			*OutTrace = Trace;
+
 		return Signals;
 	};
 
@@ -2811,8 +3065,15 @@ void FInSDKOffsets::InitProcessEvent()
 	bool bBySymbol     = false;
 	FSignals BestSignals;
 
+	int32 SlotsUnreadable = 0;
+	int32 SlotsNotCode    = 0;
+	int32 SlotsScored     = 0;
+	int32 LastIndex       = -1;
+
 	for (int32 Index = 0; Index < kMaxVTableEntries; Index++)
 	{
+		LastIndex = Index;
+
 		const uintptr_t SlotAddr = VTable + static_cast<uintptr_t>(Index) * sizeof(void*);
 
 		// A stray non-function slot (RTTI-adjacent data, padding, a transiently
@@ -2820,32 +3081,116 @@ void FInSDKOffsets::InitProcessEvent()
 		// slot is skipped rather than treated as a stopping point - every index up to
 		// kMaxVTableEntries is tried.
 		if (!GMemory->IsAddressReadable(SlotAddr))
+		{
+			SlotsUnreadable++;
 			continue;
+		}
 
 		const uintptr_t FuncAddr = GMemory->Read<uintptr_t>(SlotAddr);
 		if (!GMemory->IsAddressReadable(FuncAddr) || !UnrealModule.Contains(FuncAddr))
+		{
+			SlotsNotCode++;
 			continue;
+		}
 
 		if (SymbolAddr != 0 && FuncAddr == SymbolAddr)
 		{
-			BestIndex = Index;
-			BestAddr  = FuncAddr;
-			bBySymbol = true;
+			// The symbol already settles the answer. Scoring it anyway costs one walk and
+			// reports what a known-correct ProcessEvent actually looks like, which is the only
+			// way to tell whether the heuristics would have found it unaided.
+			const uintptr_t SymCodeAddr = GArchDecoder->Arch() == EArch::Arm32 ? (FuncAddr & ~static_cast<uintptr_t>(1)) : FuncAddr;
+
+			FScanTrace SymTrace;
+			BestSignals = ScoreFunction(SymCodeAddr, &SymTrace);
+			BestScore   = BestSignals.Count();
+
+			GLogger.FmtWrite(ELogLevel::Debug,
+			                 "InitProcessEvent: [{:3}] 0x{:X} score={}{} walk={}/0x{:X} ({}) stp={} ({}) <- exported symbol\n",
+			                 Index,
+			                 SymCodeAddr,
+			                 BestScore,
+			                 BestScore >= kMinScore ? " >=kMinScore" : "",
+			                 SymTrace.EndCursor,
+			                 kScanBytes,
+			                 SymTrace.bStoppedAtNeighbor ? "stopped at next function" : "reached end of window",
+			                 SymTrace.StorePairCount,
+			                 BestSignals.Describe());
+			BestIndex   = Index;
+			BestAddr    = FuncAddr;
+			bBySymbol   = true;
 			break;
 		}
 
 		/* On ARM32 the low bit selects Thumb state and is not part of the address. */
 		const uintptr_t CodeAddr = GArchDecoder->Arch() == EArch::Arm32 ? (FuncAddr & ~static_cast<uintptr_t>(1)) : FuncAddr;
 
-		const FSignals Signals = ScoreFunction(CodeAddr);
-		if (Signals.Count() > BestScore)
+		FScanTrace Trace;
+		const FSignals Signals = ScoreFunction(CodeAddr, &Trace);
+		SlotsScored++;
+
+		if (Trace.bUnreadable)
 		{
-			BestScore   = Signals.Count();
+			GLogger.FmtWrite(ELogLevel::Debug,
+			                 "InitProcessEvent: [{:3}] 0x{:X} scored 0 - fewer than 0x{:X} readable bytes, not decoded at all\n",
+			                 Index,
+			                 CodeAddr,
+			                 kScanBytes);
+		}
+		else
+		{
+			GLogger.FmtWrite(ELogLevel::Debug,
+			                 "InitProcessEvent: [{:3}] 0x{:X} score={}{} walk={}/0x{:X} ({}) stp={} ({})\n",
+			                 Index,
+			                 CodeAddr,
+			                 Signals.Count(),
+			                 Signals.Count() >= kMinScore ? " >=kMinScore" : "",
+			                 Trace.EndCursor,
+			                 kScanBytes,
+			                 Trace.bStoppedAtNeighbor ? "stopped at next function" : "reached end of window",
+			                 Trace.StorePairCount,
+			                 Signals.Describe());
+		}
+
+		/*
+		 * A plain "> BestScore" hands every tie to the lowest index, which is how a slot that
+		 * merely walks the object array once outranked the real ProcessEvent. On an equal score
+		 * the reflection signals decide, since those are what ProcessEvent is defined by.
+		 */
+		const int32 Score          = Signals.Count();
+		const bool bOutrightWinner = Score > BestScore;
+		const bool bWinsTie        = Score == BestScore && Score > 0 && Signals.ReflectionCount() > BestSignals.ReflectionCount();
+
+		if (bWinsTie)
+		{
+			GLogger.FmtWrite(ELogLevel::Debug,
+			                 "InitProcessEvent: [{:3}] ties slot {} at {} but has more reflection signals ({} vs {}) - taking it\n",
+			                 Index,
+			                 BestIndex,
+			                 Score,
+			                 Signals.ReflectionCount(),
+			                 BestSignals.ReflectionCount());
+		}
+
+		if (bOutrightWinner || bWinsTie)
+		{
+			BestScore   = Score;
 			BestIndex   = Index;
 			BestAddr    = FuncAddr;
 			BestSignals = Signals;
 		}
 	}
+
+	// Slots are skipped rather than treated as an end marker, so the counts below say how much
+	// of the table was actually code - a table that is mostly "not code" means the vtable itself
+	// is suspect, which would explain a wrong index on its own.
+	GLogger.FmtWrite(ELogLevel::Info,
+	                 "InitProcessEvent: Scanned {} of {} VTable slots ({} scored, {} unreadable, {} not code), stopped because {}.\n",
+	                 LastIndex + 1,
+	                 kMaxVTableEntries,
+	                 SlotsScored,
+	                 SlotsUnreadable,
+	                 SlotsNotCode,
+	                 bBySymbol ? "the exported symbol was found" : "every slot up to the cap was scanned");
 
 	if (BestIndex < 0)
 	{
@@ -2854,7 +3199,7 @@ void FInSDKOffsets::InitProcessEvent()
 	}
 
 	if (bBySymbol)
-		GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: Resolved by exported symbol at VTable index {}.\n", BestIndex);
+		GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: Resolved by exported symbol at VTable index {}, which scored {} ({}).\n", BestIndex, BestScore, BestSignals.Describe());
 	else if (BestScore < kMinScore)
 		GLogger.FmtWrite(ELogLevel::Warning, "InitProcessEvent: Best slot {} scored only {}/{} ({}) - result may be wrong.\n", BestIndex, BestScore, kMinScore, BestSignals.Describe());
 	else
