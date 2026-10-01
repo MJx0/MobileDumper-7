@@ -1,5 +1,7 @@
 #include "Offsets.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <random>
 
@@ -831,34 +833,79 @@ bool FInGenOffsets::Init_FFieldClass_Name()
 	if (Classes.empty())
 		return false;
 
-	for (int32 Off = 0x00; Off <= int32(sizeof(void*) * 5); Off += 0x04)
+	/*
+	 * A name read at the wrong offset is not necessarily unreadable. With an FNamePool any small
+	 * positive value indexes *somewhere* inside a block and decodes to a string, and the upper half
+	 * of a 64-bit pointer is exactly such a value whenever the image is mapped above 4GB -- there it
+	 * reads as 1. Index 1 lands one stride into the first entry and yields a run-on string that
+	 * still contains "Property" as a substring, so a substring test alone happily accepts the upper
+	 * half of whatever pointer precedes the real FName, four bytes short of the truth.
+	 *
+	 * Two properties separate the real offset from that near-miss:
+	 *   - every FFieldClass reachable from a property is named "<Something>Property", a bare
+	 *     identifier, so the name has to *end* with "Property" and consist only of identifier
+	 *     characters -- a mid-entry decode runs two names together and carries the separator; and
+	 *   - the seeds are deliberately different property types (Guid's first member is an integer,
+	 *     Vector's a floating-point one, Color's a byte), so they cannot all share a single name.
+	 *     A constant read out of a pointer half gives every seed the same index, hence one name.
+	 */
+	auto IsFieldClassName = [](const std::string& Name) -> bool
 	{
-		bool bAllValid = true;
-		for (const uintptr_t& Entry : Classes)
+		if (!Name.ends_with("Property"))
+			return false;
+
+		return std::all_of(Name.begin(), Name.end(), [](unsigned char Char) { return std::isalnum(Char) || Char == '_'; });
+	};
+
+	auto FindNameOffset = [&](bool bStrict) -> int32
+	{
+		for (int32 Off = 0x00; Off <= int32(sizeof(void*) * 5); Off += 0x04)
 		{
-			const int32 CmpIdx = GMemory->Read<int32>(Entry + Off);
-			if (CmpIdx <= 0)
+			std::vector<std::string> Names;
+			Names.reserve(Classes.size());
+
+			for (const uintptr_t& Entry : Classes)
 			{
-				bAllValid = false;
-				break;
+				const int32 CmpIdx = GMemory->Read<int32>(Entry + Off);
+				if (CmpIdx <= 0)
+					break;
+
+				std::string Name = NameArray::GetNameEntry(CmpIdx).GetString();
+
+				if (!(bStrict ? IsFieldClassName(Name) : (Name.size() >= 5 && Name.find("Property") != std::string::npos)))
+					break;
+
+				Names.push_back(std::move(Name));
 			}
 
-			const std::string Name = NameArray::GetNameEntry(CmpIdx).GetString();
-			if (Name.size() < 5 || Name.find("Property") == std::string::npos)
-			{
-				bAllValid = false;
-				break;
-			}
+			if (Names.size() != Classes.size())
+				continue;
+
+			if (bStrict && Names.size() > 1 && std::equal(Names.begin() + 1, Names.end(), Names.begin()))
+				continue;
+
+			return Off;
 		}
 
-		if (bAllValid)
-		{
-			this->FFieldClass.Name = Off;
-			return true;
-		}
+		return OffsetFinder::OffsetNotFound;
+	};
+
+	this->FFieldClass.Name = FindNameOffset(true);
+
+	/*
+	 * This offset is required, so the stricter test must never turn a dump that used to complete
+	 * into a hard failure: fall back to the original loose match, and say that the result is only
+	 * as trustworthy as that match.
+	 */
+	if (this->FFieldClass.Name == OffsetFinder::OffsetNotFound)
+	{
+		this->FFieldClass.Name = FindNameOffset(false);
+
+		if (this->FFieldClass.Name != OffsetFinder::OffsetNotFound)
+			GLogger.FmtWrite(ELogLevel::Warning, "Init_FFieldClass_Name: no offset passed validation; falling back to 0x{:X} on a loose name match. Property class names may be wrong.\n", (uint32_t)this->FFieldClass.Name);
 	}
 
-	return false;
+	return this->FFieldClass.Name != OffsetFinder::OffsetNotFound;
 }
 
 
