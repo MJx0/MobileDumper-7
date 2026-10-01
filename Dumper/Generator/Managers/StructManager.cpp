@@ -122,7 +122,24 @@ static std::unordered_map<int32, int32> ComputeProvenSafeSizes(const std::vector
 				continue;
 
 			const int32 UnderlyingIndex = Current.Cast<UEStructProperty>().GetUnderlayingStruct().GetIndex();
-			const int32 SafeSize        = NextOffset - Current.GetOffset();
+
+			/*
+			 * The gap spans the whole member, so for a fixed-size array it covers every element -- the
+			 * proven size of the referenced struct is one element's worth of it, not all of it. Taking
+			 * the full span would leave SafeSize larger than the reported size, so the std::min below
+			 * would keep the reported size and the overlap this loop just proved would survive into
+			 * the generated SDK.
+			 */
+			const int32 SafeSize = (NextOffset - Current.GetOffset()) / ArrayDim;
+
+			/*
+			 * Two properties sharing one offset make the gap zero, which is not a proven size but a
+			 * tie in the sort -- and std::sort leaves the order of equal elements unspecified, so
+			 * whether this is even reached varies between runs. Sizing a struct 0 from it would
+			 * corrupt every struct that embeds it.
+			 */
+			if (SafeSize <= 0x0)
+				continue;
 
 			auto It = ProvenSafeSize.find(UnderlyingIndex);
 			if (It == ProvenSafeSize.end() || SafeSize < It->second)
@@ -460,7 +477,7 @@ StructInfoHandle StructManager::GetInfo(const UEStruct Struct)
 	auto It = StructInfoOverrides.find(Struct.GetIndex());
 	if (It == StructInfoOverrides.end())
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "StructManager::GetInfo: struct not in map [ Index={}, Name='{}' ]\n", Struct.GetIndex(), Struct.GetFullName());
+		GLogger.FmtWrite(ELogLevel::Warning, "StructManager::GetInfo: Struct not in map [ Index={}, Name='{}' ]\n", Struct.GetIndex(), Struct.GetFullName());
 		return Invalid;
 	}
 

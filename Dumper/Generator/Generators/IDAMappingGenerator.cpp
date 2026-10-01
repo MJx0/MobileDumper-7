@@ -245,6 +245,11 @@ static std::string ConvertPredefinedTypeForIDA(std::string Type, bool& OutIsPtr)
 		return "__int64";
 	if (Type == "uint64")
 		return "unsigned __int64";
+	/* An address held as an integer rather than a pointer, so it must not fall through to the
+	   "add a struct prefix" branch below and become 'struct uintptr_t'. The dumper is built for the
+	   architecture it targets, so its own pointer width is the target's. */
+	if (Type == "uintptr_t")
+		return sizeof(void*) == 8 ? "unsigned __int64" : "unsigned int";
 
 	// Strip "enum class " prefix
 	if (Type.starts_with("enum class "))
@@ -468,6 +473,14 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 		    .UniqueName = Name, .Size = Size, .Alignment = Align, .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = false, .bIsUnion = false, .Super = nullptr});
 	};
 
+	/* An offset of -1 marks a layout field that was never located, so it contributes nothing to the
+	   struct's size. Feeding it to std::max unguarded is not harmless: '-1 + sizeof(int32)' is a
+	   positive number that passes for a real end offset. */
+	auto FieldEnd = [](int32 Offset, int32 Size) -> int32
+	{
+		return Offset == -1 ? 0x0 : Offset + Size;
+	};
+
 	// TArray<T>: { T* Data; int32 NumElements; int32 MaxElements; }
 	{
 		PredefinedStruct& T = AddPredef("TArray", sizeof(TArray<int>), alignof(TArray<int>));
@@ -575,7 +588,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 	if (GLayouts.ObjectsLayout->GetType() == EObjectsType::Chunked)
 	{
 		const auto Layout           = reinterpret_cast<FChunkedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
-		const int32 ObjectArraySize = std::max({Layout->Objects + PtrSize, Layout->MaxElements + (int32)sizeof(int32), Layout->NumElements + (int32)sizeof(int32), Layout->MaxChunks + (int32)sizeof(int32), Layout->NumChunks + (int32)sizeof(int32)});
+		const int32 ObjectArraySize = std::max({FieldEnd(Layout->Objects, PtrSize), FieldEnd(Layout->MaxElements, (int32)sizeof(int32)), FieldEnd(Layout->NumElements, (int32)sizeof(int32)), FieldEnd(Layout->MaxChunks, (int32)sizeof(int32)), FieldEnd(Layout->NumChunks, (int32)sizeof(int32))});
 
 		// FUObjectItem: { UObject* Object; ... padding to FUObjectItemSize } runtime offsets
 		{
@@ -588,16 +601,27 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 		PredefinedStruct& T = AddPredef("TUObjectArray", ObjectArraySize, PtrSize);
 		T.Properties        = {
             IDA_MEMBER_AT("struct FUObjectItem**", "Objects", Layout->Objects, PtrSize, alignof(void*)),
-            IDA_MEMBER_AT("int32", "MaxElements", Layout->MaxElements, sizeof(int32), alignof(int32)),
-            IDA_MEMBER_AT("int32", "NumElements", Layout->NumElements, sizeof(int32), alignof(int32)),
-            IDA_MEMBER_AT("int32", "MaxChunks", Layout->MaxChunks, sizeof(int32), alignof(int32)),
-            IDA_MEMBER_AT("int32", "NumChunks", Layout->NumChunks, sizeof(int32), alignof(int32)),
         };
+
+		/* Only NumElements is required by FChunkedUObjectArrayLayout::IsValid; the rest stay -1 when
+		   they could not be located, and a member placed at -1 would sort ahead of every real field. */
+		const std::pair<const char*, int32> Counters[] = {
+		    {"MaxElements", Layout->MaxElements},
+		    {"NumElements", Layout->NumElements},
+		    {"MaxChunks", Layout->MaxChunks},
+		    {"NumChunks", Layout->NumChunks},
+		};
+
+		for (const auto& [CounterName, CounterOffset] : Counters)
+		{
+			if (CounterOffset != -1)
+				T.Properties.push_back(IDA_MEMBER_AT("int32", CounterName, CounterOffset, sizeof(int32), alignof(int32)));
+		}
 	}
 	else
 	{
 		const auto Layout           = reinterpret_cast<FFixedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
-		const int32 ObjectArraySize = (std::max)({Layout->Objects + PtrSize, Layout->MaxObjects + (int32)sizeof(int32), Layout->NumObjects + (int32)sizeof(int32)});
+		const int32 ObjectArraySize = (std::max)({FieldEnd(Layout->Objects, PtrSize), FieldEnd(Layout->MaxObjects, (int32)sizeof(int32)), FieldEnd(Layout->NumObjects, (int32)sizeof(int32))});
 
 		// FUObjectItem: { UObject* Object; ... padding to FUObjectItemSize } runtime offsets
 		{
@@ -610,23 +634,57 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 		PredefinedStruct& T = AddPredef("TUObjectArray", ObjectArraySize, PtrSize);
 		T.Properties        = {
             IDA_MEMBER_AT("struct FUObjectItem*", "Objects", Layout->Objects, PtrSize, alignof(void*)),
-            IDA_MEMBER_AT("int32", "MaxElements", Layout->MaxObjects, sizeof(int32), alignof(int32)),
             IDA_MEMBER_AT("int32", "NumElements", Layout->NumObjects, sizeof(int32), alignof(int32)),
         };
+
+		/* MaxObjects is optional, and a member placed at -1 would sort ahead of every real field. */
+		if (Layout->MaxObjects != -1)
+			T.Properties.push_back(IDA_MEMBER_AT("int32", "MaxElements", Layout->MaxObjects, sizeof(int32), alignof(int32)));
 	}
 
-	// TNameEntryArray: only when not using FNamePool
-	if (!InternalSettings::bUseNamePool)
+	// The names container: FNamePool or the legacy TNameEntryArray. GNames is typed after whichever
+	// of the two is emitted here, so the two decisions must stay in agreement.
+	if (InternalSettings::bUseNamePool)
+	{
+		const auto Layout = reinterpret_cast<FNamePoolLayout*>(GLayouts.NamesLayout.get());
+
+		/* Only the FNameEntryAllocator portion is detected, so this stops at the block table -- the
+		   engine's FNamePool continues with its name hash tables. */
+		const int32 NamePoolSize = (std::max)({FieldEnd(Layout->MaxChunkIndex, (int32)sizeof(int32)), FieldEnd(Layout->ByteCursor, (int32)sizeof(int32)), FieldEnd(Layout->Blocks, PtrSize)});
+
+		PredefinedStruct& T = AddPredef("FNamePool", NamePoolSize, PtrSize);
+
+		/* Typed as a raw address rather than 'uint8**': the engine holds the table inline as
+		   'uint8* Blocks[FNameMaxBlocks]' and that length is never detected. */
+		T.Properties = {
+		    IDA_MEMBER_AT("uintptr_t", "Blocks", Layout->Blocks, PtrSize, alignof(void*)),
+		};
+
+		const std::pair<const char*, int32> Cursors[] = {
+		    {"MaxChunkIndex", Layout->MaxChunkIndex},
+		    {"ByteCursor", Layout->ByteCursor},
+		};
+
+		for (const auto& [CursorName, CursorOffset] : Cursors)
+		{
+			if (CursorOffset != -1)
+				T.Properties.push_back(IDA_MEMBER_AT("int32", CursorName, CursorOffset, sizeof(int32), alignof(int32)));
+		}
+	}
+	else
 	{
 		const auto Layout = reinterpret_cast<FNameArrayLayout*>(GLayouts.NamesLayout.get());
 
-		const int32 ChunkTableSize      = Layout->ElementsPerChunk / PtrSize;
-		const int32 ChunkTableSizeBytes = ChunkTableSize * PtrSize;
-		const int32 NameArraySize       = ChunkTableSizeBytes + PtrSize;
+		/* Chunks is one address, not the whole chunk table. Sizing it as 'ElementsPerChunk / PtrSize'
+		   pointers was an invented figure -- the engine's table length is MaxTotalElements divided by
+		   ElementsPerChunk, unrelated to pointer size -- and it made the member span far enough to
+		   swallow NumElements: with ElementsPerChunk 0x4000 it covered 0x0..0x4000, while NumElements
+		   sits at 0x400. */
+		const int32 NameArraySize = (std::max)({FieldEnd(Layout->Chunks, PtrSize), FieldEnd(Layout->NumElements, (int32)sizeof(int32))});
 
 		PredefinedStruct& T = AddPredef("TNameEntryArray", NameArraySize, PtrSize);
 		T.Properties        = {
-            IDA_MEMBER_AT("void*", "Chunks", Layout->Chunks, ChunkTableSizeBytes, alignof(void*)),
+            IDA_MEMBER_AT("uintptr_t", "Chunks", Layout->Chunks, PtrSize, alignof(void*)),
         };
 
 		if (Layout->NumElements != -1)
@@ -1096,7 +1154,7 @@ void IDAMappingGenerator::Generate()
 	{
 		WriteNamedVar(ToImageOffset(GInSDKOffsets.Statics.GObjects), "TUObjectArray", "GObjects");
 
-		const char* TypeName = InternalSettings::bUseNamePool ? "TNameEntryArray" : "FNamePool";
+		const char* TypeName = InternalSettings::bUseNamePool ? "FNamePool" : "TNameEntryArray";
 		WriteNamedVar(ToImageOffset(GInSDKOffsets.Statics.GNames), TypeName, "GNames");
 
 		if (GInSDKOffsets.Statics.GEngine != 0x0)

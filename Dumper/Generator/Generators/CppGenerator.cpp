@@ -868,10 +868,27 @@ void CppGenerator::GenerateStruct(const StructWrapper& Struct, StreamType& Struc
 
 	const bool bHasReusedTrailingPadding = Struct.HasReusedTrailingPadding();
 
-	/* Must match the condition GenerateMembers() is actually invoked with below, so that this
-	   struct's own comment/bHasMembers reasoning agrees with what GenerateMembers will use as its
-	   own starting offset (PrevPropertyEnd) -- see the reuse-eligibility comment inside GenerateMembers. */
-	const int32 EffectiveSuperSize     = (bHasReusedTrailingPadding || bIsReusingTrailingPaddingFromSuper) ? SuperUnalignedSize : SuperAlignedSize;
+	/*
+	 * Where this struct's own members begin in the compiled object: the super's *data* size, never
+	 * its aligned sizeof.
+	 *
+	 * Every generated type carries a user-provided constructor ('X() {}'), which makes it non-POD for
+	 * layout, and the Itanium ABI then always allocates a derived class's members starting at the
+	 * base's dsize. Tail padding is reused unconditionally -- not only when UE's reflection data
+	 * happens to show a member sitting in it. Gating this on HasReusedTrailingPadding(), which is set
+	 * only where such a member was actually observed, made every struct whose super ends unaligned
+	 * declare itself one padding-gap too large, and the generated size assertion could then never
+	 * hold. Verified on clang and gcc alike: with the constructor the first derived member lands at
+	 * the base's dsize, without it at the base's aligned size.
+	 *
+	 * This costs nothing when the super has no tail padding (both sizes agree), and GenerateMembers
+	 * only pads when a member's offset is strictly past PrevPropertyEnd, so it also stays correct when
+	 * UE already places the first member inside that padding.
+	 *
+	 * Must match the offset GenerateMembers() is actually invoked with below, so that this struct's
+	 * own comment/bHasMembers reasoning agrees with the PrevPropertyEnd it starts from.
+	 */
+	const int32 EffectiveSuperSize     = SuperUnalignedSize;
 	const int32 StructSizeWithoutSuper = StructAlignedSize - EffectiveSuperSize;
 
 	const bool bIsClass = Struct.IsClass();
@@ -4303,6 +4320,14 @@ void CppGenerator::GenerateBasicFiles(StreamType& BasicHpp, StreamType& BasicCpp
 		std::sort(Members.begin(), Members.end(), ComparePredefinedMembers);
 	};
 
+	/* An offset of -1 marks a layout field that was never located, so it contributes nothing to the
+	   struct's size. Feeding it to std::max unguarded is not harmless: '-1 + sizeof(int32)' is a
+	   positive number that passes for a real end offset. */
+	static auto FieldEnd = [](int32 Offset, int32 Size) -> int32
+	{
+		return Offset == -1 ? 0x0 : Offset + Size;
+	};
+
 	const std::string SDKMacroDefinitions = fmt::format(R"(
 
 /*
@@ -4674,7 +4699,7 @@ ClassType* GetDefaultObjImpl()
 	if (GLayouts.ObjectsLayout->GetType() == EObjectsType::Array)
 	{
 		const auto ObjLayout        = reinterpret_cast<FFixedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
-		const int32 ObjectArraySize = (std::max)({ObjLayout->Objects + (int32)sizeof(void*), ObjLayout->MaxObjects + (int32)sizeof(int32), ObjLayout->NumObjects + (int32)sizeof(int32)});
+		const int32 ObjectArraySize = (std::max)({FieldEnd(ObjLayout->Objects, (int32)sizeof(void*)), FieldEnd(ObjLayout->MaxObjects, (int32)sizeof(int32)), FieldEnd(ObjLayout->NumObjects, (int32)sizeof(int32))});
 
 		// Start class 'FUObjectItem'
 		PredefinedStruct FUObjectItem = PredefinedStruct{
@@ -4702,89 +4727,95 @@ ClassType* GetDefaultObjImpl()
 		PredefinedStruct TUObjectArray = PredefinedStruct{
 		    .UniqueName = "TUObjectArray", .Size = ObjectArraySize, .Alignment = alignof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
 
-		TUObjectArray.Properties =
-		    {
-		        /* Non-static members of TUObjectArray */
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "struct FUObjectItem*",
-		            .Name              = "Objects",
-		            .Offset            = ObjLayout->Objects,
-		            .Size              = sizeof(void*),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(void*),
-		            .bIsStatic         = false,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "int32",
-		            .Name              = "MaxElements",
-		            .Offset            = ObjLayout->MaxObjects,
-		            .Size              = sizeof(int32),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(int32),
-		            .bIsStatic         = false,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "int32",
-		            .Name              = "NumElements",
-		            .Offset            = ObjLayout->NumObjects,
-		            .Size              = sizeof(int32),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(int32),
-		            .bIsStatic         = false,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
-		    };
+		TUObjectArray.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "struct FUObjectItem*",
+		    .Name              = "Objects",
+		    .Offset            = ObjLayout->Objects,
+		    .Size              = sizeof(void*),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(void*),
+		    .bIsStatic         = false,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF});
 
-		TUObjectArray.Functions =
-		    {
-		        PredefinedFunction{
-		            .CustomComment  = "",
-		            .ReturnType     = "inline int32",
-		            .NameWithParams = "Max()",
-		            .Body =
-		                R"({
+		/* MaxObjects is optional. A member emitted at -1 sorts ahead of every real field and leaves
+		   PrevPropertyEnd at 3, which suppresses the padding before the first real member and shifts
+		   the entire struct -- and its own offset assertion could never hold anyway. */
+		if (ObjLayout->MaxObjects != -1)
+		{
+			TUObjectArray.Properties.push_back(PredefinedMember{
+			    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+			    .Type              = "int32",
+			    .Name              = "MaxElements",
+			    .Offset            = ObjLayout->MaxObjects,
+			    .Size              = sizeof(int32),
+			    .ArrayDim          = 0x1,
+			    .Alignment         = alignof(int32),
+			    .bIsStatic         = false,
+			    .bIsZeroSizeMember = false,
+			    .bIsBitField       = false,
+			    .BitIndex          = 0xFF});
+		}
+
+		TUObjectArray.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "int32",
+		    .Name              = "NumElements",
+		    .Offset            = ObjLayout->NumObjects,
+		    .Size              = sizeof(int32),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(int32),
+		    .bIsStatic         = false,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF});
+
+		if (ObjLayout->MaxObjects != -1)
+		{
+			TUObjectArray.Functions.push_back(PredefinedFunction{
+			    .CustomComment  = "",
+			    .ReturnType     = "inline int32",
+			    .NameWithParams = "Max()",
+			    .Body =
+			        R"({
 	return MaxElements;
 }
 )",
-		            .bIsStatic     = false,
-		            .bIsConst      = true,
-		            .bIsBodyInline = true,
-		            .bIsCtor       = false},
-		        PredefinedFunction{
-		            .CustomComment  = "",
-		            .ReturnType     = "inline int32",
-		            .NameWithParams = "Num()",
-		            .Body =
-		                R"({
+			    .bIsStatic     = false,
+			    .bIsConst      = true,
+			    .bIsBodyInline = true,
+			    .bIsCtor       = false});
+		}
+
+		TUObjectArray.Functions.push_back(PredefinedFunction{
+		    .CustomComment  = "",
+		    .ReturnType     = "inline int32",
+		    .NameWithParams = "Num()",
+		    .Body =
+		        R"({
 	return NumElements;
 }
 )",
-		            .bIsStatic     = false,
-		            .bIsConst      = true,
-		            .bIsBodyInline = true,
-		            .bIsCtor       = false},
-		        PredefinedFunction{
-		            .CustomComment  = "",
-		            .ReturnType     = "FUObjectItem*",
-		            .NameWithParams = "GetObjects()",
-		            .Body =
-		                R"({
+		    .bIsStatic     = false,
+		    .bIsConst      = true,
+		    .bIsBodyInline = true,
+		    .bIsCtor       = false});
+
+		TUObjectArray.Functions.push_back(PredefinedFunction{
+		    .CustomComment  = "",
+		    .ReturnType     = "FUObjectItem*",
+		    .NameWithParams = "GetObjects()",
+		    .Body =
+		        R"({
 	return Objects;
 }
 )",
-		            .bIsStatic     = false,
-		            .bIsConst      = true,
-		            .bIsBodyInline = true,
-		            .bIsCtor       = false},
-		    };
+		    .bIsStatic     = false,
+		    .bIsConst      = true,
+		    .bIsBodyInline = true,
+		    .bIsCtor       = false});
 
 		SortMembers(TUObjectArray.Properties);
 		GenerateStruct(&TUObjectArray, BasicHpp, BasicCpp, BasicHpp, AssertionsFile);
@@ -4792,7 +4823,7 @@ ClassType* GetDefaultObjImpl()
 	else
 	{
 		auto ObjLayout              = reinterpret_cast<FChunkedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
-		const int32 ObjectArraySize = std::max({ObjLayout->Objects + (int32)sizeof(void*), ObjLayout->MaxElements + (int32)sizeof(int32), ObjLayout->NumElements + (int32)sizeof(int32), ObjLayout->MaxChunks + (int32)sizeof(int32), ObjLayout->NumChunks + (int32)sizeof(int32)});
+		const int32 ObjectArraySize = std::max({FieldEnd(ObjLayout->Objects, (int32)sizeof(void*)), FieldEnd(ObjLayout->MaxElements, (int32)sizeof(int32)), FieldEnd(ObjLayout->NumElements, (int32)sizeof(int32)), FieldEnd(ObjLayout->MaxChunks, (int32)sizeof(int32)), FieldEnd(ObjLayout->NumChunks, (int32)sizeof(int32))});
 
 		// Start class 'FUObjectItem'
 		PredefinedStruct FUObjectItem = PredefinedStruct{
@@ -4820,128 +4851,109 @@ ClassType* GetDefaultObjImpl()
 		PredefinedStruct TUObjectArray = PredefinedStruct{
 		    .UniqueName = "TUObjectArray", .Size = ObjectArraySize, .Alignment = alignof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
 
-		TUObjectArray.Properties =
-		    {
-		        /* Static members of TUObjectArray */
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "constexpr int32",
-		            .Name              = "ElementsPerChunk",
-		            .Offset            = 0x0,
-		            .Size              = sizeof(int32),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(int32),
-		            .bIsStatic         = true,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF,
-		            .DefaultValue      = fmt::format("0x{:X}", ObjLayout->ElementsPerChunk)},
+		/* Static members of TUObjectArray */
+		TUObjectArray.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "constexpr int32",
+		    .Name              = "ElementsPerChunk",
+		    .Offset            = 0x0,
+		    .Size              = sizeof(int32),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(int32),
+		    .bIsStatic         = true,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF,
+		    .DefaultValue      = fmt::format("0x{:X}", ObjLayout->ElementsPerChunk)});
 
-		        /* Non-static members of TUObjectArray */
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "struct FUObjectItem**",
-		            .Name              = "Objects",
-		            .Offset            = ObjLayout->Objects,
-		            .Size              = sizeof(void*),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(void*),
-		            .bIsStatic         = false,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "int32",
-		            .Name              = "MaxElements",
-		            .Offset            = ObjLayout->MaxElements,
-		            .Size              = sizeof(int32),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(int32),
-		            .bIsStatic         = false,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "int32",
-		            .Name              = "NumElements",
-		            .Offset            = ObjLayout->NumElements,
-		            .Size              = sizeof(int32),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(int32),
-		            .bIsStatic         = false,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "int32",
-		            .Name              = "MaxChunks",
-		            .Offset            = ObjLayout->MaxChunks,
-		            .Size              = sizeof(int32),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(int32),
-		            .bIsStatic         = false,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = "int32",
-		            .Name              = "NumChunks",
-		            .Offset            = ObjLayout->NumChunks,
-		            .Size              = sizeof(int32),
-		            .ArrayDim          = 0x1,
-		            .Alignment         = alignof(int32),
-		            .bIsStatic         = false,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
-		    };
+		/* Non-static members of TUObjectArray */
+		TUObjectArray.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "struct FUObjectItem**",
+		    .Name              = "Objects",
+		    .Offset            = ObjLayout->Objects,
+		    .Size              = sizeof(void*),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(void*),
+		    .bIsStatic         = false,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF});
 
-		TUObjectArray.Functions =
-		    {
-		        PredefinedFunction{
-		            .CustomComment  = "",
-		            .ReturnType     = "inline int32",
-		            .NameWithParams = "Num()",
-		            .Body =
-		                R"({
+		/* Only NumElements is required by FChunkedUObjectArrayLayout::IsValid; the rest stay -1 when
+		   they could not be located. A member emitted at -1 sorts ahead of every real field and leaves
+		   PrevPropertyEnd at 3, which suppresses the padding before the first real member and shifts
+		   the whole struct -- and its own offset assertion could never hold anyway. */
+		const std::pair<const char*, int32> Counters[] = {
+		    {"MaxElements", ObjLayout->MaxElements},
+		    {"NumElements", ObjLayout->NumElements},
+		    {"MaxChunks", ObjLayout->MaxChunks},
+		    {"NumChunks", ObjLayout->NumChunks},
+		};
+
+		for (const auto& [CounterName, CounterOffset] : Counters)
+		{
+			if (CounterOffset == -1)
+				continue;
+
+			TUObjectArray.Properties.push_back(PredefinedMember{
+			    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+			    .Type              = "int32",
+			    .Name              = CounterName,
+			    .Offset            = CounterOffset,
+			    .Size              = sizeof(int32),
+			    .ArrayDim          = 0x1,
+			    .Alignment         = alignof(int32),
+			    .bIsStatic         = false,
+			    .bIsZeroSizeMember = false,
+			    .bIsBitField       = false,
+			    .BitIndex          = 0xFF});
+		}
+
+		TUObjectArray.Functions.push_back(PredefinedFunction{
+		    .CustomComment  = "",
+		    .ReturnType     = "inline int32",
+		    .NameWithParams = "Num()",
+		    .Body =
+		        R"({
 	return NumElements;
 }
 )",
-		            .bIsStatic     = false,
-		            .bIsConst      = true,
-		            .bIsBodyInline = true,
-		            .bIsCtor       = false},
-		        PredefinedFunction{
-		            .CustomComment  = "",
-		            .ReturnType     = "inline int32",
-		            .NameWithParams = "Max()",
-		            .Body =
-		                R"({
+		    .bIsStatic     = false,
+		    .bIsConst      = true,
+		    .bIsBodyInline = true,
+		    .bIsCtor       = false});
+
+		if (ObjLayout->MaxElements != -1)
+		{
+			TUObjectArray.Functions.push_back(PredefinedFunction{
+			    .CustomComment  = "",
+			    .ReturnType     = "inline int32",
+			    .NameWithParams = "Max()",
+			    .Body =
+			        R"({
 	return MaxElements;
 }
 )",
-		            .bIsStatic     = false,
-		            .bIsConst      = true,
-		            .bIsBodyInline = true,
-		            .bIsCtor       = false},
-		        PredefinedFunction{
-		            .CustomComment  = "",
-		            .ReturnType     = "FUObjectItem**",
-		            .NameWithParams = "GetObjects()",
-		            .Body =
-		                R"({
+			    .bIsStatic     = false,
+			    .bIsConst      = true,
+			    .bIsBodyInline = true,
+			    .bIsCtor       = false});
+		}
+
+		TUObjectArray.Functions.push_back(PredefinedFunction{
+		    .CustomComment  = "",
+		    .ReturnType     = "FUObjectItem**",
+		    .NameWithParams = "GetObjects()",
+		    .Body =
+		        R"({
 	return Objects;
 }
 )",
-		            .bIsStatic     = false,
-		            .bIsConst      = true,
-		            .bIsBodyInline = true,
-		            .bIsCtor       = false},
-		    };
+		    .bIsStatic     = false,
+		    .bIsConst      = true,
+		    .bIsBodyInline = true,
+		    .bIsCtor       = false});
 
 		SortMembers(TUObjectArray.Properties);
 		GenerateStruct(&TUObjectArray, BasicHpp, BasicCpp, BasicHpp, AssertionsFile);
@@ -4949,9 +4961,307 @@ ClassType* GetDefaultObjImpl()
 	// End class 'TUObjectArray'
 
 
+	/* NAME_SIZE, the engine's own bound on a name character buffer. Shared by FNameEntry below and by
+	   FStringData further down. FNameEntry declares its String as plain char because the buffer is a
+	   read window onto a packed, variable-length record -- pool entries are not NUL-terminated, so the
+	   length comes from Header -- and the wide form is reached by casting. */
+	constexpr int32 NameBufferSize = 0x400;
+
+	// Start struct 'FNameEntry' and the names container
+	if (GLayouts.NamesLayout->GetType() == ENamesType::Array)
+	{
+		const auto NameLayout = reinterpret_cast<FNameArrayLayout*>(GLayouts.NamesLayout.get());
+
+		constexpr int32 EntryAlignment = alignof(int32);
+
+		const int32 EntrySize = (std::max)({FieldEnd(NameLayout->FNameEntry.Index, (int32)sizeof(int32)), FieldEnd(NameLayout->FNameEntry.String, NameBufferSize)});
+
+		PredefinedStruct NameEntryStruct = PredefinedStruct{
+		    .UniqueName = "FNameEntry", .Size = EntrySize, .Alignment = EntryAlignment, .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = false, .bIsUnion = false, .Super = nullptr};
+
+		NameEntryStruct.Properties =
+		    {
+		        PredefinedMember{
+		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		            .Type              = "int32",
+		            .Name              = "Index",
+		            .Offset            = NameLayout->FNameEntry.Index,
+		            .Size              = sizeof(int32),
+		            .ArrayDim          = 0x1,
+		            .Alignment         = alignof(int32),
+		            .bIsStatic         = false,
+		            .bIsZeroSizeMember = false,
+		            .bIsBitField       = false,
+		            .BitIndex          = 0xFF},
+		        PredefinedMember{
+		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		            .Type              = "char",
+		            .Name              = "String",
+		            .Offset            = NameLayout->FNameEntry.String,
+		            .Size              = sizeof(char),
+		            .ArrayDim          = NameBufferSize,
+		            .Alignment         = alignof(char),
+		            .bIsStatic         = false,
+		            .bIsZeroSizeMember = false,
+		            .bIsBitField       = false,
+		            .BitIndex          = 0xFF},
+		    };
+
+		SortMembers(NameEntryStruct.Properties);
+		GenerateStruct(&NameEntryStruct, BasicHpp, BasicCpp, BasicHpp, AssertionsFile);
+
+		// Start class 'TNameEntryArray'
+		const int32 NameArraySize = (std::max)({FieldEnd(NameLayout->Chunks, (int32)sizeof(void*)), FieldEnd(NameLayout->NumElements, (int32)sizeof(int32))});
+
+		PredefinedStruct TNameEntryArray = PredefinedStruct{
+		    .UniqueName = "TNameEntryArray", .Size = NameArraySize, .Alignment = alignof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
+
+		/* Static members of TNameEntryArray */
+		TNameEntryArray.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "constexpr int32",
+		    .Name              = "ElementsPerChunk",
+		    .Offset            = 0x0,
+		    .Size              = sizeof(int32),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(int32),
+		    .bIsStatic         = true,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF,
+		    .DefaultValue      = fmt::format("0x{:X}", NameLayout->ElementsPerChunk)});
+
+		/* Non-static members of TNameEntryArray. The engine holds the chunk table inline as
+		   'FNameEntry** Chunks[ChunkTableSize]', but that length is never detected, so it is typed as
+		   a raw address instead of a pointer: indexing a single 'FNameEntry**' would dereference
+		   chunk 0 and walk its entries rather than select a chunk. The padding synthesized up to
+		   NumElements reveals the real table length. */
+		TNameEntryArray.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "uintptr_t",
+		    .Name              = "Chunks",
+		    .Offset            = NameLayout->Chunks,
+		    .Size              = sizeof(void*),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(void*),
+		    .bIsStatic         = false,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF});
+
+		if (NameLayout->NumElements != -1)
+		{
+			TNameEntryArray.Properties.push_back(PredefinedMember{
+			    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+			    .Type              = "int32",
+			    .Name              = "NumElements",
+			    .Offset            = NameLayout->NumElements,
+			    .Size              = sizeof(int32),
+			    .ArrayDim          = 0x1,
+			    .Alignment         = alignof(int32),
+			    .bIsStatic         = false,
+			    .bIsZeroSizeMember = false,
+			    .bIsBitField       = false,
+			    .BitIndex          = 0xFF});
+
+			TNameEntryArray.Functions.push_back(PredefinedFunction{
+			    .CustomComment  = "",
+			    .ReturnType     = "inline int32",
+			    .NameWithParams = "Num()",
+			    .Body =
+			        R"({
+	return NumElements;
+}
+)",
+			    .bIsStatic     = false,
+			    .bIsConst      = true,
+			    .bIsBodyInline = true,
+			    .bIsCtor       = false});
+		}
+
+		TNameEntryArray.Functions.push_back(PredefinedFunction{
+		    .CustomComment  = "",
+		    .ReturnType     = "inline uintptr_t",
+		    .NameWithParams = "GetChunks()",
+		    .Body =
+		        R"({
+	return Chunks;
+}
+)",
+		    .bIsStatic     = false,
+		    .bIsConst      = true,
+		    .bIsBodyInline = true,
+		    .bIsCtor       = false});
+
+		SortMembers(TNameEntryArray.Properties);
+		GenerateStruct(&TNameEntryArray, BasicHpp, BasicCpp, BasicHpp, AssertionsFile);
+	}
+	else
+	{
+		const auto NameLayout = reinterpret_cast<FNamePoolLayout*>(GLayouts.NamesLayout.get());
+
+		constexpr int32 EntryAlignment = alignof(uint16);
+
+		const int32 EntrySize = (std::max)({FieldEnd(NameLayout->FNameEntry.Header, (int32)sizeof(uint16)), FieldEnd(NameLayout->FNameEntry.String, NameBufferSize)});
+
+		PredefinedStruct NameEntryStruct = PredefinedStruct{
+		    .UniqueName = "FNameEntry", .Size = EntrySize, .Alignment = EntryAlignment, .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = false, .bIsUnion = false, .Super = nullptr};
+
+		/* Static members of FNameEntry */
+		NameEntryStruct.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "constexpr int32",
+		    .Name              = "Stride",
+		    .Offset            = 0x0,
+		    .Size              = sizeof(int32),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(int32),
+		    .bIsStatic         = true,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF,
+		    .DefaultValue      = fmt::format("0x{:X}", NameLayout->FNameEntry.Stride)});
+
+		/* Non-static members of FNameEntry */
+		NameEntryStruct.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "uint16",
+		    .Name              = "Header",
+		    .Offset            = NameLayout->FNameEntry.Header,
+		    .Size              = sizeof(uint16),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(uint16),
+		    .bIsStatic         = false,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF});
+
+		NameEntryStruct.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "char",
+		    .Name              = "String",
+		    .Offset            = NameLayout->FNameEntry.String,
+		    .Size              = sizeof(char),
+		    .ArrayDim          = NameBufferSize,
+		    .Alignment         = alignof(char),
+		    .bIsStatic         = false,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF});
+
+		SortMembers(NameEntryStruct.Properties);
+		GenerateStruct(&NameEntryStruct, BasicHpp, BasicCpp, BasicHpp, AssertionsFile);
+
+		/* Start class 'FNamePool'. Only the FNameEntryAllocator portion is detected, so this stops at
+		   the block table -- the engine's FNamePool continues with its name hash tables. */
+		const int32 NamePoolSize = (std::max)({FieldEnd(NameLayout->MaxChunkIndex, (int32)sizeof(int32)), FieldEnd(NameLayout->ByteCursor, (int32)sizeof(int32)), FieldEnd(NameLayout->Blocks, (int32)sizeof(void*))});
+
+		PredefinedStruct FNamePool = PredefinedStruct{
+		    .UniqueName = "FNamePool", .Size = NamePoolSize, .Alignment = alignof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
+
+		/* Static members of FNamePool */
+		FNamePool.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "constexpr int32",
+		    .Name              = "BlocksBit",
+		    .Offset            = 0x0,
+		    .Size              = sizeof(int32),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(int32),
+		    .bIsStatic         = true,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF,
+		    .DefaultValue      = fmt::format("0x{:X}", NameLayout->BlocksBit)});
+
+		/* Non-static members of FNamePool */
+		const std::pair<const char*, int32> Cursors[] = {
+		    {"MaxChunkIndex", NameLayout->MaxChunkIndex},
+		    {"ByteCursor", NameLayout->ByteCursor},
+		};
+
+		for (const auto& [CursorName, CursorOffset] : Cursors)
+		{
+			if (CursorOffset == -1)
+				continue;
+
+			FNamePool.Properties.push_back(PredefinedMember{
+			    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+			    .Type              = "int32",
+			    .Name              = CursorName,
+			    .Offset            = CursorOffset,
+			    .Size              = sizeof(int32),
+			    .ArrayDim          = 0x1,
+			    .Alignment         = alignof(int32),
+			    .bIsStatic         = false,
+			    .bIsZeroSizeMember = false,
+			    .bIsBitField       = false,
+			    .BitIndex          = 0xFF});
+		}
+
+		/* Typed as a raw address for the same reason as TNameEntryArray::Chunks -- the engine's
+		   'uint8* Blocks[FNameMaxBlocks]' is inline and its length is never detected. */
+		FNamePool.Properties.push_back(PredefinedMember{
+		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+		    .Type              = "uintptr_t",
+		    .Name              = "Blocks",
+		    .Offset            = NameLayout->Blocks,
+		    .Size              = sizeof(void*),
+		    .ArrayDim          = 0x1,
+		    .Alignment         = alignof(void*),
+		    .bIsStatic         = false,
+		    .bIsZeroSizeMember = false,
+		    .bIsBitField       = false,
+		    .BitIndex          = 0xFF});
+
+		/* MaxChunkIndex is the highest block index in use, not a count, hence the + 1. */
+		if (NameLayout->MaxChunkIndex != -1)
+		{
+			FNamePool.Functions.push_back(PredefinedFunction{
+			    .CustomComment  = "",
+			    .ReturnType     = "inline int32",
+			    .NameWithParams = "NumBlocks()",
+			    .Body =
+			        R"({
+	return MaxChunkIndex + 1;
+}
+)",
+			    .bIsStatic     = false,
+			    .bIsConst      = true,
+			    .bIsBodyInline = true,
+			    .bIsCtor       = false});
+		}
+
+		FNamePool.Functions.push_back(PredefinedFunction{
+		    .CustomComment  = "",
+		    .ReturnType     = "inline uintptr_t",
+		    .NameWithParams = "GetBlocks()",
+		    .Body =
+		        R"({
+	return Blocks;
+}
+)",
+		    .bIsStatic     = false,
+		    .bIsConst      = true,
+		    .bIsBodyInline = true,
+		    .bIsCtor       = false});
+
+		SortMembers(FNamePool.Properties);
+		GenerateStruct(&FNamePool, BasicHpp, BasicCpp, BasicHpp, AssertionsFile);
+	}
+	// End names container
+
 	/* struct FStringData */
+
+	/* The target's TCHAR width is measured into bUseChar16String, so name the exact-width character
+	   type it found. wchar_t cannot express either case: it is 2 bytes on MSVC and 4 on the toolchains
+	   this dumper is built with, so it would make the declared size right on one host and wrong on the
+	   other -- and 'sizeof(wchar_t)' below was already disagreeing with the hardcoded 0x800. */
+	const char* WideCharType = InternalSettings::bUseChar16String ? "char16_t" : "char32_t";
+	const int32 WideCharSize = InternalSettings::bUseChar16String ? (int32)sizeof(char16_t) : (int32)sizeof(char32_t);
+
 	PredefinedStruct FStringData = PredefinedStruct{
-	    .UniqueName = "FStringData", .Size = 0x800, .Alignment = 0x2, .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = false, .bIsUnion = true, .Super = nullptr};
+	    .UniqueName = "FStringData", .Size = NameBufferSize * WideCharSize, .Alignment = WideCharSize, .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = false, .bIsUnion = true, .Super = nullptr};
 
 	FStringData.Properties =
 	    {
@@ -4961,7 +5271,7 @@ ClassType* GetDefaultObjImpl()
 	            .Name              = "AnsiName",
 	            .Offset            = 0x00,
 	            .Size              = sizeof(char),
-	            .ArrayDim          = 0x400,
+	            .ArrayDim          = NameBufferSize,
 	            .Alignment         = alignof(char),
 	            .bIsStatic         = false,
 	            .bIsZeroSizeMember = false,
@@ -4969,12 +5279,12 @@ ClassType* GetDefaultObjImpl()
 	            .BitIndex          = 0xFF},
 	        PredefinedMember{
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-	            .Type              = "wchar_t",
+	            .Type              = WideCharType,
 	            .Name              = "WideName",
 	            .Offset            = 0x0,
-	            .Size              = sizeof(wchar_t),
-	            .ArrayDim          = 0x400,
-	            .Alignment         = alignof(wchar_t),
+	            .Size              = WideCharSize,
+	            .ArrayDim          = NameBufferSize,
+	            .Alignment         = WideCharSize,
 	            .bIsStatic         = false,
 	            .bIsZeroSizeMember = false,
 	            .bIsBitField       = false,
