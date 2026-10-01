@@ -77,7 +77,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 
 	const std::string DumperDir = Generator::GetDumperFolder();
 
-	const std::string DumperLog = DumperDir + "/MobileDumper7.log";
+	const std::string DumperLog = DumperDir + "/MobileDumper-7.log";
 	GLogger.FmtWrite(ELogLevel::Info, "Log File: {}\n", DumperLog);
 	GLogger.SetFileStream(DumperLog);
 
