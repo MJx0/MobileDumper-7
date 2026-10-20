@@ -943,6 +943,11 @@ void InializeUEnumSettings(const void* EnumObj, const uint32_t UEnumNumValuesOff
 
 	auto InitEnumSettings = []<typename NameType>(const TArray<TPair<NameType, ValueType>>& ArrayOfNameValuePairs)
 	{
+		// The offset probe can land on a struct whose array is shorter than the three
+		// entries inspected below; Index() would throw and abort the whole dump.
+		if (!ArrayOfNameValuePairs.IsValidIndex(2))
+			return;
+
 		if (ArrayOfNameValuePairs[1].Second == 1)
 			return;
 
