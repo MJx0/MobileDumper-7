@@ -429,6 +429,8 @@ namespace LayoutDetection
 	/// @brief Bytes searched for the element counter. A legacy names struct declares
 	///        its chunk table inline and places the counter after it.
 	inline constexpr int32 kNamesHeaderScanSize = 0x1000;
+	/// @brief Bytes searched for the block or chunk pointer array
+	inline constexpr int32 kNamesPointerScanSize = 0x4000;
 	/// @brief Entries skipped past a candidate count before probing.
 	inline constexpr int32 kNameTailMargin = 64;
 	/// @brief Entries probed past a candidate count.
@@ -556,12 +558,10 @@ namespace LayoutDetection
 		double Confidence = 0.0;
 		/// @brief The detected layout, or null on failure.
 		std::unique_ptr<IObjectsLayout> Layout;
-		/// @brief Per-stage observations supporting the outcome.
-		std::vector<std::string> Evidence;
-		/// @brief Reasons candidates were rejected.
-		std::vector<std::string> Failures;
-		/// @brief Offset-level detail behind Evidence. Intended for Debug logging;
-		///        Evidence stays readable without it.
+		/// @brief One line naming the selected layout, or why none was. Always set.
+		///        Carries no function-name prefix; the caller supplies its own.
+		std::string Summary;
+		/// @brief Candidate scores, resolved offsets and rejection reasons. Intended for Debug.
 		std::vector<std::string> Details;
 	};
 
@@ -576,12 +576,10 @@ namespace LayoutDetection
 		double Confidence = 0.0;
 		/// @brief The detected layout, or null on failure.
 		std::unique_ptr<INamesLayout> Layout;
-		/// @brief Per-stage observations supporting the outcome.
-		std::vector<std::string> Evidence;
-		/// @brief Reasons candidates were rejected.
-		std::vector<std::string> Failures;
-		/// @brief Offset-level detail behind Evidence. Intended for Debug logging;
-		///        Evidence stays readable without it.
+		/// @brief One line naming the selected layout, or why none was. Always set.
+		///        Carries no function-name prefix; the caller supplies its own.
+		std::string Summary;
+		/// @brief Candidate scores, resolved offsets and rejection reasons. Intended for Debug.
 		std::vector<std::string> Details;
 	};
 
@@ -598,12 +596,10 @@ namespace LayoutDetection
 		int32 SamplesTested = 0;
 		/// @brief Number of item slots that held a self-consistent object.
 		int32 SamplesValid = 0;
-		/// @brief Per-stage observations supporting the outcome.
-		std::vector<std::string> Evidence;
-		/// @brief Reasons the layout was rejected.
-		std::vector<std::string> Failures;
-		/// @brief Offset-level detail behind Evidence. Intended for Debug logging;
-		///        Evidence stays readable without it.
+		/// @brief One line stating the sample outcome, or the first check that failed. Always
+		///        set. Carries no function-name prefix; the caller supplies its own.
+		std::string Summary;
+		/// @brief The offsets applied, plus any further failed checks. Intended for Debug.
 		std::vector<std::string> Details;
 	};
 
@@ -620,12 +616,10 @@ namespace LayoutDetection
 		int32 SamplesTested = 0;
 		/// @brief Number of entries that decoded coherently.
 		int32 SamplesValid = 0;
-		/// @brief Per-stage observations supporting the outcome.
-		std::vector<std::string> Evidence;
-		/// @brief Reasons the layout was rejected.
-		std::vector<std::string> Failures;
-		/// @brief Offset-level detail behind Evidence. Intended for Debug logging;
-		///        Evidence stays readable without it.
+		/// @brief One line stating the decode outcome, or the first check that failed. Always
+		///        set. Carries no function-name prefix; the caller supplies its own.
+		std::string Summary;
+		/// @brief The offsets applied, plus any further failed checks. Intended for Debug.
 		std::vector<std::string> Details;
 	};
 
@@ -686,6 +680,9 @@ namespace LayoutDetection
 	 * Emits the candidate header as pointer and int32 slots with an ASCII view,
 	 * collapsing runs of zeros, then follows each readable pointer and dumps the
 	 * start of its target. Safe to call on any address.
+	 *
+	 * Logs at Debug, so a release build emits nothing: the dump runs to hundreds of
+	 * lines and is only ever read when diagnosing a failed detection offline.
 	 *
 	 * @param CandidateAddress Address to dump.
 	 * @param Tag Short label prefixed to every emitted line, such as "GObjects".

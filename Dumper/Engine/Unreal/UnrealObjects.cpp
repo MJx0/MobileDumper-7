@@ -284,19 +284,19 @@ void* UEObject::GetVft() const
 EObjectFlags UEObject::GetFlags() const
 {
 	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + GOffsets.UObject.Flags;
-	return GDecryptCallbacks.UObject.Flags(GMemory->Read<EObjectFlags>(Addr), Addr);
+	return GDecryptCallbacks.UObject.Flags({.Address = Addr, .RawValue = GMemory->Read<EObjectFlags>(Addr)});
 }
 
 int32 UEObject::GetIndex() const
 {
 	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + GOffsets.UObject.Index;
-	return GDecryptCallbacks.UObject.Index(GMemory->Read<int32>(Addr), Addr);
+	return GDecryptCallbacks.UObject.Index({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
 }
 
 UEClass UEObject::GetClass() const
 {
 	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + GOffsets.UObject.Class;
-	return UEClass(reinterpret_cast<void*>(GDecryptCallbacks.UObject.Class(GMemory->Read<uintptr_t>(Addr), Addr)));
+	return UEClass(reinterpret_cast<void*>(GDecryptCallbacks.UObject.Class({.Address = Addr, .RawValue = GMemory->Read<uintptr_t>(Addr)})));
 }
 
 FName UEObject::GetFName() const
@@ -307,7 +307,7 @@ FName UEObject::GetFName() const
 UEObject UEObject::GetOuter() const
 {
 	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + GOffsets.UObject.Outer;
-	return UEObject(reinterpret_cast<void*>(GDecryptCallbacks.UObject.Outer(GMemory->Read<uintptr_t>(Addr), Addr)));
+	return UEObject(reinterpret_cast<void*>(GDecryptCallbacks.UObject.Outer({.Address = Addr, .RawValue = GMemory->Read<uintptr_t>(Addr)})));
 }
 
 int32 UEObject::GetPackageIndex() const

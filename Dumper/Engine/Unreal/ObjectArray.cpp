@@ -23,13 +23,13 @@ int32 ObjectArray::Num()
 		FFixedUObjectArrayLayout* objLayout = reinterpret_cast<FFixedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
 
 		const uintptr_t Addr = GObjects + objLayout->NumObjects;
-		return GDecryptCallbacks.FixedObjects.NumObjects(GMemory->Read<int32>(Addr), Addr);
+		return GDecryptCallbacks.FixedObjects.NumObjects({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
 	}
 
 	FChunkedUObjectArrayLayout* objLayout = reinterpret_cast<FChunkedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
 
 	const uintptr_t Addr = GObjects + objLayout->NumElements;
-	return GDecryptCallbacks.ChunkedObjects.NumElements(GMemory->Read<int32>(Addr), Addr);
+	return GDecryptCallbacks.ChunkedObjects.NumElements({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
 }
 
 template <typename UEType>

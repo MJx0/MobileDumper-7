@@ -46,6 +46,7 @@
 #include "Profile/CustomProfiles/Shared/PUBG.h"
 #include "Profile/CustomProfiles/Shared/DeltaForce.h"
 #include "Profile/CustomProfiles/Shared/Valorant.h"
+#include "Profile/CustomProfiles/Shared/NewState.h"
 
 inline std::vector<std::shared_ptr<IProfile>> UECustomProfiles;
 
@@ -56,6 +57,7 @@ std::vector<std::shared_ptr<IProfile>>& GetUECustomProfiles()
 		UECustomProfiles.push_back(std::make_shared<PUBGProfile>());
 		UECustomProfiles.push_back(std::make_shared<DeltaForceProfile>());
 		UECustomProfiles.push_back(std::make_shared<ValorantProfile>());
+		UECustomProfiles.push_back(std::make_shared<NewStateProfile>());
 	}
 
 	return UECustomProfiles;
@@ -399,7 +401,6 @@ int main(int Argc, char** Args)
 	GLogger.FmtWrite(ELogLevel::Info, "Output Directory: {}\n", OutputDir);
 	GLogger.FmtWrite(ELogLevel::Info, "Dump UE Library: {}\n", bDumpLib ? "Yes" : "No");
 	GLogger.FmtWrite(ELogLevel::Info, "Suspend Game: {}\n", bSuspendGame ? "Yes" : "No");
-	GLogger.FmtWrite(ELogLevel::Info, "==========================\n");
 
 	bool bSuccess = RunDump(GamePid, GamePackge, MemOp, OutputDir.c_str(), bDumpLib, bSuspendGame);
 	return bSuccess ? 0 : 1;
@@ -486,17 +487,16 @@ bool ChooseUserProcess(pid_t& OutPid, std::string& OutId)
 			continue;
 		if (ProcName.find('.') == std::string::npos)
 			continue;
-		if (ProcName.compare(0, 7, "vendor.") == 0)
+
+		// An empty set means neither lookup worked, so filter nothing rather than hiding
+		// every process.
+		const std::unordered_set<std::string>& UserPackages = Utils::Android::GetUserInstalledPackages();
+		if (!UserPackages.empty() && !UserPackages.contains(ProcName))
 			continue;
-		if (ProcName.compare(0, 8, "android.") == 0)
-			continue;
-		if (ProcName.compare(0, 7, "google.") == 0)
-			continue;
-		if (ProcName.compare(0, 12, "com.android.") == 0)
-			continue;
-		if (ProcName.compare(0, 11, "com.google.") == 0)
-			continue;
-		if (ProcName.compare(0, 14, "org.lineageos.") == 0)
+
+		// Only matters when the set above fell back to scanning the data partition, which cannot
+		// tell an updated system app from an installed one. Both namespaces are reserved.
+		if (ProcName.starts_with("com.android.") || ProcName.starts_with("com.google.android."))
 			continue;
 
 		// User apps have external data directory
@@ -536,9 +536,9 @@ bool ChooseUserProcess(pid_t& OutPid, std::string& OutId)
 
 	for (const auto& Process : UserProcesses)
 	{
-		MaxProcessNameLength = std::max(MaxProcessNameLength, Process.Name.length());
-		MaxPidLength         = std::max(MaxPidLength, std::to_string(Process.Pid).length());
-		bAnyRoleKnown |= Process.Role != "unregistered";
+		MaxProcessNameLength  = std::max(MaxProcessNameLength, Process.Name.length());
+		MaxPidLength          = std::max(MaxPidLength, std::to_string(Process.Pid).length());
+		bAnyRoleKnown        |= Process.Role != "unregistered";
 	}
 
 	for (size_t i = 0; i < UserProcesses.size(); ++i)
@@ -602,7 +602,7 @@ bool ChooseProcessFromMultiple(const std::vector<pid_t>& Pids, const std::string
 	for (const pid_t Pid : Pids)
 	{
 		Roles.push_back(Utils::Android::GetProcessRole(Pid, PackageName));
-		MaxPidLength = std::max(MaxPidLength, std::to_string(Pid).length());
+		MaxPidLength   = std::max(MaxPidLength, std::to_string(Pid).length());
 		bAnyRoleKnown |= Roles.back() != "unregistered";
 	}
 

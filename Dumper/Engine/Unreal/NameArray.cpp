@@ -48,7 +48,7 @@ int32 NameArray::GetNumElements()
 		return 0;
 
 	const uintptr_t Addr = GNames + NamesLayout->NumElements;
-	return GDecryptCallbacks.NameArray.NumElements(GMemory->Read<int32>(Addr), Addr);
+	return GDecryptCallbacks.NameArray.NumElements({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
 }
 
 int32 NameArray::GetNumChunks()
@@ -58,7 +58,7 @@ int32 NameArray::GetNumChunks()
 		return 0;
 
 	const uintptr_t Addr = GNames + NamesLayout->MaxChunkIndex;
-	return GDecryptCallbacks.NamePool.MaxChunkIndex(GMemory->Read<int32>(Addr), Addr);
+	return GDecryptCallbacks.NamePool.MaxChunkIndex({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
 }
 
 int32 NameArray::GetByteCursor()
@@ -68,7 +68,7 @@ int32 NameArray::GetByteCursor()
 		return 0;
 
 	const uintptr_t Addr = GNames + NamesLayout->ByteCursor;
-	return GDecryptCallbacks.NamePool.ByteCursor(GMemory->Read<int32>(Addr), Addr);
+	return GDecryptCallbacks.NamePool.ByteCursor({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
 }
 
 FNameEntry NameArray::GetNameEntry(const void* Name)

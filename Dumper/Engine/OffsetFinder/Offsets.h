@@ -253,7 +253,7 @@ struct FInSDKOffsets
 
 	struct
 	{
-		int32 Size             = -1;
+		int32 SizeOf           = -1;
 		int32 TextData         = -1;
 		int32 InTextDataString = -1;
 	} FText;
@@ -277,6 +277,11 @@ struct FInSDKOffsets
 	struct
 	{
 		int32 SizeOf = -1;
+	} WeakObjectProperty;
+
+	struct
+	{
+		int32 SizeOf = -1;
 	} FieldPathProperty;
 
 	struct
@@ -291,6 +296,7 @@ private:
 	void InitDatatableRowMapOffset();
 	void InitUEngineAndUWorld();
 	void InitFText();
+	void InitWeakObjectPtrSize();
 	void InitTDelegateSize();
 	void InitFFieldPathSize();
 	void InitTMulticastInlineDelegateSize();

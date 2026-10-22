@@ -760,6 +760,76 @@ namespace Utils
 			return Pids;
 		}
 
+		/*
+		 * Fallback only. An install directory is named "<package>-<random>", and since Android 11
+		 * it sits one level deeper inside a "~~<random>" parent; both layouts are walked.
+		 *
+		 * The package name is everything before the FIRST '-', not the last: OEM builds append
+		 * their own marker, so com.android.deskclock installs as
+		 * "com.android.deskclock-oui-<random>". A package name can never contain '-' itself.
+		 *
+		 * This sees every app on the data partition, which includes updated system apps, so it
+		 * over-reports next to the PackageManager query below.
+		 */
+		void CollectInstallDirs(const std::string& Path, std::unordered_set<std::string>& Out, bool bDescend)
+		{
+			DIR* Dir = opendir(Path.c_str());
+			if (!Dir)
+				return;
+
+			struct dirent* Entry;
+			while ((Entry = readdir(Dir)) != nullptr)
+			{
+				const std::string Name(Entry->d_name);
+				if (Name == "." || Name == "..")
+					continue;
+
+				if (bDescend && Name.starts_with("~~"))
+				{
+					CollectInstallDirs(Path + "/" + Name, Out, false);
+					continue;
+				}
+
+				const size_t Dash = Name.find('-');
+				if (Dash != std::string::npos && Dash > 0)
+					Out.emplace(Name.substr(0, Dash));
+			}
+
+			closedir(Dir);
+		}
+
+		const std::unordered_set<std::string>& GetUserInstalledPackages()
+		{
+			static const std::unordered_set<std::string> Packages = []
+			{
+				std::unordered_set<std::string> Result;
+
+				// PackageManager's own notion of a third-party package, so an updated system app
+				// is still reported as a system app. No process spawned.
+				std::string Output;
+				if (BinderShell::Run("package", {"list", "packages", "-3"}, Output))
+				{
+					std::istringstream Lines(Output);
+					std::string Line;
+					while (std::getline(Lines, Line))
+					{
+						while (!Line.empty() && (Line.back() == '\r' || Line.back() == '\n'))
+							Line.pop_back();
+
+						if (Line.starts_with("package:") && Line.size() > 8)
+							Result.emplace(Line.substr(8));
+					}
+				}
+
+				if (Result.empty())
+					CollectInstallDirs("/data/app", Result, true);
+
+				return Result;
+			}();
+
+			return Packages;
+		}
+
 		// "ProcessRecord{<hex id> <pid>:<name>/<uid string>}", same text either way Output came from.
 		void ParseProcessRecords(const std::string& Output, std::unordered_map<pid_t, std::string>& OutMap)
 		{

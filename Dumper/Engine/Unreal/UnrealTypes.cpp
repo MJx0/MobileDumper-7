@@ -122,7 +122,7 @@ std::string FName::ToValidString() const
 int32 FName::GetCompIdx() const
 {
 	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Address) + GOffsets.FName.CompIdx;
-	return GDecryptCallbacks.FName.CompIdx(GMemory->Read<int32>(Addr), Addr);
+	return GDecryptCallbacks.FName.CompIdx({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
 }
 
 uint32 FName::GetNumber() const
@@ -133,9 +133,9 @@ uint32 FName::GetNumber() const
 	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Address) + GOffsets.FName.Number;
 
 	if (InternalSettings::bUseNamePool)
-		return GDecryptCallbacks.FName.Number(GMemory->Read<uint32>(Addr), Addr); // The number is uint32 on versions <= UE4.23
+		return GDecryptCallbacks.FName.Number({.Address = Addr, .RawValue = GMemory->Read<uint32>(Addr)}); // The number is uint32 on versions <= UE4.23
 
-	return GDecryptCallbacks.FName.Number(static_cast<uint32>(GMemory->Read<int32>(Addr)), Addr);
+	return GDecryptCallbacks.FName.Number({.Address = Addr, .RawValue = static_cast<uint32>(GMemory->Read<int32>(Addr))});
 }
 
 bool FName::operator==(FName Other) const

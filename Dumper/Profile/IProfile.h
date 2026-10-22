@@ -67,28 +67,30 @@ public:
 	/// @brief Resolves the layout of the global objects structure.
 	/// @param ObjectsPtr Address of the global objects structure.
 	/// @param Out Receives the resolved objects layout on success; set to @c nullptr on failure.
+	/// @param OutError Optional. Receives why resolution failed, possibly several lines separated by '\n'. Left untouched on success.
 	/// @return @c true if a fixed or chunked objects layout was successfully resolved; otherwise @c false.
-	inline virtual bool ResolveGObjectsLayout(uintptr_t ObjectsPtr, std::unique_ptr<IObjectsLayout>& Out) const
+	inline virtual bool ResolveGObjectsLayout(uintptr_t ObjectsPtr, std::unique_ptr<IObjectsLayout>& Out, std::string* OutError = nullptr) const
 	{
 		Out.reset();
 
 		LayoutDetection::FObjectsDetectionResult Result = LayoutDetection::DetectObjectsLayout(ObjectsPtr);
 
-		for (const std::string& Line : Result.Details)
-			GLogger.FmtWrite(ELogLevel::Debug, "{}\n", Line);
-
-		for (const std::string& Line : Result.Evidence)
-			GLogger.FmtWrite(ELogLevel::Info, "{}\n", Line);
-
 		if (!Result.bSuccess)
 		{
-			for (const std::string& Line : Result.Failures)
-				GLogger.FmtWrite(ELogLevel::Debug, "{}\n", Line);
+			if (OutError)
+			{
+				*OutError = Result.Summary;
+				for (const std::string& Line : Result.Details)
+					OutError->append("\n").append(Line);
+			}
 
 			return false;
 		}
 
-		GLogger.FmtWrite(ELogLevel::Info, "ResolveGObjectsLayout: GObjects Layout resolved by detection ({:.1f}% confidence).\n", Result.Confidence * 100.0);
+		for (const std::string& Line : Result.Details)
+			GLogger.FmtWrite(ELogLevel::Debug, "ResolveGObjectsLayout: {}\n", Line);
+
+		GLogger.FmtWrite(ELogLevel::Info, "ResolveGObjectsLayout: Detected {}\n", Result.Summary);
 		Out = std::move(Result.Layout);
 		return true;
 	}
@@ -157,28 +159,30 @@ public:
 	/// @brief Resolves the layout of the global names structure.
 	/// @param NamesPtr Address of the global names structure.
 	/// @param Out Receives the resolved names layout on success; set to @c nullptr on failure.
+	/// @param OutError Optional. Receives why resolution failed, possibly several lines separated by '\n'. Left untouched on success.
 	/// @return @c true if a names pool or names array layout was successfully resolved; otherwise @c false.
-	inline virtual bool ResolveGNamesLayout(uintptr_t NamesPtr, std::unique_ptr<INamesLayout>& Out) const
+	inline virtual bool ResolveGNamesLayout(uintptr_t NamesPtr, std::unique_ptr<INamesLayout>& Out, std::string* OutError = nullptr) const
 	{
 		Out.reset();
 
 		LayoutDetection::FNamesDetectionResult Result = LayoutDetection::DetectNamesLayout(NamesPtr);
 
-		for (const std::string& Line : Result.Details)
-			GLogger.FmtWrite(ELogLevel::Debug, "ResolveGNamesLayout: {}\n", Line);
-
-		for (const std::string& Line : Result.Evidence)
-			GLogger.FmtWrite(ELogLevel::Info, "ResolveGNamesLayout: {}\n", Line);
-
 		if (!Result.bSuccess)
 		{
-			for (const std::string& Line : Result.Failures)
-				GLogger.FmtWrite(ELogLevel::Debug, "ResolveGNamesLayout: {}\n", Line);
+			if (OutError)
+			{
+				*OutError = Result.Summary;
+				for (const std::string& Line : Result.Details)
+					OutError->append("\n").append(Line);
+			}
 
 			return false;
 		}
 
-		GLogger.FmtWrite(ELogLevel::Info, "ResolveGNamesLayout: GNames Layout resolved by detection ({:.1f}% confidence).\n", Result.Confidence * 100.0);
+		for (const std::string& Line : Result.Details)
+			GLogger.FmtWrite(ELogLevel::Debug, "ResolveGNamesLayout: {}\n", Line);
+
+		GLogger.FmtWrite(ELogLevel::Info, "ResolveGNamesLayout: Detected {}\n", Result.Summary);
 		Out = std::move(Result.Layout);
 		return true;
 	}
@@ -226,22 +230,22 @@ public:
 		{
 			const FFixedUObjectArrayLayout* L = static_cast<const FFixedUObjectArrayLayout*>(Layout.get());
 			const uintptr_t ObjectsAddr       = ObjectsPtr + L->Objects;
-			uintptr_t BaseAddr                = GDecryptCallbacks.FixedObjects.Objects(GMemory->Read<uintptr_t>(ObjectsAddr), ObjectsAddr);
+			uintptr_t BaseAddr                = GDecryptCallbacks.FixedObjects.Objects({.Address = ObjectsAddr, .RawValue = GMemory->Read<uintptr_t>(ObjectsAddr)});
 			uintptr_t ItemAddr                = BaseAddr + Index * L->FUObjectItem.Size;
 			const uintptr_t ObjectAddr        = ItemAddr + L->FUObjectItem.Object;
-			return GDecryptCallbacks.FixedObjects.FUObjectItem.Object(GMemory->Read<uintptr_t>(ObjectAddr), ObjectAddr);
+			return GDecryptCallbacks.FixedObjects.FUObjectItem.Object({.Address = ObjectAddr, .RawValue = GMemory->Read<uintptr_t>(ObjectAddr)});
 		}
 
 		const FChunkedUObjectArrayLayout* L = static_cast<const FChunkedUObjectArrayLayout*>(Layout.get());
 		const int32 ChunkIndex              = Index / L->ElementsPerChunk;
 		const int32 InChunkIdx              = Index % L->ElementsPerChunk;
 		const uintptr_t ObjectsAddr         = ObjectsPtr + L->Objects;
-		uintptr_t ChunksBase                = GDecryptCallbacks.ChunkedObjects.Objects(GMemory->Read<uintptr_t>(ObjectsAddr), ObjectsAddr);
+		uintptr_t ChunksBase                = GDecryptCallbacks.ChunkedObjects.Objects({.Address = ObjectsAddr, .RawValue = GMemory->Read<uintptr_t>(ObjectsAddr)});
 		uintptr_t ChunkAddr                 = GMemory->Read<uintptr_t>(ChunksBase + ChunkIndex * sizeof(void*));
 		uintptr_t ItemAddr                  = ChunkAddr + InChunkIdx * L->FUObjectItem.Size;
 
 		const uintptr_t ObjectAddr = ItemAddr + L->FUObjectItem.Object;
-		return GDecryptCallbacks.ChunkedObjects.FUObjectItem.Object(GMemory->Read<uintptr_t>(ObjectAddr), ObjectAddr);
+		return GDecryptCallbacks.ChunkedObjects.FUObjectItem.Object({.Address = ObjectAddr, .RawValue = GMemory->Read<uintptr_t>(ObjectAddr)});
 	}
 
 	/**
@@ -321,7 +325,7 @@ public:
 			FNameArrayLayout* Layout = reinterpret_cast<FNameArrayLayout*>(NamesLayout.get());
 
 			const uintptr_t IndexAddr = NameEntry + Layout->FNameEntry.Index;
-			const int32 NameIdx       = static_cast<int32>(GDecryptCallbacks.NameArray.FNameEntry.Index(GMemory->Read<uint32>(IndexAddr), IndexAddr));
+			const int32 NameIdx       = static_cast<int32>(GDecryptCallbacks.NameArray.FNameEntry.Index({.Address = IndexAddr, .RawValue = GMemory->Read<uint32>(IndexAddr)}));
 
 			IsWide  = Layout->FNameEntry.GetIsWide ? Layout->FNameEntry.GetIsWide(NameIdx) : (NameIdx & 1);
 			StrLen  = GSettings.General.MaxFNameLen;
@@ -334,7 +338,7 @@ public:
 			auto ReadEntryHeader = [&Layout](uintptr_t Entry) -> uint16
 			{
 				const uintptr_t HeaderAddr = Entry + Layout->FNameEntry.Header;
-				return GDecryptCallbacks.NamePool.FNameEntry.Header(GMemory->Read<uint16>(HeaderAddr), HeaderAddr);
+				return GDecryptCallbacks.NamePool.FNameEntry.Header({.Address = HeaderAddr, .RawValue = GMemory->Read<uint16>(HeaderAddr)});
 			};
 
 			uint16 HeaderWithoutNumber = ReadEntryHeader(NameEntry);

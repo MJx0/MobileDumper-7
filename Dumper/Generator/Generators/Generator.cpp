@@ -103,109 +103,109 @@ bool Generator::InitUEAnalyzerKitty(std::string& OutErrorString)
 
 bool Generator::InitObjects(std::string& OutErrorString)
 {
-	// Resolves and then independently validates one interpretation of a candidate.
-	// Every stage reports its outcome, so a failing run shows exactly how far it got.
-	auto TryGObjectsAt = [](uintptr_t ArrayAddress, const char* Interpretation) -> bool
+	auto TryGObjectsAt = [](uintptr_t ArrayAddress, const char* Interpretation, ELogLevel DiagLevel) -> bool
 	{
-		if (!GProfile->ResolveGObjectsLayout(ArrayAddress, GLayouts.ObjectsLayout))
+		const auto Report = [Interpretation, DiagLevel](const std::string& Reason)
 		{
-			GLogger.FmtWrite(ELogLevel::Info, "InitObjects: [{}] Resolve failed - no layout could be derived at 0x{:X}\n", Interpretation, ArrayAddress);
+			std::istringstream Lines(Reason);
+			std::string Line;
+			while (std::getline(Lines, Line))
+				GLogger.FmtWrite(DiagLevel, "InitObjects: [{}] {}\n", Interpretation, Line);
+		};
+
+		std::string ResolveError;
+		if (!GProfile->ResolveGObjectsLayout(ArrayAddress, GLayouts.ObjectsLayout, &ResolveError))
+		{
+			// An overriding profile is free to ignore OutError, so cover an empty reason.
+			Report(ResolveError.empty() ? fmt::format("No layout could be derived at 0x{:X}", ArrayAddress) : ResolveError);
 			return false;
 		}
 
-		if (!GLayouts.ObjectsLayout)
+		// An overriding profile can return true and still leave the layout unusable.
+		if (!GLayouts.ObjectsLayout || !GLayouts.ObjectsLayout->IsValid())
 		{
-			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: [{}] Resolve succeeded but left the layout null!\n", Interpretation);
+			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: [{}] ResolveGObjectsLayout reported success for 0x{:X} but left the layout incomplete\n", Interpretation, ArrayAddress);
 			return false;
 		}
-
-		if (!GLayouts.ObjectsLayout->IsValid())
-		{
-			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: [{}] Resolve succeeded but the layout is missing required offsets!\n", Interpretation);
-			return false;
-		}
-
-		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: [{}] Resolve succeeded, layout is {}\n", Interpretation, GLayouts.ObjectsLayout->GetType() == EObjectsType::Chunked ? "Chunked" : "Fixed");
 
 		const LayoutDetection::FObjectsTestResult Test = LayoutDetection::TestObjectsLayout(ArrayAddress, GLayouts.ObjectsLayout.get());
 
-		for (const std::string& Line : Test.Details)
-			GLogger.FmtWrite(ELogLevel::Info, "{}\n", Line);
-
-		for (const std::string& Line : Test.Evidence)
-			GLogger.FmtWrite(ELogLevel::Info, "{}\n", Line);
-
 		if (!Test.bValid)
 		{
-			for (const std::string& Line : Test.Failures)
-				GLogger.FmtWrite(ELogLevel::Info, "{}\n", Line);
+			Report(fmt::format("Layout resolved at 0x{:X} but failed validation: {}", ArrayAddress, Test.Summary));
+			for (const std::string& Line : Test.Details)
+				Report(Line);
 
-			GLogger.FmtWrite(ELogLevel::Info, "InitObjects: [{}] Validation failed ({}/{} samples, {:.1f}%)\n", Interpretation, Test.SamplesValid, Test.SamplesTested, Test.Confidence * 100.0);
 			return false;
 		}
 
-		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: [{}] Validation passed ({}/{} samples, {:.1f}%)\n", Interpretation, Test.SamplesValid, Test.SamplesTested, Test.Confidence * 100.0);
+		for (const std::string& Line : Test.Details)
+			GLogger.FmtWrite(ELogLevel::Debug, "InitObjects: [{}] {}\n", Interpretation, Line);
+
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: [{}] Verified: {}\n", Interpretation, Test.Summary);
 		return true;
 	};
 
-	auto InitGObjectsVars = [&TryGObjectsAt](uintptr_t Address, const std::string& FindMethod, float Confidence) -> bool
+	auto InitGObjectsVars = [&TryGObjectsAt](uintptr_t Address, const std::string& FindMethod, float Confidence, ELogLevel DiagLevel) -> bool
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Testing GObjects candidate 0x{:X} ({} confidence {:.1f}%)...\n", Address, FindMethod, Confidence * 100.0f);
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Trying candidate 0x{:X} from {} ({:.1f}% confidence)\n", Address, FindMethod, Confidence * 100.0f);
 
 		uintptr_t ObjectsOffset = GMemory->GetUnrealModule().AddressToOffset(Address);
 		uintptr_t DecAddress    = Address;
 		GProfile->DecryptGObjects(DecAddress);
 		if (DecAddress != Address)
 		{
-			GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Decrypted GObjects pointer to 0x{:X}.\n", DecAddress);
+			GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Decrypted 0x{:X} -> 0x{:X}\n", Address, DecAddress);
 			Address = DecAddress;
 		}
 
 		GObjects = Address;
-		if (TryGObjectsAt(GObjects, "Direct"))
+		if (TryGObjectsAt(GObjects, "Direct", DiagLevel))
 		{
 			GInSDKOffsets.Statics.GObjects       = ObjectsOffset;
 			InternalSettings::bIsGObjectsPointer = false;
-			GLogger.FmtWrite(ELogLevel::Info, "InitObjects: GObjects accepted at 0x{:X} (Direct)\n", GObjects);
 			return true;
 		}
 
 		GObjects = GMemory->Read<uintptr_t>(GObjects);
 		if (!GMemory->IsAddressReadable(GObjects))
 		{
-			GLogger.FmtWrite(ELogLevel::Info, "InitObjects: [Dereference] Skipped - 0x{:X} does not hold a readable pointer.\n", Address);
+			GLogger.FmtWrite(DiagLevel, "InitObjects: [Dereference] Skipped, 0x{:X} does not hold a readable pointer\n", Address);
 			return false;
 		}
 
-		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Dereferencing 0x{:X} -> 0x{:X}\n", Address, GObjects);
+		GLogger.FmtWrite(ELogLevel::Debug, "InitObjects: [Dereference] Following 0x{:X} -> 0x{:X}\n", Address, GObjects);
 
-		if (TryGObjectsAt(GObjects, "Dereference"))
+		if (TryGObjectsAt(GObjects, "Dereference", DiagLevel))
 		{
 			GInSDKOffsets.Statics.GObjects       = ObjectsOffset;
 			InternalSettings::bIsGObjectsPointer = true;
-			GLogger.FmtWrite(ELogLevel::Info, "InitObjects: GObjects accepted at 0x{:X} (Dereference of 0x{:X})\n", GObjects, Address);
 			return true;
 		}
 
 		return false;
 	};
 
+	GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Resolving GObjects...\n");
+
 	GObjects = GProfile->GetGObjects();
+
+	// InitGObjectsVars reassigns GObjects as it tries each interpretation, so the address the
+	// profile actually returned has to be kept for the messages below.
+	const uintptr_t ProfileObjects = GObjects;
 
 	bool bSuccess = false;
 
-	if (GMemory->IsAddressReadable(GObjects))
+	if (GMemory->IsAddressReadable(ProfileObjects))
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: IProfile::GetGObjects() returned valid address (0x{:X})\n", GObjects);
-
-		bSuccess = InitGObjectsVars(GObjects, "User Profile", 1.00f);
+		bSuccess = InitGObjectsVars(ProfileObjects, "IProfile::GetGObjects", 1.00f, ELogLevel::Warning);
 
 		if (!bSuccess)
-			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: IProfile::GetGObjects() returned address 0x{:X} did not validate, falling back to UEAnalyzerKitty...\n", GObjects);
+			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: IProfile::GetGObjects() returned 0x{:X}, but neither it nor its dereference held an object array - falling back to UEAnalyzerKitty\n", ProfileObjects);
 	}
 	else
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: IProfile::GetGObjects() returned invalid address (0x{:X}), falling back to UEAnalyzerKitty...\n", GObjects);
+		GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: IProfile::GetGObjects() returned unreadable address 0x{:X} - falling back to UEAnalyzerKitty\n", ProfileObjects);
 	}
 
 	if (!bSuccess)
@@ -213,20 +213,23 @@ bool Generator::InitObjects(std::string& OutErrorString)
 		auto Result = Generator::Analyzer.Find(UEAnalyzerKitty::Targets::GUObjectArray);
 		if (Result.Candidates.empty())
 		{
-			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: No GUObjectArray candidates found, retrying with ObjObjects...\n");
+			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: No GUObjectArray candidate found, retrying as ObjObjects\n");
 			Result = Generator::Analyzer.Find(UEAnalyzerKitty::Targets::ObjObjects);
 		}
 
-		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: UEAnalyzerKitty returned {} GObjects candidate(s).\n", Result.Candidates.size());
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: UEAnalyzerKitty offered {} candidate(s)\n", Result.Candidates.size());
 
 		for (const auto& Candidate : Result.Candidates)
 		{
-			if (InitGObjectsVars(Candidate.Address, "KittyUEAnalyzer", Candidate.Confidence))
+			if (InitGObjectsVars(Candidate.Address, "UEAnalyzerKitty", Candidate.Confidence, ELogLevel::Debug))
 			{
 				bSuccess = true;
 				break;
 			}
 		}
+
+		if (!bSuccess)
+			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: All UEAnalyzerKitty candidates were rejected\n");
 	}
 
 	if (!bSuccess)
@@ -236,35 +239,34 @@ bool Generator::InitObjects(std::string& OutErrorString)
 		return false;
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "GObjects Pointer: 0x{:X}\n", GObjects);
-	GLogger.FmtWrite(ELogLevel::Info, "GObjects Offset: 0x{:X}\n", GInSDKOffsets.Statics.GObjects);
+	GLogger.FmtWrite(ELogLevel::Info, "InitObjects: GObjects at 0x{:X}, module offset 0x{:X}{}\n", GObjects, GInSDKOffsets.Statics.GObjects, InternalSettings::bIsGObjectsPointer ? ", reached by dereference" : "");
 
 	if (GLayouts.ObjectsLayout->GetType() == EObjectsType::Chunked)
 	{
 		const FChunkedUObjectArrayLayout* L = static_cast<const FChunkedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
-		GLogger.FmtWrite(ELogLevel::Info, "GObjects Type: FChunkedFixedUObjectArray\n");
-		GLogger.FmtWrite(ELogLevel::Info, "FChunkedFixedUObjectArray::Objects: 0x{:X} -> 0x{:X}\n", (uint32_t)L->Objects, GDecryptCallbacks.ChunkedObjects.Objects(GMemory->Read<uintptr_t>(GObjects + L->Objects), GObjects + L->Objects));
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Layout FChunkedFixedUObjectArray\n");
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   Objects +0x{:03X} -> 0x{:X}\n", (uint32_t)L->Objects, GDecryptCallbacks.ChunkedObjects.Objects({.Address = GObjects + L->Objects, .RawValue = GMemory->Read<uintptr_t>(GObjects + L->Objects)}));
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   NumElements +0x{:03X} -> {}\n", (uint32_t)L->NumElements, GDecryptCallbacks.ChunkedObjects.NumElements({.Address = GObjects + L->NumElements, .RawValue = GMemory->Read<int32>(GObjects + L->NumElements)}));
 		if (L->MaxElements != -1)
-			GLogger.FmtWrite(ELogLevel::Info, "FChunkedFixedUObjectArray::MaxElements: 0x{:X} -> 0x{:X} (Optional)\n", (uint32_t)L->MaxElements, GDecryptCallbacks.ChunkedObjects.MaxElements(GMemory->Read<int32>(GObjects + L->MaxElements), GObjects + L->MaxElements));
-		GLogger.FmtWrite(ELogLevel::Info, "FChunkedFixedUObjectArray::NumElements: 0x{:X} -> 0x{:X}\n", (uint32_t)L->NumElements, GDecryptCallbacks.ChunkedObjects.NumElements(GMemory->Read<int32>(GObjects + L->NumElements), GObjects + L->NumElements));
-		if (L->MaxChunks != -1)
-			GLogger.FmtWrite(ELogLevel::Info, "FChunkedFixedUObjectArray::MaxChunks: 0x{:X} -> 0x{:X} (Optional)\n", (uint32_t)L->MaxChunks, GDecryptCallbacks.ChunkedObjects.MaxChunks(GMemory->Read<int32>(GObjects + L->MaxChunks), GObjects + L->MaxChunks));
+			GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   MaxElements +0x{:03X} -> {} (optional)\n", (uint32_t)L->MaxElements, GDecryptCallbacks.ChunkedObjects.MaxElements({.Address = GObjects + L->MaxElements, .RawValue = GMemory->Read<int32>(GObjects + L->MaxElements)}));
 		if (L->NumChunks != -1)
-			GLogger.FmtWrite(ELogLevel::Info, "FChunkedFixedUObjectArray::NumChunks: 0x{:X} -> 0x{:X} (Optional)\n", (uint32_t)L->NumChunks, GDecryptCallbacks.ChunkedObjects.NumChunks(GMemory->Read<int32>(GObjects + L->NumChunks), GObjects + L->NumChunks));
-		GLogger.FmtWrite(ELogLevel::Info, "FChunkedFixedUObjectArray::ElementsPerChunk: 0x{:X}\n", (uint32_t)L->ElementsPerChunk);
-		GLogger.FmtWrite(ELogLevel::Info, "FUObjectItem::Object: 0x{:X}\n", (uint32_t)L->FUObjectItem.Object);
-		GLogger.FmtWrite(ELogLevel::Info, "FUObjectItem::Size: 0x{:X}\n", (uint32_t)L->FUObjectItem.Size);
+			GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   NumChunks +0x{:03X} -> {} (optional)\n", (uint32_t)L->NumChunks, GDecryptCallbacks.ChunkedObjects.NumChunks({.Address = GObjects + L->NumChunks, .RawValue = GMemory->Read<int32>(GObjects + L->NumChunks)}));
+		if (L->MaxChunks != -1)
+			GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   MaxChunks +0x{:03X} -> {} (optional)\n", (uint32_t)L->MaxChunks, GDecryptCallbacks.ChunkedObjects.MaxChunks({.Address = GObjects + L->MaxChunks, .RawValue = GMemory->Read<int32>(GObjects + L->MaxChunks)}));
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   ElementsPerChunk = 0x{:X}\n", (uint32_t)L->ElementsPerChunk);
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   FUObjectItem::Object +0x{:03X}\n", (uint32_t)L->FUObjectItem.Object);
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   FUObjectItem::Size = 0x{:X}\n", (uint32_t)L->FUObjectItem.Size);
 	}
 	else
 	{
 		const FFixedUObjectArrayLayout* L = static_cast<const FFixedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
-		GLogger.FmtWrite(ELogLevel::Info, "GObjects Type: FFixedUObjectArray\n");
-		GLogger.FmtWrite(ELogLevel::Info, "FFixedUObjectArray::Objects: 0x{:X} -> 0x{:X}\n", (uint32_t)L->Objects, GDecryptCallbacks.FixedObjects.Objects(GMemory->Read<uintptr_t>(GObjects + L->Objects), GObjects + L->Objects));
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Layout FFixedUObjectArray\n");
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   Objects +0x{:03X} -> 0x{:X}\n", (uint32_t)L->Objects, GDecryptCallbacks.FixedObjects.Objects({.Address = GObjects + L->Objects, .RawValue = GMemory->Read<uintptr_t>(GObjects + L->Objects)}));
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   NumObjects +0x{:03X} -> {}\n", (uint32_t)L->NumObjects, GDecryptCallbacks.FixedObjects.NumObjects({.Address = GObjects + L->NumObjects, .RawValue = GMemory->Read<int32>(GObjects + L->NumObjects)}));
 		if (L->MaxObjects != -1)
-			GLogger.FmtWrite(ELogLevel::Info, "FFixedUObjectArray::MaxObjects: 0x{:X} -> 0x{:X} (Optional)\n", (uint32_t)L->MaxObjects, GDecryptCallbacks.FixedObjects.MaxObjects(GMemory->Read<int32>(GObjects + L->MaxObjects), GObjects + L->MaxObjects));
-		GLogger.FmtWrite(ELogLevel::Info, "FFixedUObjectArray::NumObjects: 0x{:X} -> 0x{:X}\n", (uint32_t)L->NumObjects, GDecryptCallbacks.FixedObjects.NumObjects(GMemory->Read<int32>(GObjects + L->NumObjects), GObjects + L->NumObjects));
-		GLogger.FmtWrite(ELogLevel::Info, "FUObjectItem::Object: 0x{:X}\n", (uint32_t)L->FUObjectItem.Object);
-		GLogger.FmtWrite(ELogLevel::Info, "FUObjectItem::Size: 0x{:X}\n", (uint32_t)L->FUObjectItem.Size);
+			GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   MaxObjects +0x{:03X} -> {} (optional)\n", (uint32_t)L->MaxObjects, GDecryptCallbacks.FixedObjects.MaxObjects({.Address = GObjects + L->MaxObjects, .RawValue = GMemory->Read<int32>(GObjects + L->MaxObjects)}));
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   FUObjectItem::Object +0x{:03X}\n", (uint32_t)L->FUObjectItem.Object);
+		GLogger.FmtWrite(ELogLevel::Info, "InitObjects:   FUObjectItem::Size = 0x{:X}\n", (uint32_t)L->FUObjectItem.Size);
 	}
 
 	ObjectArray::SetByIndexFn([](int32 Index) -> uintptr_t
@@ -327,125 +329,128 @@ bool Generator::InitNames(std::string& OutErrorString)
 		GProfile->DecryptNameEntry(GNames, NameEntry);
 	});
 
-	// Resolves and then independently validates one interpretation of a candidate.
-	// Every stage reports its outcome, so a failing run shows exactly how far it got.
-	auto TryGNamesAt = [](uintptr_t NamesAddress, const char* Interpretation) -> bool
+	auto TryGNamesAt = [](uintptr_t NamesAddress, const char* Interpretation, ELogLevel DiagLevel) -> bool
 	{
-		if (!GProfile->ResolveGNamesLayout(NamesAddress, GLayouts.NamesLayout))
+		const auto Report = [Interpretation, DiagLevel](const std::string& Reason)
 		{
-			GLogger.FmtWrite(ELogLevel::Info, "InitNames: [{}] Resolve failed - no layout could be derived at 0x{:X}\n", Interpretation, NamesAddress);
+			std::istringstream Lines(Reason);
+			std::string Line;
+			while (std::getline(Lines, Line))
+				GLogger.FmtWrite(DiagLevel, "InitNames: [{}] {}\n", Interpretation, Line);
+		};
+
+		std::string ResolveError;
+		if (!GProfile->ResolveGNamesLayout(NamesAddress, GLayouts.NamesLayout, &ResolveError))
+		{
+			// An overriding profile is free to ignore OutError, so cover an empty reason.
+			Report(ResolveError.empty() ? fmt::format("No layout could be derived at 0x{:X}", NamesAddress) : ResolveError);
 			return false;
 		}
 
-		if (!GLayouts.NamesLayout)
+		// An overriding profile can return true and still leave the layout unusable.
+		if (!GLayouts.NamesLayout || !GLayouts.NamesLayout->IsValid())
 		{
-			GLogger.FmtWrite(ELogLevel::Warning, "InitNames: [{}] Resolve succeeded but left the layout null!\n", Interpretation);
+			GLogger.FmtWrite(ELogLevel::Warning, "InitNames: [{}] ResolveGNamesLayout reported success for 0x{:X} but left the layout incomplete\n", Interpretation, NamesAddress);
 			return false;
 		}
-
-		if (!GLayouts.NamesLayout->IsValid())
-		{
-			GLogger.FmtWrite(ELogLevel::Warning, "InitNames: [{}] Resolve succeeded but the layout is missing required offsets!\n", Interpretation);
-			return false;
-		}
-
-		GLogger.FmtWrite(ELogLevel::Info, "InitNames: [{}] Resolve succeeded, layout is {}\n", Interpretation, GLayouts.NamesLayout->GetType() == ENamesType::Pool ? "Pool" : "Array");
 
 		const LayoutDetection::FNamesTestResult Test = LayoutDetection::TestNamesLayout(NamesAddress, GLayouts.NamesLayout.get());
 
-		for (const std::string& Line : Test.Details)
-			GLogger.FmtWrite(ELogLevel::Info, "{}\n", Line);
-
-		for (const std::string& Line : Test.Evidence)
-			GLogger.FmtWrite(ELogLevel::Info, "{}\n", Line);
-
 		if (!Test.bValid)
 		{
-			for (const std::string& Line : Test.Failures)
-				GLogger.FmtWrite(ELogLevel::Info, "{}\n", Line);
+			Report(fmt::format("Layout resolved at 0x{:X} but failed validation: {}", NamesAddress, Test.Summary));
+			for (const std::string& Line : Test.Details)
+				Report(Line);
 
-			GLogger.FmtWrite(ELogLevel::Info, "InitNames: [{}] Validation failed ({}/{} entries, {:.1f}%)\n", Interpretation, Test.SamplesValid, Test.SamplesTested, Test.Confidence * 100.0);
 			return false;
 		}
 
-		GLogger.FmtWrite(ELogLevel::Info, "InitNames: [{}] Validation passed ({}/{} entries, {:.1f}%)\n", Interpretation, Test.SamplesValid, Test.SamplesTested, Test.Confidence * 100.0);
+		for (const std::string& Line : Test.Details)
+			GLogger.FmtWrite(ELogLevel::Debug, "InitNames: [{}] {}\n", Interpretation, Line);
+
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames: [{}] Verified: {}\n", Interpretation, Test.Summary);
 		return true;
 	};
 
-	auto InitGNamesVars = [&TryGNamesAt](uintptr_t Address, const std::string& FindMethod, float Confidence) -> bool
+	auto InitGNamesVars = [&TryGNamesAt](uintptr_t Address, const std::string& FindMethod, float Confidence, ELogLevel DiagLevel) -> bool
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Testing GNames candidate 0x{:X} ({} confidence {:.1f}%)...\n", Address, FindMethod, Confidence * 100.0f);
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Trying candidate 0x{:X} from {} ({:.1f}% confidence)\n", Address, FindMethod, Confidence * 100.0f);
 
 		uintptr_t NamesOffset = GMemory->GetUnrealModule().AddressToOffset(Address);
 		uintptr_t DecAddress  = Address;
 		GProfile->DecryptGNames(DecAddress);
 		if (DecAddress != Address)
 		{
-			GLogger.FmtWrite(ELogLevel::Info, "InitNames: Decrypted GNames pointer to 0x{:X}.\n", DecAddress);
+			GLogger.FmtWrite(ELogLevel::Info, "InitNames: Decrypted 0x{:X} -> 0x{:X}\n", Address, DecAddress);
 			Address = DecAddress;
 		}
 
 		GNames = Address;
-		if (TryGNamesAt(GNames, "Direct"))
+		if (TryGNamesAt(GNames, "Direct", DiagLevel))
 		{
 			GInSDKOffsets.Statics.GNames       = NamesOffset;
 			InternalSettings::bIsGNamesPointer = false;
-			GLogger.FmtWrite(ELogLevel::Info, "InitNames: GNames accepted at 0x{:X} (Direct)\n", GNames);
 			return true;
 		}
 
 		GNames = GMemory->Read<uintptr_t>(GNames);
 		if (!GMemory->IsAddressReadable(GNames))
 		{
-			GLogger.FmtWrite(ELogLevel::Info, "InitNames: [Dereference] Skipped - 0x{:X} does not hold a readable pointer.\n", Address);
+			GLogger.FmtWrite(DiagLevel, "InitNames: [Dereference] Skipped, 0x{:X} does not hold a readable pointer\n", Address);
 			return false;
 		}
 
-		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Dereferencing 0x{:X} -> 0x{:X}\n", Address, GNames);
+		GLogger.FmtWrite(ELogLevel::Debug, "InitNames: [Dereference] Following 0x{:X} -> 0x{:X}\n", Address, GNames);
 
-		if (TryGNamesAt(GNames, "Dereference"))
+		if (TryGNamesAt(GNames, "Dereference", DiagLevel))
 		{
 			GInSDKOffsets.Statics.GNames       = NamesOffset;
 			InternalSettings::bIsGNamesPointer = true;
-			GLogger.FmtWrite(ELogLevel::Info, "InitNames: GNames accepted at 0x{:X} (Dereference of 0x{:X})\n", GNames, Address);
 			return true;
 		}
 
 		return false;
 	};
 
+	GLogger.FmtWrite(ELogLevel::Info, "InitNames: Resolving GNames...\n");
+
 	GNames = GProfile->GetGNames();
+
+	// InitGNamesVars reassigns GNames as it tries each interpretation, so the address the
+	// profile actually returned has to be kept for the messages below.
+	const uintptr_t ProfileNames = GNames;
 
 	bool bSuccess = false;
 
-	if (GMemory->IsAddressReadable(GNames))
+	if (GMemory->IsAddressReadable(ProfileNames))
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "InitNames: IProfile::GetGNames() returned valid address (0x{:X})\n", GNames);
-
-		bSuccess = InitGNamesVars(GNames, "User Profile", 1.00f);
+		bSuccess = InitGNamesVars(ProfileNames, "IProfile::GetGNames", 1.00f, ELogLevel::Warning);
 
 		if (!bSuccess)
-			GLogger.FmtWrite(ELogLevel::Warning, "InitObjects: IProfile::GetGNames() returned address 0x{:X} did not validate, falling back to UEAnalyzerKitty...\n", GObjects);
+			GLogger.FmtWrite(ELogLevel::Warning, "InitNames: IProfile::GetGNames() returned 0x{:X}, but neither it nor its dereference held a name table - falling back to UEAnalyzerKitty\n", ProfileNames);
 	}
 	else
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "InitNames: IProfile::GetGNames() returned invalid address (0x{:X}), falling back to UEAnalyzerKitty...\n", GNames);
+		GLogger.FmtWrite(ELogLevel::Warning, "InitNames: IProfile::GetGNames() returned unreadable address 0x{:X} - falling back to UEAnalyzerKitty\n", ProfileNames);
 	}
 
 	if (!bSuccess)
 	{
 		auto Result = Generator::Analyzer.Find(UEAnalyzerKitty::Targets::Names);
 
-		GLogger.FmtWrite(ELogLevel::Info, "InitNames: UEAnalyzerKitty returned {} GNames candidate(s).\n", Result.Candidates.size());
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames: UEAnalyzerKitty offered {} candidate(s)\n", Result.Candidates.size());
 
 		for (const auto& Candidate : Result.Candidates)
 		{
-			if (InitGNamesVars(Candidate.Address, "KittyUEAnalyzer", Candidate.Confidence))
+			if (InitGNamesVars(Candidate.Address, "UEAnalyzerKitty", Candidate.Confidence, ELogLevel::Debug))
 			{
 				bSuccess = true;
 				break;
 			}
 		}
+
+		if (!bSuccess)
+			GLogger.FmtWrite(ELogLevel::Warning, "InitNames: All UEAnalyzerKitty candidates were rejected\n", Result.Candidates.size());
 	}
 
 	if (!bSuccess)
@@ -455,49 +460,40 @@ bool Generator::InitNames(std::string& OutErrorString)
 		return false;
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "GNames Pointer: 0x{:X}\n", GNames);
-	GLogger.FmtWrite(ELogLevel::Info, "GNames Offset: 0x{:X}\n", GInSDKOffsets.Statics.GNames);
+	GLogger.FmtWrite(ELogLevel::Info, "InitNames: GNames at 0x{:X}, module offset 0x{:X}{}\n", GNames, GInSDKOffsets.Statics.GNames, InternalSettings::bIsGNamesPointer ? ", reached by dereference" : "");
 
 	if (GLayouts.NamesLayout->GetType() == ENamesType::Pool)
 	{
 		InternalSettings::bUseNamePool = true;
 
 		const FNamePoolLayout* L = static_cast<const FNamePoolLayout*>(GLayouts.NamesLayout.get());
-		GLogger.FmtWrite(ELogLevel::Info, "GNames Type: FNamePool\n");
-		GLogger.FmtWrite(ELogLevel::Info, "FNamePool::BlocksBit: 0x{:X}\n", (uint32_t)L->BlocksBit);
-		{
-			if (L->MaxChunkIndex != -1)
-				GLogger.FmtWrite(ELogLevel::Info, "FNamePool::MaxChunkIndex: 0x{:X} -> 0x{:X} (Optional)\n", (uint32_t)L->MaxChunkIndex, GDecryptCallbacks.NamePool.MaxChunkIndex(GMemory->Read<int32>(GNames + L->MaxChunkIndex), GNames + L->MaxChunkIndex));
-			if (L->ByteCursor != -1)
-				GLogger.FmtWrite(ELogLevel::Info, "FNamePool::ByteCursor: 0x{:X} -> 0x{:X} (Optional)\n", (uint32_t)L->ByteCursor, GDecryptCallbacks.NamePool.ByteCursor(GMemory->Read<int32>(GNames + L->ByteCursor), GNames + L->ByteCursor));
-		}
-		GLogger.FmtWrite(ELogLevel::Info, "FNamePool::Blocks: 0x{:X} -> 0x{:X}\n", (uint32_t)L->Blocks, GDecryptCallbacks.NamePool.Blocks(GMemory->Read<uintptr_t>(GNames + L->Blocks), GNames + L->Blocks));
-		GLogger.FmtWrite(ELogLevel::Info, "FNameEntry::Stride: 0x{:X}\n", (uint32_t)L->FNameEntry.Stride);
-		GLogger.FmtWrite(ELogLevel::Info, "FNameEntry::Header: 0x{:X}\n", (uint32_t)L->FNameEntry.Header);
-		GLogger.FmtWrite(ELogLevel::Info, "FNameEntry::String: 0x{:X}\n", (uint32_t)L->FNameEntry.String);
-		{
-			if (L->FNameEntry.LengthShift != -1)
-				GLogger.FmtWrite(ELogLevel::Info, "FNameEntry::LengthShift: 0x{:X} (Optional)\n", (uint32_t)L->FNameEntry.LengthShift);
-			if (L->FNameEntry.WideMask != -1)
-				GLogger.FmtWrite(ELogLevel::Info, "FNameEntry::WideMask: 0x{:X} (Optional)\n", (uint32_t)L->FNameEntry.WideMask);
-		}
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Layout FNamePool\n");
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   Blocks +0x{:03X} -> 0x{:X}\n", (uint32_t)L->Blocks, GDecryptCallbacks.NamePool.Blocks({.Address = GNames + L->Blocks, .RawValue = GMemory->Read<uintptr_t>(GNames + L->Blocks)}));
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   BlocksBit = 0x{:X}\n", (uint32_t)L->BlocksBit);
+		if (L->MaxChunkIndex != -1)
+			GLogger.FmtWrite(ELogLevel::Info, "InitNames:   MaxChunkIndex +0x{:03X} -> {} (optional)\n", (uint32_t)L->MaxChunkIndex, GDecryptCallbacks.NamePool.MaxChunkIndex({.Address = GNames + L->MaxChunkIndex, .RawValue = GMemory->Read<int32>(GNames + L->MaxChunkIndex)}));
+		if (L->ByteCursor != -1)
+			GLogger.FmtWrite(ELogLevel::Info, "InitNames:   ByteCursor +0x{:03X} -> {} (optional)\n", (uint32_t)L->ByteCursor, GDecryptCallbacks.NamePool.ByteCursor({.Address = GNames + L->ByteCursor, .RawValue = GMemory->Read<int32>(GNames + L->ByteCursor)}));
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   FNameEntry::Header +0x{:03X}\n", (uint32_t)L->FNameEntry.Header);
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   FNameEntry::String +0x{:03X}\n", (uint32_t)L->FNameEntry.String);
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   FNameEntry::Stride = 0x{:X}\n", (uint32_t)L->FNameEntry.Stride);
+		if (L->FNameEntry.LengthShift != -1)
+			GLogger.FmtWrite(ELogLevel::Info, "InitNames:   FNameEntry::LengthShift = 0x{:X} (optional)\n", (uint32_t)L->FNameEntry.LengthShift);
+		if (L->FNameEntry.WideMask != -1)
+			GLogger.FmtWrite(ELogLevel::Info, "InitNames:   FNameEntry::WideMask = 0x{:X} (optional)\n", (uint32_t)L->FNameEntry.WideMask);
 	}
 	else
 	{
 		const FNameArrayLayout* L = static_cast<const FNameArrayLayout*>(GLayouts.NamesLayout.get());
-		GLogger.FmtWrite(ELogLevel::Info, "GNames Type: TNameArray\n");
-		GLogger.FmtWrite(ELogLevel::Info, "TNameArray::ElementsPerChunk: 0x{:X}\n", (uint32_t)L->ElementsPerChunk);
-		GLogger.FmtWrite(ELogLevel::Info, "TNameArray::Chunks: 0x{:X} -> 0x{:X}\n", (uint32_t)L->Chunks, GDecryptCallbacks.NameArray.Chunks(GMemory->Read<uintptr_t>(GNames + L->Chunks), GNames + L->Chunks));
-		{
-			if (L->NumElements != -1)
-				GLogger.FmtWrite(ELogLevel::Info, "TNameArray::NumElements: 0x{:X} -> 0x{:X} (Optional)\n", (uint32_t)L->NumElements, GDecryptCallbacks.NameArray.NumElements(GMemory->Read<int32>(GNames + L->NumElements), GNames + L->NumElements));
-		}
-		GLogger.FmtWrite(ELogLevel::Info, "FNameEntry::String: 0x{:X}\n", (uint32_t)L->FNameEntry.String);
-		GLogger.FmtWrite(ELogLevel::Info, "FNameEntry::Index: 0x{:X}\n", (uint32_t)L->FNameEntry.Index);
-		{
-			if (L->FNameEntry.WideMask != -1)
-				GLogger.FmtWrite(ELogLevel::Info, "FNameEntry::WideMask: 0x{:X} (Optional)\n", (uint32_t)L->FNameEntry.WideMask);
-		}
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Layout TNameEntryArray\n");
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   Chunks +0x{:03X} -> 0x{:X}\n", (uint32_t)L->Chunks, GDecryptCallbacks.NameArray.Chunks({.Address = GNames + L->Chunks, .RawValue = GMemory->Read<uintptr_t>(GNames + L->Chunks)}));
+		if (L->NumElements != -1)
+			GLogger.FmtWrite(ELogLevel::Info, "InitNames:   NumElements +0x{:03X} -> {} (optional)\n", (uint32_t)L->NumElements, GDecryptCallbacks.NameArray.NumElements({.Address = GNames + L->NumElements, .RawValue = GMemory->Read<int32>(GNames + L->NumElements)}));
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   ElementsPerChunk = 0x{:X}\n", (uint32_t)L->ElementsPerChunk);
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   FNameEntry::Index +0x{:03X}\n", (uint32_t)L->FNameEntry.Index);
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames:   FNameEntry::String +0x{:03X}\n", (uint32_t)L->FNameEntry.String);
+		if (L->FNameEntry.WideMask != -1)
+			GLogger.FmtWrite(ELogLevel::Info, "InitNames:   FNameEntry::WideMask = 0x{:X} (optional)\n", (uint32_t)L->FNameEntry.WideMask);
 	}
 
 	NameArray::SetByIndexFn([](int32 Index) -> uintptr_t
@@ -522,7 +518,7 @@ bool Generator::InitNames(std::string& OutErrorString)
 	}
 
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Printing the first 10 name entries...\n");
+		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Printing first 10 name entries...\n");
 
 		const FNamePoolLayout* PoolLayout = GLayouts.NamesLayout->GetType() == ENamesType::Pool
 		                                        ? static_cast<const FNamePoolLayout*>(GLayouts.NamesLayout.get())
@@ -556,7 +552,7 @@ bool Generator::InitNames(std::string& OutErrorString)
 				break;
 
 			const uintptr_t HeaderAddr = EntryAddr + PoolLayout->FNameEntry.Header;
-			const uint16 Header        = GDecryptCallbacks.NamePool.FNameEntry.Header(GMemory->Read<uint16>(HeaderAddr), HeaderAddr);
+			const uint16 Header        = GDecryptCallbacks.NamePool.FNameEntry.Header({.Address = HeaderAddr, .RawValue = GMemory->Read<uint16>(HeaderAddr)});
 			const int32 NameLen        = PoolLayout->FNameEntry.GetLength(Header);
 
 			/* Length 0 marks an entry whose payload is an id/number pair rather than characters;
@@ -609,6 +605,8 @@ bool Generator::InitSettings(std::string& OutErrorString)
 bool Generator::InitOffsets(std::string& OutErrorString)
 {
 	GProfile->OverrideInGenOffsets(GOffsets);
+
+	GLogger.FmtWrite(ELogLevel::Info, "InitOffsets: Initializing FInGenOffsets...\n");
 
 	if (!GOffsets.Init(OutErrorString))
 		return false;
@@ -706,6 +704,9 @@ bool Generator::InitOffsets(std::string& OutErrorString)
 		GLogger.FmtWrite(ELogLevel::Info, "Property::SizeOf: 0x{:X}\n", (uint32_t)GOffsets.Property.SizeOf);
 	}
 
+	GLogger.FmtWrite(ELogLevel::Info, "==================\n");
+	GLogger.FmtWrite(ELogLevel::Info, "InitOffsets: Initializing FInSKOffsets...\n");
+
 	GInSDKOffsets.Init();
 
 	GProfile->OverrideInSKOffsets(GInSDKOffsets);
@@ -718,16 +719,18 @@ bool Generator::InitOffsets(std::string& OutErrorString)
 	GLogger.FmtWrite(ELogLevel::Info, "PEIndex: {}\n", GInSDKOffsets.Statics.PEIndex);
 	GLogger.FmtWrite(ELogLevel::Info, "PEOffset: 0x{:X}\n", GInSDKOffsets.Statics.PEOffset);
 	GLogger.FmtWrite(ELogLevel::Info, "FText::TextData: 0x{:X}\n", (uint32_t)GInSDKOffsets.FText.TextData);
-	GLogger.FmtWrite(ELogLevel::Info, "FText::Size: 0x{:X}\n", (uint32_t)GInSDKOffsets.FText.Size);
+	GLogger.FmtWrite(ELogLevel::Info, "FText::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.FText.SizeOf);
 	GLogger.FmtWrite(ELogLevel::Info, "FText::InTextDataString: 0x{:X}\n", (uint32_t)GInSDKOffsets.FText.InTextDataString);
 	GLogger.FmtWrite(ELogLevel::Info, "ULevel::Actors: 0x{:X}\n", (uint32_t)GInSDKOffsets.ULevel.Actors);
 	GLogger.FmtWrite(ELogLevel::Info, "UDataTable::RowMap: 0x{:X}\n", (uint32_t)GInSDKOffsets.UDataTable.RowMap);
+	GLogger.FmtWrite(ELogLevel::Info, "WeakObjectProperty::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.WeakObjectProperty.SizeOf);
 	GLogger.FmtWrite(ELogLevel::Info, "DelegateProperty::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.DelegateProperty.SizeOf);
 	if (InternalSettings::bUseFProperty)
 		GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.FieldPathProperty.SizeOf);
 	GLogger.FmtWrite(ELogLevel::Info, "MulticastInlineDelegateProperty::SizeOf: 0x{:X}\n", (uint32_t)GInSDKOffsets.MulticastInlineDelegateProperty.SizeOf);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Printing first 10 objects...\n");
+	GLogger.FmtWrite(ELogLevel::Info, "==================\n");
+	GLogger.FmtWrite(ELogLevel::Info, "InitOffsets: Printing first 10 objects entries...\n");
 	{
 		for (int i = 0; i < 10; i++)
 		{

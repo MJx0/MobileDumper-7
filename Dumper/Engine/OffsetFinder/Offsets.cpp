@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstring>
 #include <random>
+#include <unordered_set>
 
 #include "../../Architecture/IArchDecoder.h"
 #include "../../Memory/IMemory.h"
@@ -91,9 +92,11 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
 	}
 
 	/* CastFlags is needed by Init_UStruct_Children(); find early, then re-find authoritatively after FProperty detection. */
+	const int32 ProfileCastFlags = this->UClass.CastFlags;
+
+	GLogger.FmtWrite(ELogLevel::Info, "(Early) initializing UClass.CastFlags for UStruct.Children...\n");
 	if (this->UClass.CastFlags == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "(Early) initializing UClass.CastFlags for UStruct.Children...\n");
 		Init_UClass_CastFlags();
 	}
 
@@ -107,7 +110,10 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
 	kINIT_UE_OFFSET(UStruct.Size, true, Init_UStruct_Size(), OffsetFinder::OffsetNotFound);
 	kINIT_UE_OFFSET(UStruct.MinAlignment, true, Init_UStruct_MinAlignment(), OffsetFinder::OffsetNotFound);
 
-	this->UClass.CastFlags = OffsetFinder::OffsetNotFound;
+	// The re-find exists to correct the early guess above, so it must not discard a value supplied by the profile.
+	if (ProfileCastFlags == OffsetFinder::OffsetNotFound)
+		this->UClass.CastFlags = OffsetFinder::OffsetNotFound;
+
 	kINIT_UE_OFFSET(UClass.CastFlags, true, Init_UClass_CastFlags(), OffsetFinder::OffsetNotFound);
 
 	kINIT_UE_OFFSET(UStruct.StructBaseChain, false, Init_UStruct_StructBaseChain(), OffsetFinder::OffsetNotFound);
@@ -205,8 +211,8 @@ bool FInGenOffsets::Init_UObject_Flags()
 			void* Ptr = ObjectArray::GetByIndex(i).GetAddress();
 
 			// Look for 0x43 in this object, as it is a really common value for UObject::Flags
-			Offset = OffsetFinder::FindOffset(std::vector{std::pair{Ptr, EnumFlagValueToSearch}}, Offset, 0x40, std::function<int32(int32, uintptr_t)>([](int32 Value, uintptr_t Address)
-			{ return static_cast<int32>(GDecryptCallbacks.UObject.Flags(static_cast<EObjectFlags>(Value), Address)); }));
+			Offset = OffsetFinder::FindOffset(std::vector{std::pair{Ptr, EnumFlagValueToSearch}}, Offset, 0x40, FDecryptFn<int32>([](const FDecryptContext<int32>& Context)
+			{ return static_cast<int32>(GDecryptCallbacks.UObject.Flags({.Address = Context.Address, .RawValue = static_cast<EObjectFlags>(Context.RawValue)})); }));
 
 			if (Offset == OffsetFinder::OffsetNotFound)
 				break; // Early exit
@@ -222,7 +228,7 @@ bool FInGenOffsets::Init_UObject_Flags()
 					break;
 
 				const uintptr_t FlagsAddr      = reinterpret_cast<uintptr_t>(Obj.GetAddress()) + Offset;
-				const int32 TypedValueAtOffset = static_cast<int32>(GDecryptCallbacks.UObject.Flags(GMemory->Read<EObjectFlags>(FlagsAddr), FlagsAddr));
+				const int32 TypedValueAtOffset = static_cast<int32>(GDecryptCallbacks.UObject.Flags({.Address = FlagsAddr, .RawValue = GMemory->Read<EObjectFlags>(FlagsAddr)}));
 
 				if (TypedValueAtOffset == EnumFlagValueToSearch)
 					NumObjectsWithFlagAtOffset++;
@@ -248,7 +254,7 @@ bool FInGenOffsets::Init_UObject_Index()
 	Infos.emplace_back(ObjectArray::GetByIndex(0x055).GetAddress(), 0x055);
 	Infos.emplace_back(ObjectArray::GetByIndex(0x123).GetAddress(), 0x123);
 
-	this->UObject.Index = OffsetFinder::FindOffset<4>(Infos, sizeof(void*), OffsetFinder::OffsetFinderMaxValue, GDecryptCallbacks.UObject.Index); // Skip VTable
+	this->UObject.Index = OffsetFinder::FindOffset<4>(Infos, sizeof(void*), OffsetFinder::DefaultMaxOffsetScan, GDecryptCallbacks.UObject.Index); // Skip VTable
 	return this->UObject.Index != OffsetFinder::OffsetNotFound;
 }
 
@@ -271,8 +277,8 @@ bool FInGenOffsets::Init_UObject_Class()
 			const uintptr_t ClassAddrA = reinterpret_cast<uintptr_t>(NextClassA) + ClassPtrOffset;
 			const uintptr_t ClassAddrB = reinterpret_cast<uintptr_t>(NextClassB) + ClassPtrOffset;
 
-			NextClassA = reinterpret_cast<const uint8_t*>(GDecryptCallbacks.UObject.Class(GMemory->Read<uintptr_t>(ClassAddrA), ClassAddrA));
-			NextClassB = reinterpret_cast<const uint8_t*>(GDecryptCallbacks.UObject.Class(GMemory->Read<uintptr_t>(ClassAddrB), ClassAddrB));
+			NextClassA = reinterpret_cast<const uint8_t*>(GDecryptCallbacks.UObject.Class({.Address = ClassAddrA, .RawValue = GMemory->Read<uintptr_t>(ClassAddrA)}));
+			NextClassB = reinterpret_cast<const uint8_t*>(GDecryptCallbacks.UObject.Class({.Address = ClassAddrB, .RawValue = GMemory->Read<uintptr_t>(ClassAddrB)}));
 
 			/* If this was UObject::Class it would never be invalid. The pointer would simply point to itself.*/
 			if (!NextClassA || !NextClassB || !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NextClassA)) || !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NextClassB)))
@@ -319,7 +325,10 @@ bool FInGenOffsets::Init_UObject_Name()
 		return Offset != this->UObject.Class && Offset != (this->UObject.Class + int32(sizeof(void*) / 2)) && Offset != this->UObject.Outer && Offset != (this->UObject.Outer + int32(sizeof(void*) / 2)) && Offset != this->UObject.Flags && Offset != this->UObject.Index && Offset != this->UObject.Vft && Offset != (this->UObject.Vft + int32(sizeof(void*) / 2));
 	};
 
-	this->UObject.Name = OffsetFinder::FindNameOffsetForSomeClass(IsPotentiallyValidOffset, ObjectArray().begin(), ObjectArray().end(), ObjectArray::Num());
+	// A reordered build pushes Name well past the stock 0x18; one ships it at 0x48.
+	constexpr int32 kNameScanEnd = 0x58;
+
+	this->UObject.Name = OffsetFinder::FindNameOffsetForSomeClass(IsPotentiallyValidOffset, ObjectArray().begin(), ObjectArray().end(), kNameScanEnd, ObjectArray::Num());
 	return this->UObject.Name != OffsetFinder::OffsetNotFound;
 }
 
@@ -360,7 +369,7 @@ bool FInGenOffsets::Init_UObject_Outer()
 		{
 			Offset = OffsetFinder::GetValidPointerOffset(ObjA, ObjB, Offset + sizeof(void*), 0x50, false, GDecryptCallbacks.UObject.Outer);
 
-			// Make sure we didn't re-find the Class offset or Index (if the Index filed is a valid pionter for some ungodly reason).
+			// Make sure we didn't re-find the Class offset or Index (if the Index filed is a valid pionter for some reason).
 			if (Offset != this->UObject.Class && Offset != this->UObject.Index)
 				break;
 		}
@@ -407,7 +416,7 @@ void FInGenOffsets::PreInit_FName()
 
 		const uintptr_t NameAddr = reinterpret_cast<uintptr_t>(Obj.GetFName().GetAddress());
 
-		const int32 V0 = GDecryptCallbacks.FName.CompIdx(GMemory->Read<int32>(NameAddr), NameAddr);
+		const int32 V0 = GDecryptCallbacks.FName.CompIdx({.Address = NameAddr, .RawValue = GMemory->Read<int32>(NameAddr)});
 		const int32 V4 = GMemory->Read<int32>(NameAddr + 0x4);
 		const int32 V8 = GMemory->Read<int32>(NameAddr + 0x8);
 
@@ -483,7 +492,7 @@ void FInGenOffsets::PostInit_FName()
 
 	const uint8* NameAddress = static_cast<const uint8*>(PlayerStart.GetFName().GetAddress());
 
-	const int32 FNameFirstInt /* ComparisonIndex */        = GDecryptCallbacks.FName.CompIdx(GMemory->Read<int32>(reinterpret_cast<uintptr_t>(NameAddress)), reinterpret_cast<uintptr_t>(NameAddress));
+	const int32 FNameFirstInt /* ComparisonIndex */        = GDecryptCallbacks.FName.CompIdx({.Address = reinterpret_cast<uintptr_t>(NameAddress), .RawValue = GMemory->Read<int32>(reinterpret_cast<uintptr_t>(NameAddress))});
 	const int32 FNameSecondInt /* [Number/DisplayIndex] */ = GMemory->Read<int32>(reinterpret_cast<uintptr_t>(NameAddress) + 0x4);
 
 	if (FNameSize == 0x8 && FNameFirstInt == FNameSecondInt) /* WITH_CASE_PRESERVING_NAME + FNAME_OUTLINE_NUMBER */
@@ -536,12 +545,38 @@ bool FInGenOffsets::Init_UField_Next()
 		return false;
 	}
 
-	const void* KismetSystemLibraryChild = ObjectArray::FindObjectFast<UEStruct>("KismetSystemLibrary").GetChild().GetAddress();
-	const void* KismetStringLibraryChild = ObjectArray::FindObjectFast<UEStruct>("KismetStringLibrary").GetChild().GetAddress();
+	// Two children, so a coincidentally valid pointer has to hold for both. The pair cannot be
+	// fixed: a trimmed build ships only some Kismet libraries, and an absent one skips the search.
+	constexpr const char* CandidateOwners[] = {
+	    "KismetSystemLibrary", "KismetStringLibrary", "KismetMathLibrary", "GameplayStatics", "PlayerController", "Controller", "Actor", "Pawn", "ActorComponent", "Object"};
+
+	const void* ChildA = nullptr;
+	const void* ChildB = nullptr;
+
+	for (const char* OwnerName : CandidateOwners)
+	{
+		const void* Child = ObjectArray::FindObjectFast<UEStruct>(OwnerName).GetChild().GetAddress();
+		if (!Child || Child == ChildA)
+			continue;
+
+		if (!ChildA)
+			ChildA = Child;
+		else
+		{
+			ChildB = Child;
+			break;
+		}
+	}
+
+	if (!ChildA || !ChildB)
+	{
+		GLogger.FmtWrite(ELogLevel::Error, "Init_UField_Next: Could not resolve two classes that own a child.\n");
+		return false;
+	}
 
 	const auto HighestUObjectOffset = std::max({this->UObject.Index, this->UObject.Name, this->UObject.Flags, this->UObject.Outer, this->UObject.Class});
 
-	this->UField.Next = OffsetFinder::GetValidPointerOffset(KismetSystemLibraryChild, KismetStringLibraryChild, Utils::Memory::AlignUp(HighestUObjectOffset + 0x4, static_cast<int>(sizeof(void*))), 0x60);
+	this->UField.Next = OffsetFinder::GetValidPointerOffset(ChildA, ChildB, Utils::Memory::AlignUp(HighestUObjectOffset + 0x4, static_cast<int>(sizeof(void*))), 0x60);
 	return this->UField.Next != OffsetFinder::OffsetNotFound;
 }
 
@@ -573,7 +608,9 @@ bool FInGenOffsets::Init_FField_Name()
 
 	AllFFieldIterator TmpIt;
 
-	this->FField.Name = OffsetFinder::FindNameOffsetForSomeClass(IsPotentiallyValidOffset, TmpIt.begin(), TmpIt.end(), ObjectArray::Num());
+	constexpr int32 kNameScanEnd = 0x40;
+
+	this->FField.Name = OffsetFinder::FindNameOffsetForSomeClass(IsPotentiallyValidOffset, TmpIt.begin(), TmpIt.end(), kNameScanEnd, ObjectArray::Num());
 	return this->FField.Name != OffsetFinder::OffsetNotFound;
 }
 
@@ -854,7 +891,8 @@ bool FInGenOffsets::Init_FFieldClass_Name()
 		if (!Name.ends_with("Property"))
 			return false;
 
-		return std::all_of(Name.begin(), Name.end(), [](unsigned char Char) { return std::isalnum(Char) || Char == '_'; });
+		return std::all_of(Name.begin(), Name.end(), [](unsigned char Char)
+		{ return std::isalnum(Char) || Char == '_'; });
 	};
 
 	auto FindNameOffset = [&](bool bStrict) -> int32
@@ -982,14 +1020,14 @@ bool FInGenOffsets::Init_UEnum_Names()
 	Infos.push_back({ObjectArray::FindObjectFast("ENetRole", EClassCastFlags::Enum).GetAddress(), 0x5});
 	Infos.push_back({ObjectArray::FindObjectFast("ETraceTypeQuery", EClassCastFlags::Enum).GetAddress(), 0x22});
 
-	int UEnumNumValuesOffset = OffsetFinder::FindOffset(Infos);
+	int UEnumNumValuesOffset = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 
 	if (UEnumNumValuesOffset == OffsetFinder::OffsetNotFound)
 	{
 		Infos[0] = {ObjectArray::FindObjectFast("EAlphaBlendOption", EClassCastFlags::Enum).GetAddress(), 0x10};
 		Infos[1] = {ObjectArray::FindObjectFast("EUpdateRateShiftBucket", EClassCastFlags::Enum).GetAddress(), 0x8};
 
-		UEnumNumValuesOffset = OffsetFinder::FindOffset(Infos);
+		UEnumNumValuesOffset = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 	}
 
 	if (UEnumNumValuesOffset == OffsetFinder::OffsetNotFound)
@@ -1009,14 +1047,14 @@ bool FInGenOffsets::Init_UEnum_UnderlayingType()
 	Infos.push_back({ObjectArray::FindObjectFast("ENetRole", EClassCastFlags::Enum).GetAddress(), UEEnum::EUnderlyingType::uint8});
 	Infos.push_back({ObjectArray::FindObjectFast("ETraceTypeQuery", EClassCastFlags::Enum).GetAddress(), UEEnum::EUnderlyingType::uint8});
 
-	int UEnumUnderlayingTypeOffset = OffsetFinder::FindOffset(Infos, OffsetFinder::OffsetFinderMinValue, 0xA0);
+	int UEnumUnderlayingTypeOffset = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, 0xA0);
 
 	if (UEnumUnderlayingTypeOffset == OffsetFinder::OffsetNotFound)
 	{
 		Infos[0] = {ObjectArray::FindObjectFast("EAlphaBlendOption", EClassCastFlags::Enum).GetAddress(), UEEnum::EUnderlyingType::uint8};
 		Infos[1] = {ObjectArray::FindObjectFast("EUpdateRateShiftBucket", EClassCastFlags::Enum).GetAddress(), UEEnum::EUnderlyingType::uint8};
 
-		UEnumUnderlayingTypeOffset = OffsetFinder::FindOffset(Infos, OffsetFinder::OffsetFinderMinValue, 0xA0);
+		UEnumUnderlayingTypeOffset = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, 0xA0);
 	}
 
 	InternalSettings::bHasUnderlayingTypeInUEnum = UEnumUnderlayingTypeOffset != OffsetFinder::OffsetNotFound;
@@ -1038,7 +1076,7 @@ bool FInGenOffsets::Init_UStruct_SuperStruct()
 	if (Infos[0].first == nullptr)
 		Infos[0].first = Infos[1].second = ObjectArray::FindObjectFast("struct").GetAddress();
 
-	this->UStruct.SuperStruct = OffsetFinder::FindOffset(Infos);
+	this->UStruct.SuperStruct = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 	return this->UStruct.SuperStruct != OffsetFinder::OffsetNotFound;
 }
 
@@ -1055,7 +1093,7 @@ bool FInGenOffsets::Init_UStruct_Children()
 		Infos.push_back({ObjectArray::FindObjectFast("Vector2D").GetAddress(), ObjectArray::FindObjectFastInOuter("X", "Vector2D").GetAddress()});
 		Infos.push_back({ObjectArray::FindObjectFast("Guid").GetAddress(), ObjectArray::FindObjectFastInOuter("A", "Guid").GetAddress()});
 
-		this->UStruct.Children = OffsetFinder::FindOffset(Infos, 0x14);
+		this->UStruct.Children = OffsetFinder::FindOffset(Infos, 0x14, OffsetFinder::DefaultMaxOffsetScan);
 		return this->UStruct.Children != OffsetFinder::OffsetNotFound;
 	}
 
@@ -1064,7 +1102,7 @@ bool FInGenOffsets::Init_UStruct_Children()
 
 	InternalSettings::bUseFProperty = true;
 
-	this->UStruct.Children = OffsetFinder::FindOffset(Infos);
+	this->UStruct.Children = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 	return this->UStruct.Children != OffsetFinder::OffsetNotFound;
 }
 
@@ -1080,13 +1118,27 @@ bool FInGenOffsets::Init_UStruct_ChildProperties()
 	auto IsUObject = [this](uintptr_t Val) -> bool
 	{
 		const uintptr_t IdxAddr = Val + this->UObject.Index;
-		const int32 Idx         = GDecryptCallbacks.UObject.Index(GMemory->Read<int32>(IdxAddr), IdxAddr);
+		const int32 Idx         = GDecryptCallbacks.UObject.Index({.Address = IdxAddr, .RawValue = GMemory->Read<int32>(IdxAddr)});
 		if (Idx < 0 || Idx >= ObjectArray::Num())
 			return false;
 		return ObjectArray::GetByIndex(Idx).GetAddress() == reinterpret_cast<void*>(Val);
 	};
 
-	for (int32 Off = PtrSize; Off <= 0x80; Off += PtrSize)
+	/*
+	 * UStruct inherits from UField, so ChildProperties cannot precede either base's fields. That
+	 * matters beyond tidiness: an encrypted field spans several words, and a ciphertext word reads
+	 * as a plausible pointer often enough to win the scan on some runs and not others.
+	 */
+	const auto HighestBaseOffset = std::max({this->UObject.Index, this->UObject.Name, this->UObject.Flags, this->UObject.Outer, this->UObject.Class, this->UField.Next});
+	if (HighestBaseOffset == OffsetFinder::OffsetNotFound)
+	{
+		GLogger.FmtWrite(ELogLevel::Error, "Init_UStruct_ChildProperties: UObject/UField offsets are not set.\n");
+		return false;
+	}
+
+	const int32 MinOffset = Utils::Memory::AlignUp(HighestBaseOffset + 0x4, PtrSize);
+
+	for (int32 Off = MinOffset; Off <= 0x80; Off += PtrSize)
 	{
 		const uintptr_t ValA = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(ObjA) + Off);
 		const uintptr_t ValB = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(ObjB) + Off);
@@ -1125,7 +1177,7 @@ bool FInGenOffsets::Init_UStruct_Size()
 	Infos.push_back({ObjectArray::FindObjectFast("Color").GetAddress(), 0x04});
 	Infos.push_back({ObjectArray::FindObjectFast("Guid").GetAddress(), 0x10});
 
-	this->UStruct.Size = OffsetFinder::FindOffset(Infos);
+	this->UStruct.Size = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 	return this->UStruct.Size != OffsetFinder::OffsetNotFound;
 }
 
@@ -1227,14 +1279,14 @@ bool FInGenOffsets::Init_UFunction_FunctionFlags()
 	if (Infos[2].first == nullptr)
 		Infos[2].first = ObjectArray::FindObjectFast("FOV", EClassCastFlags::Function).GetAddress();
 
-	int32 Ret = OffsetFinder::FindOffset(Infos);
+	int32 Ret = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 
 	if (Ret == OffsetFinder::OffsetNotFound)
 	{
 		for (auto& [_, Flags] : Infos)
 			Flags |= EFunctionFlags::RequiredAPI;
 
-		Ret = OffsetFinder::FindOffset(Infos);
+		Ret = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 	}
 
 	this->UFunction.FunctionFlags = Ret;
@@ -1255,7 +1307,7 @@ bool FInGenOffsets::Init_UFunction_NumParams()
 	if (Infos[2].first == nullptr)
 		Infos[2] = {ObjectArray::FindObjectFast("FOV", EClassCastFlags::Function).GetAddress(), 1};
 
-	this->UFunction.NumParams = OffsetFinder::FindOffset<1>(Infos);
+	this->UFunction.NumParams = OffsetFinder::FindOffset<1>(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 
 	return this->UFunction.NumParams != OffsetFinder::OffsetNotFound;
 }
@@ -1274,7 +1326,7 @@ bool FInGenOffsets::Init_UFunction_ParamSize()
 	if (Infos[2].first == nullptr)
 		Infos[2] = {ObjectArray::FindObjectFast("FOV", EClassCastFlags::Function).GetAddress(), 4};
 
-	this->UFunction.ParamSize = OffsetFinder::FindOffset<2>(Infos);
+	this->UFunction.ParamSize = OffsetFinder::FindOffset<2>(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 
 	return this->UFunction.ParamSize != OffsetFinder::OffsetNotFound;
 }
@@ -1328,7 +1380,9 @@ bool FInGenOffsets::Init_UClass_CastFlags()
 	Infos.push_back({ObjectArray::FindObjectFast("Actor").GetAddress(), EClassCastFlags::Actor});
 	Infos.push_back({ObjectArray::FindObjectFast("Class").GetAddress(), EClassCastFlags::Field | EClassCastFlags::Struct | EClassCastFlags::Class});
 
-	this->UClass.CastFlags = OffsetFinder::FindOffset(Infos);
+	constexpr int32 kCastFlagsMaxOffset = 0x280;
+
+	this->UClass.CastFlags = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, kCastFlagsMaxOffset);
 	return this->UClass.CastFlags != OffsetFinder::OffsetNotFound;
 }
 
@@ -1359,25 +1413,74 @@ bool FInGenOffsets::Init_UClass_InitImplementedInterfaces()
 		return false;
 	}
 
-	UEClass Interface_AssetUserDataClass = ObjectArray::FindClassFast("Interface_AssetUserData");
+	// Recognised by shape rather than by a named interface.
+	const void* ClassClass = ObjectArray::FindClassFast("Class").GetAddress();
+	if (!ClassClass)
+	{
+		GLogger.FmtWrite(ELogLevel::Error, "Init_UClass_InitImplementedInterfaces: Could not resolve the class of a UClass.\n");
+		return false;
+	}
 
-	const uint8_t* ActorComponentClassPtr = reinterpret_cast<const uint8_t*>(ObjectArray::FindClassFast("ActorComponent").GetAddress());
+	constexpr size_t kMaxSampledClasses   = 0x80;
+	constexpr int32 kMaxPlausibleEntries  = 0x20;
+	constexpr int32 kMaxVerifiedEntries   = 0x4;
+	constexpr int32 kMinClassesWithIfaces = 0x3;
+
+	std::vector<const uint8*> SampledClasses;
+	for (const UEObject Obj : ObjectArray())
+	{
+		if (SampledClasses.size() >= kMaxSampledClasses)
+			break;
+
+		if (Obj.IsA(EClassCastFlags::Class))
+			SampledClasses.push_back(static_cast<const uint8*>(Obj.GetAddress()));
+	}
 
 	int MaxOffset = ObjectArray::FindClassFast("Class").GetStructSize();
 	if (MaxOffset <= 0x100)
 		MaxOffset = 0x400;
 
-	for (int i = this->UClass.ClassDefaultObject + sizeof(void*); i < MaxOffset; i += sizeof(void*))
+	for (int32 Offset = this->UClass.ClassDefaultObject + sizeof(void*); Offset < MaxOffset; Offset += sizeof(void*))
 	{
-		const auto ActorArray = GMemory->Read<TArray<FImplementedInterface>>(reinterpret_cast<uintptr_t>(ActorComponentClassPtr) + i);
+		int32 NumWithInterfaces = 0;
+		bool bFoundGarbage      = false;
 
-		if (ActorArray.IsValid() && GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(ActorArray.GetDataPtr())))
+		for (const uint8* ClassPtr : SampledClasses)
 		{
-			if (ActorArray[0].InterfaceClass == Interface_AssetUserDataClass)
+			const auto Interfaces = GMemory->Read<TArray<FImplementedInterface>>(reinterpret_cast<uintptr_t>(ClassPtr) + Offset);
+
+			// Most classes implement nothing, so an empty array is the common case and says nothing
+			// either way.
+			if (Interfaces.Num() == 0 && !Interfaces.GetDataPtr())
+				continue;
+
+			if (!Interfaces.IsValid() || Interfaces.Num() > kMaxPlausibleEntries || !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Interfaces.GetDataPtr())))
 			{
-				this->UClass.ImplementedInterfaces = i;
-				return true;
+				bFoundGarbage = true;
+				break;
 			}
+
+			// An interface entry leads to a UClass like any other, which random bytes do not.
+			const int32 NumToVerify = std::min(Interfaces.Num(), kMaxVerifiedEntries);
+			for (int32 i = 0; i < NumToVerify; i++)
+			{
+				if (Interfaces[i].InterfaceClass.GetClass().GetAddress() != ClassClass)
+				{
+					bFoundGarbage = true;
+					break;
+				}
+			}
+
+			if (bFoundGarbage)
+				break;
+
+			NumWithInterfaces++;
+		}
+
+		if (!bFoundGarbage && NumWithInterfaces >= kMinClassesWithIfaces)
+		{
+			this->UClass.ImplementedInterfaces = Offset;
+			return true;
 		}
 	}
 
@@ -1396,7 +1499,7 @@ bool FInGenOffsets::Init_Property_ElementSize()
 	Infos.push_back({Guid.FindMember("C").GetAddress(), 0x04});
 	Infos.push_back({Guid.FindMember("D").GetAddress(), 0x04});
 
-	this->Property.ElementSize = OffsetFinder::FindOffset(Infos);
+	this->Property.ElementSize = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 	return this->Property.ElementSize != OffsetFinder::OffsetNotFound;
 }
 
@@ -1469,7 +1572,7 @@ bool FInGenOffsets::Init_Property_PropertyFlags()
 		Infos[0].second = GuidFlags | Variant;
 		Infos[1].second = ColorFlags | Variant;
 
-		const int FlagsOffset = OffsetFinder::FindOffset(Infos);
+		const int FlagsOffset = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
 
 		if (FlagsOffset != OffsetFinder::OffsetNotFound)
 		{
@@ -1498,29 +1601,118 @@ bool FInGenOffsets::Init_Property_OffsetInternal()
 	if (Infos[2].first == nullptr) [[unlikely]]
 		Infos[2].first = Color.FindMember("r").GetAddress();
 
-	this->Property.Offset_Internal = OffsetFinder::FindOffset(Infos);
-	return this->Property.Offset_Internal != OffsetFinder::OffsetFinderMinValue;
+	this->Property.Offset_Internal = OffsetFinder::FindOffset(Infos, OffsetFinder::DefaultUObjectSize, OffsetFinder::DefaultMaxOffsetScan);
+	return this->Property.Offset_Internal != OffsetFinder::OffsetNotFound;
 }
 
 bool FInGenOffsets::Init_BoolProperty_Base()
 {
 	this->BoolProperty.Base = OffsetFinder::OffsetNotFound;
 
-	std::vector<std::pair<void*, uint8_t>> Infos;
-
-	UEClass Engine = ObjectArray::FindClassFast("Engine");
-	Infos.push_back({Engine.FindMember("bIsOverridingSelectedColor").GetAddress(), 0xFF});
-	Infos.push_back({Engine.FindMember("bEnableOnScreenDebugMessagesDisplay").GetAddress(), 0b00000010});
-	Infos.push_back({ObjectArray::FindClassFast("PlayerController").FindMember("bAutoManageActiveCameraTarget").GetAddress(), 0xFF});
-
-	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::OffsetFinderMinValue;
-	const int32 Ret       = OffsetFinder::FindOffset<1>(Infos, MinOffset);
-	if (Ret == OffsetFinder::OffsetNotFound)
+	if (this->Property.Offset_Internal == OffsetFinder::OffsetNotFound)
+	{
+		GLogger.FmtWrite(ELogLevel::Error, "Init_BoolProperty_Base: Property.Offset_Internal is not set.\n");
 		return false;
+	}
 
-	this->BoolProperty.Base = Ret - 0x3;
+	// Any bool property will do.
+	constexpr size_t kMaxSamples = 0x10;
 
-	return true;
+	std::vector<const uint8*> Samples;
+	for (const UEObject Obj : ObjectArray())
+	{
+		if (Samples.size() >= kMaxSamples)
+			break;
+
+		if (!Obj.IsA(EClassCastFlags::Struct))
+			continue;
+
+		for (const UEProperty Property : Obj.Cast<UEStruct>().GetProperties())
+		{
+			if (!Property.IsType(EClassCastFlags::BoolProperty))
+				continue;
+
+			Samples.push_back(static_cast<const uint8*>(Property.GetAddress()));
+			if (Samples.size() >= kMaxSamples)
+				break;
+		}
+	}
+
+	if (Samples.size() < 0x4)
+	{
+		GLogger.FmtWrite(ELogLevel::Error, "Init_BoolProperty_Base: Only found {} bool properties to sample.\n", Samples.size());
+		return false;
+	}
+
+	// FBoolProperty appends FieldSize, ByteOffset, ByteMask and FieldMask.
+	/*
+	 * bStrict additionally demands the relationship SetBoolSize() produces: a bitfield reports the
+	 * same mask twice, and a native bool reports ByteMask 1 with FieldMask 255. Checking it is
+	 * what distinguishes the real quad from four bytes that merely look plausible, and it only
+	 * holds if the fields are in the declared order - so a reordered build falls through to the
+	 * loose pass rather than being handed a wrong offset.
+	 */
+	const auto bLooksLikeBoolQuad = [](const uint8* At, bool bStrict) -> bool
+	{
+		const uint8 FieldSize  = At[0];
+		const uint8 ByteOffset = At[1];
+		const uint8 ByteMask   = At[2];
+		const uint8 FieldMask  = At[3];
+
+		if (FieldSize != 1 && FieldSize != 2 && FieldSize != 4 && FieldSize != 8)
+			return false;
+
+		if (ByteOffset >= FieldSize || ByteMask == 0 || FieldMask == 0)
+			return false;
+
+		const bool bSelectsOneBit     = (FieldMask & (FieldMask - 1)) == 0;
+		const bool bSelectsNativeBool = FieldMask == 0xFF;
+
+		if (!bSelectsOneBit && !bSelectsNativeBool)
+			return false;
+
+		if (!bStrict)
+			return true;
+
+		return ByteMask == FieldMask || (ByteMask == 0x1 && FieldMask == 0xFF);
+	};
+
+	const auto Scan = [&](bool bStrict) -> int32
+	{
+		for (int32 Offset = this->Property.Offset_Internal + static_cast<int32>(sizeof(int32)); Offset <= OffsetFinder::DefaultMaxOffsetScan; Offset++)
+		{
+			// Masks that vary between samples: a run of identical quads is as easily padding or a
+			// repeated constant as it is the real field.
+			std::unordered_set<uint8> SeenFieldMasks;
+			bool bAllMatch = true;
+
+			for (const uint8* Sample : Samples)
+			{
+				uint8 Quad[4] = {};
+				if (!GMemory->ReadBytes(reinterpret_cast<uintptr_t>(Sample) + Offset, Quad, sizeof(Quad)) || !bLooksLikeBoolQuad(Quad, bStrict))
+				{
+					bAllMatch = false;
+					break;
+				}
+
+				SeenFieldMasks.insert(Quad[3]);
+			}
+
+			if (bAllMatch && SeenFieldMasks.size() >= 2)
+				return Offset;
+		}
+
+		return OffsetFinder::OffsetNotFound;
+	};
+
+	this->BoolProperty.Base = Scan(true);
+	if (this->BoolProperty.Base == OffsetFinder::OffsetNotFound)
+	{
+		GLogger.FmtWrite(ELogLevel::Warning, "Init_BoolProperty_Base: No offset matched SetBoolSize()'s mask relationship - the fields may be reordered. Falling back to a looser shape check.\n");
+		this->BoolProperty.Base = Scan(false);
+	}
+
+	return this->BoolProperty.Base != OffsetFinder::OffsetNotFound;
 }
 
 bool FInGenOffsets::Init_EnumProperty_Base()
@@ -1554,8 +1746,8 @@ bool FInGenOffsets::Init_EnumProperty_Base()
 	Infos.push_back({AutoPossessAIMember, AutoPossessAI});
 
 	// EnumProperty::Enum is the 2nd member after 'NumericProperty UnderlayingType'
-	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::OffsetFinderMinValue;
-	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset);
+	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::DefaultUObjectSize;
+	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset, OffsetFinder::DefaultMaxOffsetScan);
 	if (Ret == OffsetFinder::OffsetNotFound)
 		return true;
 
@@ -1601,8 +1793,8 @@ bool FInGenOffsets::Init_ObjectProperty_PropertyClass()
 	Infos.push_back({Controller.FindMember("Pawn").GetAddress(), ObjectArray::FindClassFast("Pawn").GetAddress()});
 	Infos.push_back({ObjectArray::FindClassFast("World").FindMember("PersistentLevel").GetAddress(), ObjectArray::FindClassFast("Level").GetAddress()});
 
-	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::OffsetFinderMinValue;
-	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset);
+	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::DefaultUObjectSize;
+	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset, OffsetFinder::DefaultMaxOffsetScan);
 	if (Ret != OffsetFinder::OffsetNotFound)
 		this->ObjectProperty.PropertyClass = Ret;
 
@@ -1639,8 +1831,8 @@ bool FInGenOffsets::Init_ByteProperty_Enum()
 	Infos.push_back({const_cast<void*>(GameTraceChannel1), CollisionResponseEnum});
 	Infos.push_back({const_cast<void*>(GameTraceChannel2), CollisionResponseEnum});
 
-	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::OffsetFinderMinValue;
-	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset);
+	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::DefaultUObjectSize;
+	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset, OffsetFinder::DefaultMaxOffsetScan);
 	if (Ret != OffsetFinder::OffsetNotFound)
 		this->ByteProperty.Enum = Ret;
 
@@ -1680,8 +1872,8 @@ bool FInGenOffsets::Init_StructProperty_Struct()
 	Infos.push_back({const_cast<void*>(V1), VectorClass});
 	Infos.push_back({const_cast<void*>(V2), VectorClass});
 
-	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::OffsetFinderMinValue;
-	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset);
+	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::DefaultUObjectSize;
+	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset, OffsetFinder::DefaultMaxOffsetScan);
 	if (Ret != OffsetFinder::OffsetNotFound)
 		this->StructProperty.Struct = Ret;
 
@@ -1718,8 +1910,8 @@ bool FInGenOffsets::Init_DelegateProperty_SignatureFunction()
 	Infos.push_back({const_cast<void*>(Delegate1), DelegateSignature});
 	Infos.push_back({const_cast<void*>(Delegate2), DelegateSignature});
 
-	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::OffsetFinderMinValue;
-	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset);
+	const int32 MinOffset = this->Property.Offset_Internal != OffsetFinder::OffsetNotFound ? this->Property.Offset_Internal : OffsetFinder::DefaultUObjectSize;
+	const int32 Ret       = OffsetFinder::FindOffset(Infos, MinOffset, OffsetFinder::DefaultMaxOffsetScan);
 	if (Ret != OffsetFinder::OffsetNotFound)
 		this->DelegateProperty.SignatureFunction = Ret;
 
@@ -1973,7 +2165,7 @@ void FInSDKOffsets::InitFText()
 		return;
 	}
 
-	this->FText.Size = FTextSize;
+	this->FText.SizeOf = FTextSize;
 
 	/* Every TextProperty offset of every class, so no text field on an object is missed. */
 	std::unordered_map<void*, std::vector<int32>> TextPropOffsetsByClass;
@@ -2011,46 +2203,73 @@ void FInSDKOffsets::InitFText()
 	 * objects to visit therefore stopped before ever reaching a runtime instance (a
 	 * spawned widget, an active dialogue line) that actually holds localized text.
 	 */
-	constexpr int32 kMaxObjectsToScan = 20000; // objects visited, spread across the whole array
-	constexpr int32 kMaxRawCandidates = 4096;  // populated addresses gathered before filtering
+	constexpr int32 kMaxObjectsToScan   = 20000; // objects visited, spread across the whole array
+	constexpr int32 kMaxRawCandidates   = 4096;  // populated addresses gathered before filtering
+	constexpr int32 kTargetDistinctText = 64;    // distinct FText values wanted before settling
 
 	std::vector<uintptr_t> RawCandidates;
 	RawCandidates.reserve(kMaxRawCandidates);
+
+	std::unordered_set<uintptr_t> DistinctTextValues;
 
 	const int32 NumObjects = ObjectArray::Num();
 	const int32 Stride     = std::max(1, NumObjects / kMaxObjectsToScan);
 
 	int32 ObjectsScanned = 0;
-	for (int32 Index = 0; Index < NumObjects && static_cast<int32>(RawCandidates.size()) < kMaxRawCandidates; Index += Stride)
+
+	const auto Gather = [&](int32 IndexStride, int32 SkipMultiplesOf)
 	{
-		const UEObject Instance = ObjectArray::GetByIndex(Index);
-		if (!Instance)
-			continue;
-
-		ObjectsScanned++;
-
-		const uintptr_t InstanceAddr = reinterpret_cast<uintptr_t>(Instance.GetAddress());
-
-		/* The full chain, so fields inherited at any depth are sampled. */
-		for (UEClass Class = Instance.GetClass(); Class; Class = Class.GetSuper().Cast<UEClass>())
+		for (int32 Index = 0; Index < NumObjects && static_cast<int32>(RawCandidates.size()) < kMaxRawCandidates; Index += IndexStride)
 		{
-			const auto It = TextPropOffsetsByClass.find(Class.GetAddress());
-			if (It == TextPropOffsetsByClass.end())
+			if (static_cast<int32>(DistinctTextValues.size()) >= kTargetDistinctText)
+				return;
+
+			if (SkipMultiplesOf > 1 && Index % SkipMultiplesOf == 0)
 				continue;
 
-			for (int32 Offset : It->second)
+			const UEObject Instance = ObjectArray::GetByIndex(Index);
+			if (!Instance)
+				continue;
+
+			ObjectsScanned++;
+
+			const uintptr_t InstanceAddr = reinterpret_cast<uintptr_t>(Instance.GetAddress());
+
+			/* The full chain, so fields inherited at any depth are sampled. */
+			for (UEClass Class = Instance.GetClass(); Class; Class = Class.GetSuper().Cast<UEClass>())
 			{
-				const uintptr_t TextAddr = InstanceAddr + Offset;
+				const auto It = TextPropOffsetsByClass.find(Class.GetAddress());
+				if (It == TextPropOffsetsByClass.end())
+					continue;
 
-				bool bPopulated = false;
-				for (int32 Slot = 0; Slot + kPtrSize <= FTextSize && !bPopulated; Slot += kPtrSize)
-					bPopulated = GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(TextAddr + Slot));
+				for (int32 Offset : It->second)
+				{
+					const uintptr_t TextAddr = InstanceAddr + Offset;
 
-				if (bPopulated)
-					RawCandidates.push_back(TextAddr);
+					bool bPopulated = false;
+					for (int32 Slot = 0; Slot + kPtrSize <= FTextSize && !bPopulated; Slot += kPtrSize)
+						bPopulated = GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(TextAddr + Slot));
+
+					if (bPopulated)
+					{
+						RawCandidates.push_back(TextAddr);
+						DistinctTextValues.insert(GMemory->Read<uintptr_t>(TextAddr));
+					}
+				}
 			}
 		}
-	}
+	};
+
+	Gather(Stride, 0);
+
+	/*
+	 * Nearly every TextProperty holds the shared empty FText, so a strided sample can come back
+	 * with only a couple of distinguishable values - and whether any of those happens to be a
+	 * plain, directly-stored string decides the whole search. Visiting the objects the stride
+	 * skipped costs one pass and makes that far less of a lottery.
+	 */
+	if (static_cast<int32>(DistinctTextValues.size()) < kTargetDistinctText && Stride > 1)
+		Gather(1, Stride);
 
 	if (RawCandidates.empty())
 	{
@@ -2314,6 +2533,46 @@ void FInSDKOffsets::InitFText()
 
 	if (!Sample.empty())
 		GLogger.FmtWrite(ELogLevel::Info, "InitFText: Sample text \"{}\"\n", Utils::String::WStringToString(Sample));
+}
+
+void FInSDKOffsets::InitWeakObjectPtrSize()
+{
+	/* If the ParticleSystemComponent class or the AutoAttachParent member weren't found, fallback to looping GObjects and looking for a WeakObjectProperty. */
+	auto OnPropertyNotFound = [&]() -> void
+	{
+		const int MaxNumObjectsConsidered = ObjectArray::Num();
+		int NumObjectsConsidered          = 0;
+
+		for (UEObject Obj : ObjectArray())
+		{
+			if (NumObjectsConsidered++ >= MaxNumObjectsConsidered)
+				break;
+
+			if (!Obj.IsA(EClassCastFlags::Struct))
+				continue;
+
+			for (UEProperty Prop : Obj.Cast<UEClass>().GetProperties())
+			{
+				if (Prop.IsA(EClassCastFlags::WeakObjectProperty))
+				{
+					this->WeakObjectProperty.SizeOf = Prop.GetSize();
+					return;
+				}
+			}
+		}
+	};
+
+	const UEClass ParticleSystemComponentClass = ObjectArray::FindClassFast("ParticleSystemComponent");
+
+	if (!ParticleSystemComponentClass)
+		return OnPropertyNotFound();
+
+	const UEProperty AutoAttachParentProp = ParticleSystemComponentClass.FindMember("AutoAttachParent", EClassCastFlags::WeakObjectProperty);
+
+	if (!AutoAttachParentProp)
+		return OnPropertyNotFound();
+
+	this->WeakObjectProperty.SizeOf = AutoAttachParentProp.GetSize();
 }
 
 void FInSDKOffsets::InitTDelegateSize()
@@ -2725,14 +2984,10 @@ void FInSDKOffsets::InitProcessEvent()
 		};
 
 		Collect(MemSetSlots,
-		        {"memset", "__aeabi_memset", "__aeabi_memset4", "__aeabi_memset8",
-		         "__aeabi_memclr", "__aeabi_memclr4", "__aeabi_memclr8",
-		         "bzero", "__bzero",
-		         "_memset", "___memset_chk", "_bzero", "___bzero"});
+		        {"memset", "__aeabi_memset", "__aeabi_memset4", "__aeabi_memset8", "__aeabi_memclr", "__aeabi_memclr4", "__aeabi_memclr8", "bzero", "__bzero", "_memset", "___memset_chk", "_bzero", "___bzero"});
 
 		Collect(MemCopySlots,
-		        {"memcpy", "__aeabi_memcpy", "__aeabi_memcpy4", "__aeabi_memcpy8",
-		         "_memcpy", "___memcpy_chk"});
+		        {"memcpy", "__aeabi_memcpy", "__aeabi_memcpy4", "__aeabi_memcpy8", "_memcpy", "___memcpy_chk"});
 
 		GLogger.FmtWrite(ELogLevel::Debug, "InitProcessEvent: Resolved {} memset and {} memcpy import slot(s).\n", MemSetSlots.size(), MemCopySlots.size());
 	}
@@ -3120,9 +3375,9 @@ void FInSDKOffsets::InitProcessEvent()
 			                 SymTrace.bStoppedAtNeighbor ? "stopped at next function" : "reached end of window",
 			                 SymTrace.StorePairCount,
 			                 BestSignals.Describe());
-			BestIndex   = Index;
-			BestAddr    = FuncAddr;
-			bBySymbol   = true;
+			BestIndex = Index;
+			BestAddr  = FuncAddr;
+			bBySymbol = true;
 			break;
 		}
 
@@ -3244,10 +3499,14 @@ void FInSDKOffsets::Init()
 
 	GLogger.FmtWrite(ELogLevel::Info, "Finding FText Offsets...\n");
 	this->InitFText();
-	GLogger.FmtWrite(ELogLevel::Info, "FText.Size: 0x{:X}\n", FText.Size);
+	GLogger.FmtWrite(ELogLevel::Info, "FText.SizeOf: 0x{:X}\n", FText.SizeOf);
 	GLogger.FmtWrite(ELogLevel::Info, "FText.TextData: 0x{:X}\n", FText.TextData);
 	GLogger.FmtWrite(ELogLevel::Info, "FText.InTextDataString: 0x{:X}\n", FText.InTextDataString);
 	GLogger.FmtWrite(ELogLevel::Info, "InternalSettings::bUseChar16String: {}\n", InternalSettings::bUseChar16String);
+
+	GLogger.FmtWrite(ELogLevel::Info, "Finding size of WeakObjectProperty...\n");
+	this->InitWeakObjectPtrSize();
+	GLogger.FmtWrite(ELogLevel::Info, "WeakObjectProperty.SizeOf = 0x{:X}\n", (uint32_t)WeakObjectProperty.SizeOf);
 
 	GLogger.FmtWrite(ELogLevel::Info, "Finding size of DelegateProperty...\n");
 	this->InitTDelegateSize();

@@ -716,7 +716,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 	}
 
 	// FText
-	AddPredef("FText", GInSDKOffsets.FText.Size, alignof(void*));
+	AddPredef("FText", GInSDKOffsets.FText.SizeOf, alignof(void*));
 
 	for (const PredefinedStruct& Predef : Types)
 		GenerateSingleStruct(StructWrapper(&Predef), StructData, NameData);

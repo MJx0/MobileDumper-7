@@ -18,34 +18,39 @@
 
 namespace OffsetFinder
 {
-	constexpr int32_t OffsetNotFound       = -1;
-	constexpr int32_t OffsetFinderMinValue = sizeof(void*) == 4 ? 0x18 : 0x28;
-	constexpr int32_t OffsetFinderMaxValue = 0x1A0;
+	constexpr int32_t OffsetNotFound = -1;
+	/// @brief Size of a bare UObject: the lower bound when searching a type derived from it.
+	constexpr int32_t DefaultUObjectSize = sizeof(void*) == 4 ? 0x18 : 0x28;
+	/// @brief Upper bound suited to the small UE structs; a larger type has to pass its own.
+	constexpr int32_t DefaultMaxOffsetScan = 0x1A0;
 
 	/*
 	 * DecryptFn, when set, is applied to each probed value. A field whose value is encrypted in
 	 * memory never matches the expected one otherwise, so the offset is simply never found.
 	 */
 	template <int Alignement = 4, typename T>
-	int32_t FindOffset(const std::vector<std::pair<void*, T>>& ObjectValuePair, int MinOffset = OffsetFinderMinValue, int MaxOffset = OffsetFinderMaxValue, const std::function<T(T, uintptr_t)>& DecryptFn = {})
+	int32_t FindOffset(const std::vector<std::pair<void*, T>>& ObjectValuePair, int MinOffset, int MaxOffset, const FDecryptFn<T>& DecryptFn = {})
 	{
+		for (size_t i = 0; i < ObjectValuePair.size(); i++)
+		{
+			if (ObjectValuePair[i].first == nullptr)
+				GLogger.FmtWrite(ELogLevel::Error, "FindOffset is skipping ObjectValuePair[{}] because .first is nullptr.\n", i);
+		}
+
 		int HighestFoundOffset = MinOffset;
 		bool bFoundOffset      = false;
 
 		for (int i = 0; i < int(ObjectValuePair.size()); i++)
 		{
 			if (ObjectValuePair[i].first == nullptr)
-			{
-				GLogger.FmtWrite(ELogLevel::Error, "FindOffset is skipping ObjectValuePair[{}] because .first is nullptr.\n", i);
 				continue;
-			}
 
 			for (int j = HighestFoundOffset; j < MaxOffset; j += Alignement)
 			{
 				const uintptr_t ProbeAddr = reinterpret_cast<uintptr_t>(ObjectValuePair[i].first) + j;
 				T TypedValueAtOffset      = GMemory->Read<T>(ProbeAddr);
 				if (DecryptFn)
-					TypedValueAtOffset = DecryptFn(TypedValueAtOffset, ProbeAddr);
+					TypedValueAtOffset = DecryptFn({.Address = ProbeAddr, .RawValue = TypedValueAtOffset});
 
 				if (TypedValueAtOffset == ObjectValuePair[i].second && j >= HighestFoundOffset)
 				{
@@ -63,7 +68,27 @@ namespace OffsetFinder
 			}
 		}
 
-		return bFoundOffset ? HighestFoundOffset : OffsetNotFound;
+		if (!bFoundOffset)
+			return OffsetNotFound;
+
+		// Raising the offset above re-checks the entries before it, but an entry with no match at
+		// or above the final offset is skipped without ever contradicting it - so one entry
+		// matching somewhere could carry the result on its own. Confirm all of them agree.
+		for (const std::pair<void*, T>& Pair : ObjectValuePair)
+		{
+			if (Pair.first == nullptr)
+				continue;
+
+			const uintptr_t ProbeAddr = reinterpret_cast<uintptr_t>(Pair.first) + HighestFoundOffset;
+			T TypedValueAtOffset      = GMemory->Read<T>(ProbeAddr);
+			if (DecryptFn)
+				TypedValueAtOffset = DecryptFn({.Address = ProbeAddr, .RawValue = TypedValueAtOffset});
+
+			if (!(TypedValueAtOffset == Pair.second))
+				return OffsetNotFound;
+		}
+
+		return HighestFoundOffset;
 	}
 
 	template <int Alignement = 4, typename T>
@@ -194,7 +219,7 @@ namespace OffsetFinder
 	}
 
 	template <bool bCheckForVft = true>
-	int32_t GetValidPointerOffset(const void* PtrObjA, const void* PtrObjB, int32_t StartingOffset, int32_t MaxOffset, bool bNeedsToBeInModuleMemory = false, const std::function<uintptr_t(uintptr_t, uintptr_t)>& DecryptFn = {})
+	int32_t GetValidPointerOffset(const void* PtrObjA, const void* PtrObjB, int32_t StartingOffset, int32_t MaxOffset, bool bNeedsToBeInModuleMemory = false, const FDecryptFn<uintptr_t>& DecryptFn = {})
 	{
 		const uint8_t* ObjA = static_cast<const uint8_t*>(PtrObjA);
 		const uint8_t* ObjB = static_cast<const uint8_t*>(PtrObjB);
@@ -206,8 +231,8 @@ namespace OffsetFinder
 		{
 			const uintptr_t AddrA = reinterpret_cast<uintptr_t>(ObjA) + j;
 			const uintptr_t AddrB = reinterpret_cast<uintptr_t>(ObjB) + j;
-			const uintptr_t ValA  = DecryptFn ? DecryptFn(GMemory->Read<uintptr_t>(AddrA), AddrA) : GMemory->Read<uintptr_t>(AddrA);
-			const uintptr_t ValB  = DecryptFn ? DecryptFn(GMemory->Read<uintptr_t>(AddrB), AddrB) : GMemory->Read<uintptr_t>(AddrB);
+			const uintptr_t ValA  = DecryptFn ? DecryptFn({.Address = AddrA, .RawValue = GMemory->Read<uintptr_t>(AddrA)}) : GMemory->Read<uintptr_t>(AddrA);
+			const uintptr_t ValB  = DecryptFn ? DecryptFn({.Address = AddrB, .RawValue = GMemory->Read<uintptr_t>(AddrB)}) : GMemory->Read<uintptr_t>(AddrB);
 			const bool bIsAValid  = GMemory->IsAddressReadable(ValA) && (bCheckForVft ? GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(ValA)) : true);
 			const bool bIsBValid  = GMemory->IsAddressReadable(ValB) && (bCheckForVft ? GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(ValB)) : true);
 
@@ -259,7 +284,7 @@ namespace OffsetFinder
 	// (e.g. it can't be at the same offset as UObject::Class); remaining offsets are then narrowed
 	// down by the comparison-index/average-value heuristics below, ideally to just one.
 	template <typename IteratorType>
-	int32_t FindNameOffsetForSomeClass(std::function<bool(int32_t Value)> IsPotentialValidOffset, IteratorType DataSetStartIterator, IteratorType DataSetEndIterator, int MaxIteration = 0)
+	int32_t FindNameOffsetForSomeClass(std::function<bool(int32_t Value)> IsPotentialValidOffset, IteratorType DataSetStartIterator, IteratorType DataSetEndIterator, int32_t MaxScanOffset, int MaxIteration = 0)
 	{
 		struct ValueInfo
 		{
@@ -277,7 +302,7 @@ namespace OffsetFinder
 		constexpr auto LowComparisonIndexUpperCap            = 0x10;
 		constexpr auto MaxAllowedNamesWithLowCmpIdx          = 0x40;
 
-		for (int i = sizeof(void*); i <= 0x40; i += 0x4)
+		for (int i = sizeof(void*); i <= MaxScanOffset; i += 0x4)
 		{
 			if (!IsPotentialValidOffset(i))
 				continue;
@@ -288,7 +313,7 @@ namespace OffsetFinder
 		auto GetDataAtOffsetAsInt = [](const void* Ptr, int32_t Offset) -> uint32_t
 		{
 			const uintptr_t Addr = reinterpret_cast<uintptr_t>(Ptr) + Offset;
-			return static_cast<uint32_t>(GDecryptCallbacks.FName.CompIdx(static_cast<int32>(GMemory->Read<uint32_t>(Addr)), Addr));
+			return static_cast<uint32_t>(GDecryptCallbacks.FName.CompIdx({.Address = Addr, .RawValue = static_cast<int32>(GMemory->Read<uint32_t>(Addr))}));
 		};
 
 		const IteratorType VerifyStartIt = DataSetStartIterator;
@@ -300,8 +325,8 @@ namespace OffsetFinder
 			if (NumObjectsConsidered++ >= MaxIteration)
 				break;
 
-			constexpr auto SmallPageSize            = 0x1000;
-			constexpr auto MaxAccessedSizeInUObject = 0x44;
+			constexpr auto SmallPageSize = 0x1000;
+			const auto MaxAccessedSizeInUObject = MaxScanOffset + static_cast<int32_t>(sizeof(uint32_t));
 
 			// Object allocations are page-aligned in both size and base, and UObject's real size
 			// isn't known yet (that's what this offset search is for) - so an object within
@@ -347,7 +372,7 @@ namespace OffsetFinder
 			{
 				const void* Addr        = (*It).GetAddress();
 				const uintptr_t CmpAddr = reinterpret_cast<uintptr_t>(Addr) + Off;
-				const int32_t CmpIdx    = GDecryptCallbacks.FName.CompIdx(GMemory->Read<int32_t>(CmpAddr), CmpAddr);
+				const int32_t CmpIdx    = GDecryptCallbacks.FName.CompIdx({.Address = CmpAddr, .RawValue = GMemory->Read<int32_t>(CmpAddr)});
 				if (CmpIdx <= 0)
 					continue;
 				const std::string Name = NameArray::GetNameEntry(CmpIdx).GetString();

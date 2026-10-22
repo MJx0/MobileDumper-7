@@ -17,7 +17,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 	for (auto& [Name, _] : ClassNamesToOffsets)
 	{
 		Classes[Name] = ObjectArray::FindClassFast(Name.c_str());
-		GLogger.FmtWrite(ELogLevel::Info, "{} instance at {} \n", Name, Classes[Name].GetAddress());
+		GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found '{}' instance at {}.\n", Name, Classes[Name].GetAddress());
 	}
 
 	// Find one live (non-CDO) instance per class in a single pass
@@ -74,7 +74,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 			return false;
 		});
 
-		GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found {} candidates for '{}'\n", Results.size(), Name);
+		GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found {} candidates for '{}'.\n", Results.size(), Name);
 
 		uintptr_t Result = 0;
 
@@ -102,7 +102,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 			else
 			{
 				Result = Results[1];
-				GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: filtered volatile pointer at 0x{:X} for '{}'\n", CandidateAddr, Name);
+				GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Filtered volatile pointer at 0x{:X} for '{}'.\n", CandidateAddr, Name);
 			}
 		}
 		else
@@ -111,6 +111,6 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 		}
 
 		ClassNamesToOffsets[Name] = GMemory->GetUnrealModule().AddressToOffset(Result);
-		GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: '{}' offset = 0x{:X}\n", Name, ClassNamesToOffsets[Name]);
+		GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: '{}' offset at 0x{:X}.\n", Name, ClassNamesToOffsets[Name]);
 	}
 }

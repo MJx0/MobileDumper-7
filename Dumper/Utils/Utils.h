@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "Encoding/UtfN.hpp"
@@ -649,6 +650,11 @@ namespace Utils
 
 		/// @brief Every running PID whose real UID is @p Uid.
 		std::vector<pid_t> GetProcessIDsByUid(uid_t Uid);
+
+		/// @brief Third-party packages, i.e. everything a user actually installed.
+		/// Empty when neither lookup worked, which callers
+		/// must treat as "unknown" rather than "none installed".
+		const std::unordered_set<std::string>& GetUserInstalledPackages();
 
 		/// @brief "main", a secondary process's suffix, or "unregistered" if ActivityManager has
 		/// no record of @p Pid - immune to cmdline spoofing either way.

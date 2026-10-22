@@ -6,12 +6,37 @@
 #include "../Unreal/Enums.h"
 
 /**
+ * @brief What a decryption hook is handed: the stored bytes, and where they came from.
+ *
+ * A cipher is not always confined to the field it protects - one shipped scheme combines three
+ * consecutive words starting at @ref Address - so a hook receives the address as well and may
+ * read from it rather than using @ref RawValue at all.
+ *
+ * @ref RawValue is still supplied so an ordinary hook needs no read of its own, and so a value
+ * already decoded from a bulk-read block during layout detection can be passed straight in.
+ */
+template <typename T>
+struct FDecryptContext
+{
+	/// @brief Address the value was read from.
+	uintptr_t Address = 0;
+	/// @brief Value exactly as stored in the target, before decryption.
+	T RawValue{};
+};
+
+/// @brief A decryption hook for a field of type @p T.
+template <typename T>
+using FDecryptFn = std::function<T(const FDecryptContext<T>&)>;
+
+/// @brief Default hook, for a target that stores the field in the clear.
+template <typename T>
+inline T DecryptIdentity(const FDecryptContext<T>& Context)
+{
+	return Context.RawValue;
+}
+
+/**
  * @brief Per-offset value decryption hooks.
- *
- * Each callback receives a value already obtained from the target and the address it came from, and returns
- *
- * Callbacks take a value rather than performing the read so they apply equally to a direct read and to a
- * value decoded from a bulk-read block during layout detection, where no per-field read happens at all.
  */
 struct FDecryptCallbacks
 {
@@ -19,46 +44,37 @@ struct FDecryptCallbacks
 	struct FNameCallbacks
 	{
 		/// @brief Decrypts a comparison index.
-		std::function<int32(int32, uintptr_t)> CompIdx = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> CompIdx = DecryptIdentity<int32>;
 		/// @brief Decrypts a name number.
-		std::function<uint32(uint32, uintptr_t)> Number = [](uint32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<uint32> Number = DecryptIdentity<uint32>;
 	} FName;
 
 	/// @brief Hooks for UObject fields.
 	struct FUObjectCallbacks
 	{
 		/// @brief Decrypts an object flags field.
-		std::function<EObjectFlags(EObjectFlags, uintptr_t)> Flags = [](EObjectFlags Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<EObjectFlags> Flags = DecryptIdentity<EObjectFlags>;
 		/// @brief Decrypts an internal object index.
-		std::function<int32(int32, uintptr_t)> Index = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> Index = DecryptIdentity<int32>;
 		/// @brief Decrypts a UClass pointer.
-		std::function<uintptr_t(uintptr_t, uintptr_t)> Class = [](uintptr_t Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<uintptr_t> Class = DecryptIdentity<uintptr_t>;
 		/// @brief Decrypts an outer UObject pointer.
-		std::function<uintptr_t(uintptr_t, uintptr_t)> Outer = [](uintptr_t Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<uintptr_t> Outer = DecryptIdentity<uintptr_t>;
 	} UObject;
 
 	/// @brief Hooks for a legacy indirect name array.
 	struct FNameArrayCallbacks
 	{
 		/// @brief Decrypts the chunk pointer array base.
-		std::function<uintptr_t(uintptr_t, uintptr_t)> Chunks = [](uintptr_t Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<uintptr_t> Chunks = DecryptIdentity<uintptr_t>;
 		/// @brief Decrypts the live name count.
-		std::function<int32(int32, uintptr_t)> NumElements = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> NumElements = DecryptIdentity<int32>;
 
 		/// @brief Hooks for fields within a single FNameEntry.
 		struct FNameEntryCallbacks
 		{
 			/// @brief Decrypts the packed `(Index << 1) | bIsWide` field.
-			std::function<uint32(uint32, uintptr_t)> Index = [](uint32 Value, uintptr_t)
-			{ return Value; };
+			FDecryptFn<uint32> Index = DecryptIdentity<uint32>;
 		} FNameEntry;
 	} NameArray;
 
@@ -66,21 +82,17 @@ struct FDecryptCallbacks
 	struct FNamePoolCallbacks
 	{
 		/// @brief Decrypts the block pointer array base.
-		std::function<uintptr_t(uintptr_t, uintptr_t)> Blocks = [](uintptr_t Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<uintptr_t> Blocks = DecryptIdentity<uintptr_t>;
 		/// @brief Decrypts the highest allocated block index.
-		std::function<int32(int32, uintptr_t)> MaxChunkIndex = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> MaxChunkIndex = DecryptIdentity<int32>;
 		/// @brief Decrypts the write cursor within the current block.
-		std::function<int32(int32, uintptr_t)> ByteCursor = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> ByteCursor = DecryptIdentity<int32>;
 
 		/// @brief Hooks for fields within a single packed FNameEntry.
 		struct FNameEntryCallbacks
 		{
 			/// @brief Decrypts the header holding length and flags.
-			std::function<uint16(uint16, uintptr_t)> Header = [](uint16 Value, uintptr_t)
-			{ return Value; };
+			FDecryptFn<uint16> Header = DecryptIdentity<uint16>;
 		} FNameEntry;
 	} NamePool;
 
@@ -88,21 +100,17 @@ struct FDecryptCallbacks
 	struct FFixedObjectsCallbacks
 	{
 		/// @brief Decrypts the pointer to the item allocation.
-		std::function<uintptr_t(uintptr_t, uintptr_t)> Objects = [](uintptr_t Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<uintptr_t> Objects = DecryptIdentity<uintptr_t>;
 		/// @brief Decrypts the live object count.
-		std::function<int32(int32, uintptr_t)> NumObjects = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> NumObjects = DecryptIdentity<int32>;
 		/// @brief Decrypts the allocation capacity.
-		std::function<int32(int32, uintptr_t)> MaxObjects = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> MaxObjects = DecryptIdentity<int32>;
 
 		/// @brief Hooks for fields within a single FUObjectItem.
 		struct FUObjectItemCallbacks
 		{
 			/// @brief Decrypts the UObject pointer within an item.
-			std::function<uintptr_t(uintptr_t, uintptr_t)> Object = [](uintptr_t Value, uintptr_t)
-			{ return Value; };
+			FDecryptFn<uintptr_t> Object = DecryptIdentity<uintptr_t>;
 		} FUObjectItem;
 	} FixedObjects;
 
@@ -110,27 +118,21 @@ struct FDecryptCallbacks
 	struct FChunkedObjectsCallbacks
 	{
 		/// @brief Decrypts the pointer to the chunk pointer table.
-		std::function<uintptr_t(uintptr_t, uintptr_t)> Objects = [](uintptr_t Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<uintptr_t> Objects = DecryptIdentity<uintptr_t>;
 		/// @brief Decrypts the live object count.
-		std::function<int32(int32, uintptr_t)> NumElements = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> NumElements = DecryptIdentity<int32>;
 		/// @brief Decrypts the total capacity across all chunks.
-		std::function<int32(int32, uintptr_t)> MaxElements = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> MaxElements = DecryptIdentity<int32>;
 		/// @brief Decrypts the chunk table capacity.
-		std::function<int32(int32, uintptr_t)> MaxChunks = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> MaxChunks = DecryptIdentity<int32>;
 		/// @brief Decrypts the allocated chunk count.
-		std::function<int32(int32, uintptr_t)> NumChunks = [](int32 Value, uintptr_t)
-		{ return Value; };
+		FDecryptFn<int32> NumChunks = DecryptIdentity<int32>;
 
 		/// @brief Hooks for fields within a single FUObjectItem.
 		struct FUObjectItemCallbacks
 		{
 			/// @brief Decrypts the UObject pointer within an item.
-			std::function<uintptr_t(uintptr_t, uintptr_t)> Object = [](uintptr_t Value, uintptr_t)
-			{ return Value; };
+			FDecryptFn<uintptr_t> Object = DecryptIdentity<uintptr_t>;
 		} FUObjectItem;
 	} ChunkedObjects;
 };

@@ -1025,6 +1025,14 @@ void CppGenerator::GenerateStruct(const StructWrapper& Struct, StreamType& Struc
 			if (Member.IsBitField() || Member.IsZeroSizedMember() || Member.IsStatic())
 				continue;
 
+			// An unresolved offset formats as "0x-00001", which is not a C++ literal and costs the
+			// whole SDK its compile. The member is emitted regardless, so skip only its assertion.
+			if (Member.GetOffset() < 0)
+			{
+				GLogger.FmtWrite(ELogLevel::Warning, "GenerateStruct: '{}::{}' has no resolved offset - its assertion is omitted.\n", UniqueName, Member.GetName());
+				continue;
+			}
+
 			AssertionFile << fmt::format("static_assert(offsetof({0}, {1}) == 0x{2:06X}, \"Member \'{0}::{1}\' has a wrong offset!\");{3}", UniqueName, Member.GetName(), Member.GetOffset(), AssertionNewLineStr);
 		}
 
@@ -6074,7 +6082,7 @@ namespace FTextImpl
 
 	/* class FText */
 	PredefinedStruct FText = PredefinedStruct{
-	    .UniqueName = "FText", .Size = GInSDKOffsets.FText.Size, .Alignment = sizeof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
+	    .UniqueName = "FText", .Size = GInSDKOffsets.FText.SizeOf, .Alignment = sizeof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
 
 	FText.Properties =
 	    {
@@ -6123,7 +6131,9 @@ namespace FTextImpl
 	GenerateStruct(&FText, BasicHpp, BasicCpp, BasicHpp, AssertionsFile);
 
 
-	constexpr int32 FWeakObjectPtrSize = 0x08;
+	/* Wider than the stock int32 pair wherever a game obfuscates object references. FScriptDelegate
+	   and TPersistentObjectPtr are built on it, so sizing it wrongly shifts every member past one. */
+	const int32 FWeakObjectPtrSize = GInSDKOffsets.WeakObjectProperty.SizeOf > 0 ? GInSDKOffsets.WeakObjectProperty.SizeOf : 0x08;
 
 	/* class FWeakObjectPtr */
 	PredefinedStruct FWeakObjectPtr = PredefinedStruct{
@@ -7578,8 +7588,7 @@ namespace UC
 		class SetElement
 		{
 		public:
-			template<typename SetElementType>
-			friend class TSet;
+			friend class TSet<SetType>;
 
 		private:
 			SetType Value;
@@ -8072,7 +8081,7 @@ namespace UC
 
 	public:
 		inline       SparseArrayElementType& operator[](int32 Index)       { VerifyIndex(Index); return *reinterpret_cast<SparseArrayElementType*>(&Data.GetUnsafe(Index).ElementData); }
-		inline const SparseArrayElementType& operator[](int32 Index) const { VerifyIndex(Index); return *reinterpret_cast<SparseArrayElementType*>(&Data.GetUnsafe(Index).ElementData); }
+		inline const SparseArrayElementType& operator[](int32 Index) const { VerifyIndex(Index); return *reinterpret_cast<const SparseArrayElementType*>(&Data.GetUnsafe(Index).ElementData); }
 
 		inline bool operator==(const TSparseArray<SparseArrayElementType>& Other) const { return Data == Other.Data; }
 		inline bool operator!=(const TSparseArray<SparseArrayElementType>& Other) const { return Data != Other.Data; }

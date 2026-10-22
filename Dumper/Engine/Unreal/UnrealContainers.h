@@ -210,8 +210,7 @@ namespace UC
 		class SetElement
 		{
 		public:
-			template <typename SetElementType>
-			friend class UC::TSet;
+			friend class UC::TSet<SetType>;
 
 		private:
 			SetType Value;

@@ -93,7 +93,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 	{
 		GLogger.FmtWrite(ELogLevel::Info, "Game: {}\n", InternalSettings::GameName);
 		GLogger.FmtWrite(ELogLevel::Info, "Version: {}\n", InternalSettings::GameVersion);
-		GLogger.FmtWrite(ELogLevel::Info, "Output: {}\n", GSettings.Generator.SDKGenerationPath);
+		GLogger.FmtWrite(ELogLevel::Info, "Output: {}\n", DumperDir);
 	}
 	GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 
