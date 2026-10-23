@@ -7,6 +7,8 @@ setlocal EnableDelayedExpansion
 ::  Pushes the standalone executable to the device and runs it against the
 ::  running game. This is the single deploy mode: a live attach/dump.
 ::
+::  With no --package, deploy.bat lists running installed packages for selection.
+::
 ::  Examples:
 ::    deploy.bat
 ::    deploy.bat --arch arm64 --package com.pubg.imobile
@@ -20,7 +22,8 @@ set "ADB=%SCRIPT_DIR%\adb.exe"
 if not exist "%ADB%" set "ADB=adb"
 
 :: ── Defaults (override on the command line, see :usage) ───────────────────────
-set "PACKAGE=com.pubg.imobile"
+set "PACKAGE="
+set "PACKAGE_SET="
 set "ARCH=arm64"
 set "ARCH_SET="
 :: The dumper appends "\MobileDumper-7" to this, so /sdcard -> /sdcard/MobileDumper-7
@@ -44,6 +47,7 @@ if /i "%~1"=="--help" goto :usage
 
 if /i "%~1"=="--package" (
     set "PACKAGE=%~2"
+    set "PACKAGE_SET=1"
     shift
     shift
     goto :parse_args
@@ -167,10 +171,6 @@ if not defined MEM_SET (
 )
 echo.
 
-set "RUN_ARGS=--package %PACKAGE% --output %OUTPUT% --mem %MEMTYPE%"
-if /i "%SUSPEND%"=="y" set "RUN_ARGS=%RUN_ARGS% --suspend"
-if /i "%DUMPLIB%"=="y" set "RUN_ARGS=%RUN_ARGS% --dump"
-
 :: ── ADB / device ──────────────────────────────────────────────────────────────
 if /i "%ADB%"=="adb" (
     where adb >nul 2>&1
@@ -203,6 +203,10 @@ if "%ROOTMODE%"=="none" (
 )
 
 :: ── Target process ────────────────────────────────────────────────────────────
+:: When --package was not supplied, let the user select a running package.
+if not defined PACKAGE_SET call :find_running_game
+if not defined PACKAGE goto :fail
+
 call :find_pid
 if not defined PID (
     echo Game "%PACKAGE%" is not running. Start it, then run this again.
@@ -210,6 +214,10 @@ if not defined PID (
 )
 echo Target: %PACKAGE% ^(pid %PID%^)
 echo.
+
+set "RUN_ARGS=--package %PACKAGE% --output %OUTPUT% --mem %MEMTYPE%"
+if /i "%SUSPEND%"=="y" set "RUN_ARGS=%RUN_ARGS% --suspend"
+if /i "%DUMPLIB%"=="y" set "RUN_ARGS=%RUN_ARGS% --dump"
 
 :: ── Deploy and run ────────────────────────────────────────────────────────────
 echo Pushing "%EXE_BIN%"...
@@ -264,6 +272,46 @@ if /i "%ROOTMODE%"=="su" (
 "%ADB%" shell "%~1"
 goto :eof
 
+:: List running third-party packages, excluding Android/Google phone packages.
+:: No game allowlist or engine/library detection is used.
+:find_running_game
+set "GAME_COUNT=0"
+set "PACKAGE="
+set "GAME_LIST=%TEMP%\md7_packages_%RANDOM%.txt"
+echo Finding running packages...
+"%ADB%" shell "pm list packages -3 | while IFS= read -r line; do package=${line#package:}; case $package in com.google.*|com.android.*|android) continue ;; esac; pids=$(pidof $package); if [ -n \"$pids\" ]; then echo $package $pids; fi; done" <nul > "%GAME_LIST%" 2>nul
+if errorlevel 1 (
+    del "%GAME_LIST%" >nul 2>&1
+    echo Could not list running packages.
+    exit /b 1
+)
+echo Running packages:
+for /f "usebackq tokens=1,2" %%G in ("%GAME_LIST%") do (
+    set /a GAME_COUNT+=1
+    set "GAME_!GAME_COUNT!=%%G"
+    echo   !GAME_COUNT!. %%G ^(pid %%H^)
+)
+del "%GAME_LIST%" >nul 2>&1
+if !GAME_COUNT!==0 (
+    echo No running packages found. Start the app or pass --package ^<name^>.
+    exit /b 1
+)
+echo   0. Cancel
+:select_running_package
+set "GAME_CHOICE="
+set /p "GAME_CHOICE=Select a package (1-!GAME_COUNT!, 0 to cancel): "
+if not defined GAME_CHOICE exit /b 1
+if "!GAME_CHOICE!"=="0" exit /b 1
+for /l %%I in (1,1,!GAME_COUNT!) do (
+    if "!GAME_CHOICE!"=="%%I" set "PACKAGE=!GAME_%%I!"
+)
+if not defined PACKAGE (
+    echo Invalid selection. Choose a listed number.
+    goto :select_running_package
+)
+echo Selected running package: !PACKAGE!
+goto :eof
+
 :: Sets PID to the first running pid of %PACKAGE%.
 :find_pid
 set "PID="
@@ -277,7 +325,7 @@ goto :eof
 :usage
 echo Usage: %~n0 [OPTIONS]
 echo.
-echo   --package ^<name^>   Game package (default: com.pubg.imobile)
+echo   --package ^<name^>   Package (default: select from running packages)
 echo   --arch ^<abi^>       arm64, arm32, x86, x86_64 (prompted when omitted)
 echo   --output ^<path^>    Device output dir (default: /sdcard)
 echo   --mem ^<1^|2^>        1 = process_vm_readv, 2 = pread (default: 1)
