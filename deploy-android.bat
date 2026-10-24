@@ -2,17 +2,17 @@
 setlocal EnableDelayedExpansion
 
 :: =============================================================================
-::  MobileDumper-7 - deploy to device and dump the live game
+::  MobileDumper-7 - deploy the Android executable and dump the live game
 ::
 ::  Pushes the standalone executable to the device and runs it against the
 ::  running game. This is the single deploy mode: a live attach/dump.
 ::
-::  With no --package, deploy.bat lists running installed packages for selection.
+::  With no --package, deploy-android.bat lists running installed packages for selection.
 ::
 ::  Examples:
-::    deploy.bat
-::    deploy.bat --arch arm64 --package com.pubg.imobile
-::    deploy.bat --arch arm64 --mem 2 --no-suspend
+::    deploy-android.bat
+::    deploy-android.bat --arch arm64 --package com.pubg.imobile
+::    deploy-android.bat --arch arm64 --mem 2 --no-suspend
 :: =============================================================================
 
 set "SCRIPT_DIR=%~dp0"
@@ -141,7 +141,7 @@ if not exist "%EXE_BIN%" (
     popd
     if not "!BUILD_RC!"=="0" (
         echo.
-        echo Build failed. Fix the errors above, then run deploy.bat again.
+        echo Build failed. Fix the errors above, then run deploy-android.bat again.
         goto :fail
     )
 )
@@ -176,7 +176,7 @@ if /i "%ADB%"=="adb" (
     where adb >nul 2>&1
     if errorlevel 1 (
         echo adb.exe not found.
-        echo Put adb.exe next to deploy.bat or add it to PATH.
+        echo Put adb.exe next to deploy-android.bat or add it to PATH.
         goto :fail
     )
 )
