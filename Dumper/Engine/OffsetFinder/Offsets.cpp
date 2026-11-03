@@ -967,26 +967,21 @@ void InializeUEnumSettings(const void* EnumObj, const uint32_t UEnumNumValuesOff
 		}
 	}
 
-	using ValueType = std::conditional_t<sizeof(void*) == 0x8, int64, int32>;
+	using ValueType = int64;
 	struct Name08Byte
 	{
-		uint8 Pad[0x08];
+		uint8 Pad[0x8];
 	};
 	struct Name16Byte
 	{
 		uint8 Pad[0x10];
 	};
 
-	const uint8* ArrayAddress = static_cast<const uint8*>(EnumObj) + UEnumNumValuesOffset - 0x8;
+	const uint8* ArrayAddress = static_cast<const uint8*>(EnumObj) + UEnumNumValuesOffset - sizeof(void*);
 
 	auto InitEnumSettings = []<typename NameType>(const TArray<TPair<NameType, ValueType>>& ArrayOfNameValuePairs)
 	{
-		// The offset probe can land on a struct whose array is shorter than the three
-		// entries inspected below; Index() would throw and abort the whole dump.
-		if (!ArrayOfNameValuePairs.IsValidIndex(2))
-			return;
-
-		if (ArrayOfNameValuePairs[1].Second == 1)
+		if (ArrayOfNameValuePairs[1].Second == 1 && ArrayOfNameValuePairs[2].Second == 2)
 			return;
 
 		// Fallback: the full-width value read didn't look like a sequential index, so check
