@@ -94,7 +94,7 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
 	/* CastFlags is needed by Init_UStruct_Children(); find early, then re-find authoritatively after FProperty detection. */
 	const int32 ProfileCastFlags = this->UClass.CastFlags;
 
-	GLogger.FmtWrite(ELogLevel::Info, "(Early) initializing UClass.CastFlags for UStruct.Children...\n");
+	GLogger.FmtWrite(ELogLevel::Info, "(Early) Initializing UClass.CastFlags for UStruct.Children...\n");
 	if (this->UClass.CastFlags == OffsetFinder::OffsetNotFound)
 	{
 		Init_UClass_CastFlags();
