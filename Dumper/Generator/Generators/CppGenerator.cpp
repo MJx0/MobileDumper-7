@@ -4557,10 +4557,25 @@ namespace InSDKUtils
 )";
 
 	// Customizable part of Cpp code to allow for a custom 'CallGameFunction' function
-	BasicHpp << CppSettings.CallGameFunction;
+	BasicHpp << CppSettings.InSDKUtils.CallGameFunction;
 
 	BasicHpp << "}\n\n";
 	// End Namespace 'InSDKUtils'
+
+	// Generated-SDK counterpart to GDecryptCallbacks; defaults are identity/no-op.
+	BasicHpp << R"(namespace DecryptionUtils
+{
+	uintptr_t DecryptGNames(uintptr_t NamesPtr);
+	uintptr_t DecryptGObjects(uintptr_t ObjectsPtr);
+	uintptr_t DecryptFNameChunk(uintptr_t ChunkAddr, int32 ChunkIndex);
+	uintptr_t DecryptFNameEntry(uintptr_t EntryAddr, int32 EntryIndex);
+	UObject* DecryptFObjectItemEntry(UObject* Object);
+	void DecryptFNameUTF8(char* Data, int32 Len);
+	void DecryptFNameUTF16(char16_t* Data, int32 Len);
+	void DecryptFNameUTF32(char32_t* Data, int32 Len);
+}
+
+)";
 
 	/* Headers and the name match the default GetImageBase body needs. Emitted here rather than in
 	   Basic.hpp so an SDK with a user-supplied GetImageBase still pulls in nothing platform-specific. */
@@ -4648,7 +4663,7 @@ bool InSDKUtils::PathEndsWithModuleName(const char* Path)
 	/* Custom 'GetImageBase' function */
 	BasicCpp << fmt::format(R"(uintptr_t InSDKUtils::GetImageBase()
 {})",
-	                        GSettings.CppGenerator.GetImageBaseFuncBody.empty() ? DefaultGetImageBaseBody : GSettings.CppGenerator.GetImageBaseFuncBody);
+	                        GSettings.CppGenerator.InSDKUtils.GetImageBaseFuncBody.empty() ? DefaultGetImageBaseBody : GSettings.CppGenerator.InSDKUtils.GetImageBaseFuncBody);
 
 	BasicCpp << "\n";
 
@@ -4741,10 +4756,58 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 
 	BasicCpp << "\n";
 
-	/* Default bodies for the four accessors below. Each is built for the layout this game was
-	   detected to use, so the SDK works as generated; a non-empty override in GSettings replaces
-	   one outright. They all route through GetImageBase(), which stays the single thing a user has
-	   to fill in. */
+	// DecryptionUtils definitions; defaults are identity/no-op.
+	const auto& CppDecryptSettings = CppSettings.DecryptionUtils;
+
+	BasicCpp << fmt::format(R"(uintptr_t DecryptionUtils::DecryptGNames(uintptr_t NamesPtr)
+{})",
+	                        CppDecryptSettings.DecryptGNamesFuncBody.empty() ? "{\n\treturn NamesPtr;\n}\n" : CppDecryptSettings.DecryptGNamesFuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(uintptr_t DecryptionUtils::DecryptGObjects(uintptr_t ObjectsPtr)
+{})",
+	                        CppDecryptSettings.DecryptGObjectsFuncBody.empty() ? "{\n\treturn ObjectsPtr;\n}\n" : CppDecryptSettings.DecryptGObjectsFuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(uintptr_t DecryptionUtils::DecryptFNameChunk(uintptr_t ChunkAddr, int32 ChunkIndex)
+{})",
+	                        CppDecryptSettings.DecryptFNameChunkFuncBody.empty() ? "{\n\treturn ChunkAddr;\n}\n" : CppDecryptSettings.DecryptFNameChunkFuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(uintptr_t DecryptionUtils::DecryptFNameEntry(uintptr_t EntryAddr, int32 EntryIndex)
+{})",
+	                        CppDecryptSettings.DecryptFNameEntryFuncBody.empty() ? "{\n\treturn EntryAddr;\n}\n" : CppDecryptSettings.DecryptFNameEntryFuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(UObject* DecryptionUtils::DecryptFObjectItemEntry(UObject* Object)
+{})",
+	                        CppDecryptSettings.DecryptFObjectItemEntryFuncBody.empty() ? "{\n\treturn Object;\n}\n" : CppDecryptSettings.DecryptFObjectItemEntryFuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(void DecryptionUtils::DecryptFNameUTF8(char* Data, int32 Len)
+{})",
+	                        CppDecryptSettings.DecryptFNameUTF8FuncBody.empty() ? "{\n}\n" : CppDecryptSettings.DecryptFNameUTF8FuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(void DecryptionUtils::DecryptFNameUTF16(char16_t* Data, int32 Len)
+{})",
+	                        CppDecryptSettings.DecryptFNameUTF16FuncBody.empty() ? "{\n}\n" : CppDecryptSettings.DecryptFNameUTF16FuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(void DecryptionUtils::DecryptFNameUTF32(char32_t* Data, int32 Len)
+{})",
+	                        CppDecryptSettings.DecryptFNameUTF32FuncBody.empty() ? "{\n}\n" : CppDecryptSettings.DecryptFNameUTF32FuncBody);
+
+	BasicCpp << "\n";
+
+	// Default bodies; decrypt before the pointer/direct deref, matching GDecryptCallbacks.Statics.
 	const std::string DefaultGetGNamesBody = fmt::format(R"({{
 	/* Offsets::GNames {}. Change this if the game resolves GNames some other way. */
 	const uintptr_t Base = GetImageBase();
@@ -4752,13 +4815,16 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 	if (!Base)
 		return 0;
 
-{}
+	const uintptr_t RawCandidate = Base + Offsets::GNames;
+	const uintptr_t Decrypted    = DecryptionUtils::DecryptGNames(RawCandidate);
+
+	return {};
 }}
 )",
 	                                                     InternalSettings::bIsGNamesPointer ? "holds a pointer to the names container" : "is the names container itself",
 	                                                     InternalSettings::bIsGNamesPointer
-	                                                         ? R"(	return *reinterpret_cast<uintptr_t*>(Base + Offsets::GNames);)"
-	                                                         : R"(	return Base + Offsets::GNames;)");
+	                                                         ? R"(*reinterpret_cast<uintptr_t*>(Decrypted))"
+	                                                         : R"(Decrypted)");
 
 	const std::string DefaultGetGObjectsBody = fmt::format(R"({{
 	/* Offsets::GObjects {}. Change this if the game resolves GObjects some other way. */
@@ -4767,13 +4833,16 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 	if (!Base)
 		return nullptr;
 
-{}
+	const uintptr_t RawCandidate = Base + Offsets::GObjects;
+	const uintptr_t Decrypted    = DecryptionUtils::DecryptGObjects(RawCandidate);
+
+	return reinterpret_cast<TUObjectArray*>({});
 }}
 )",
 	                                                       InternalSettings::bIsGObjectsPointer ? "holds a pointer to the object array" : "is the object array itself",
 	                                                       InternalSettings::bIsGObjectsPointer
-	                                                           ? R"(	return *reinterpret_cast<TUObjectArray**>(Base + Offsets::GObjects);)"
-	                                                           : R"(	return reinterpret_cast<TUObjectArray*>(Base + Offsets::GObjects);)");
+	                                                           ? R"(*reinterpret_cast<uintptr_t*>(Decrypted))"
+	                                                           : R"(Decrypted)");
 
 	/* A fixed array indexes straight into one contiguous run; a chunked one selects a chunk first.
 	   TUObjectArray::GetObjects() returns FUObjectItem* in the first case and FUObjectItem** in the
@@ -4802,7 +4871,7 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 	   the subscript operator would drift whenever the engine's element size is not a multiple of it. */
 	const uint8* Item = reinterpret_cast<const uint8*>(Chunk) + ((Index % TUObjectArray::ElementsPerChunk) * FUObjectItem::Stride);
 
-	return reinterpret_cast<const FUObjectItem*>(Item)->Object;
+	return DecryptionUtils::DecryptFObjectItemEntry(reinterpret_cast<const FUObjectItem*>(Item)->Object);
 }
 )"
 	                                                    : R"({
@@ -4821,7 +4890,7 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 	   the subscript operator would drift whenever the engine's element size is not a multiple of it. */
 	const uint8* Item = reinterpret_cast<const uint8*>(Items) + (Index * FUObjectItem::Stride);
 
-	return reinterpret_cast<const FUObjectItem*>(Item)->Object;
+	return DecryptionUtils::DecryptFObjectItemEntry(reinterpret_cast<const FUObjectItem*>(Item)->Object);
 }
 )";
 
@@ -4838,6 +4907,41 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 		                                 ? "false /* this game uses a custom wide-name predicate: supply it here */"
 		                                 : fmt::format("(Entry->Index & 0x{:X}) != 0", NameLayout->FNameEntry.WideMask);
 
+		/* Entries here are NUL-terminated with no stored length, so the only way to bound a read is
+		   to stop at the first NUL - DecodeNameString already does that, reading Entry->String one
+		   character at a time. A decryptor needs the opposite: the whole buffer up front, since most
+		   ciphers can't be undone one byte at a time without knowing where the string ends. Copying
+		   that full NAME_SIZE buffer *before* any NUL check turns "reads a few live bytes" into
+		   "always reads 1024 bytes from entry storage", which is just as likely to run off the real
+		   allocation on a small/legacy chunk as it is to land safely - so this path is only taken when
+		   a profile actually asked for it; everything else keeps the original byte-at-a-time read. */
+		const bool bNeedsStringDecryption = !CppSettings.DecryptionUtils.DecryptFNameUTF8FuncBody.empty() ||
+		                                     !CppSettings.DecryptionUtils.DecryptFNameUTF16FuncBody.empty() ||
+		                                     !CppSettings.DecryptionUtils.DecryptFNameUTF32FuncBody.empty();
+
+		const std::string EntryBody = bNeedsStringDecryption
+		                                   ? fmt::format(R"(
+	// Decrypt on a local copy; never write through Entry->String directly.
+	const int32 MaxChars = 0x{0:X} / CharSize;
+
+	uint8 LocalBuffer[0x{0:X}]{{{{}}}};
+	std::memcpy(LocalBuffer, Entry->String, sizeof(LocalBuffer));
+
+	if (CharSize == 1)
+		DecryptionUtils::DecryptFNameUTF8(reinterpret_cast<char*>(LocalBuffer), MaxChars);
+	else
+		DecryptionUtils::{1}(reinterpret_cast<{2}*>(LocalBuffer), MaxChars);
+
+	return DecodeNameString(LocalBuffer, MaxChars, CharSize, true);
+)",
+		                                                     NameBufferSize,
+		                                                     InternalSettings::bUseChar16String ? "DecryptFNameUTF16" : "DecryptFNameUTF32",
+		                                                     InternalSettings::bUseChar16String ? "char16_t" : "char32_t")
+		                                   : fmt::format(R"(
+	return DecodeNameString(Entry->String, 0x{:X}, CharSize, true);
+)",
+		                                                 NameBufferSize);
+
 		DefaultGetNameByIndexBody = fmt::format(R"({{
 	/* Legacy TNameEntryArray: ordinal chunk indexing, NUL-terminated entries.
 	   Change this if the game stores its names some other way. */
@@ -4849,26 +4953,27 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 	/* The chunk table is inline, so it starts at the Chunks member, not at its value. Chunks past
 	   the live count are unallocated, so an index beyond it reads a pointer that was never set. */
 	const int32 ChunkIndex = Index / TNameEntryArray::ElementsPerChunk;
+	const int32 InChunk    = Index % TNameEntryArray::ElementsPerChunk;
 
 	FNameEntry** const* ChunkTable = reinterpret_cast<FNameEntry** const*>(&Names->Chunks);
-	FNameEntry** Chunk             = ChunkTable[ChunkIndex];
+	FNameEntry** Chunk             = reinterpret_cast<FNameEntry**>(
+	    DecryptionUtils::DecryptFNameChunk(reinterpret_cast<uintptr_t>(ChunkTable[ChunkIndex]), ChunkIndex));
 
 	if (!Chunk)
 		return "";
 
-	FNameEntry* Entry = Chunk[Index % TNameEntryArray::ElementsPerChunk];
+	FNameEntry* Entry = reinterpret_cast<FNameEntry*>(
+	    DecryptionUtils::DecryptFNameEntry(reinterpret_cast<uintptr_t>(Chunk[InChunk]), InChunk));
 
 	if (!Entry)
 		return "";
 
 	/* Legacy entries are NUL-terminated, so NAME_SIZE is only an upper bound here. */
 	const int32 CharSize = ({}) ? EngineInfo::TCharSize : 1;
-
-	return DecodeNameString(Entry->String, 0x{:X}, CharSize, true);
-}}
+{}}}
 )",
 		                                        WideTest,
-		                                        NameBufferSize);
+		                                        EntryBody);
 	}
 	else
 	{
@@ -4922,52 +5027,73 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 
 	/* The block table is inline, so it starts at the Blocks member, not at its value. */
 	const uint8* const* BlockTable = reinterpret_cast<const uint8* const*>(&Names->Blocks);
-	const uint8* Block             = BlockTable[Index >> FNamePool::BlocksBit];
+
+	const int32 ChunkIdx = Index >> FNamePool::BlocksBit;
+	const int32 InChunk  = Index & ((1 << FNamePool::BlocksBit) - 1);
+
+	const uint8* Block = reinterpret_cast<const uint8*>(
+	    DecryptionUtils::DecryptFNameChunk(reinterpret_cast<uintptr_t>(BlockTable[ChunkIdx]), ChunkIdx));
 
 	if (!Block)
 		return "";
 
-	const int32 OffsetInBlock = (Index & ((1 << FNamePool::BlocksBit) - 1)) * FNameEntry::Stride;
-	const FNameEntry* Entry   = reinterpret_cast<const FNameEntry*>(Block + OffsetInBlock);
+	const FNameEntry* Entry = reinterpret_cast<const FNameEntry*>(
+	    DecryptionUtils::DecryptFNameEntry(reinterpret_cast<uintptr_t>(Block + InChunk * FNameEntry::Stride), InChunk));
 
 	const int32 Length = {};
 {}
 	if (Length <= 0 || Length > 0x{:X})
 		return "";
 
-	/* Pool entries are packed and not NUL-terminated, so the header length is the exact extent. */
+	// Pool entries are packed and not NUL-terminated; header length is the exact extent.
 	const int32 CharSize = ({}) ? EngineInfo::TCharSize : 1;
 
-	return DecodeNameString(Entry->String, Length, CharSize, false);
+	// Decrypt on a local copy; never write through Entry->String directly.
+	const int32 MaxChars      = 0x{:X} / CharSize;
+	const int32 ClampedLength = Length < MaxChars ? Length : MaxChars;
+
+	uint8 LocalBuffer[0x{:X}]{{}};
+	std::memcpy(LocalBuffer, Entry->String, ClampedLength * CharSize);
+
+	if (CharSize == 1)
+		DecryptionUtils::DecryptFNameUTF8(reinterpret_cast<char*>(LocalBuffer), ClampedLength);
+	else
+		DecryptionUtils::{}(reinterpret_cast<{}*>(LocalBuffer), ClampedLength);
+
+	return DecodeNameString(LocalBuffer, ClampedLength, CharSize, false);
 }}
 )",
 		                                        LengthExpr,
 		                                        OutlineNumberBlock,
 		                                        NameBufferSize,
-		                                        WideTest);
+		                                        WideTest,
+		                                        NameBufferSize,
+		                                        NameBufferSize,
+		                                        InternalSettings::bUseChar16String ? "DecryptFNameUTF16" : "DecryptFNameUTF32",
+		                                        InternalSettings::bUseChar16String ? "char16_t" : "char32_t");
 	}
 
 	BasicCpp << fmt::format(R"(uintptr_t InSDKUtils::GetGNames()
 {})",
-	                        GSettings.CppGenerator.GetGNamesFuncBody.empty() ? DefaultGetGNamesBody : GSettings.CppGenerator.GetGNamesFuncBody);
+	                        GSettings.CppGenerator.InSDKUtils.GetGNamesFuncBody.empty() ? DefaultGetGNamesBody : GSettings.CppGenerator.InSDKUtils.GetGNamesFuncBody);
 
 	BasicCpp << "\n";
 
 	BasicCpp << fmt::format(R"(TUObjectArray* InSDKUtils::GetGObjects()
 {})",
-	                        GSettings.CppGenerator.GetGObjectsBody.empty() ? DefaultGetGObjectsBody : GSettings.CppGenerator.GetGObjectsBody);
+	                        GSettings.CppGenerator.InSDKUtils.GetGObjectsBody.empty() ? DefaultGetGObjectsBody : GSettings.CppGenerator.InSDKUtils.GetGObjectsBody);
 
 	BasicCpp << "\n";
 
 	BasicCpp << fmt::format(R"(std::string InSDKUtils::GetNameByIndex(int32 Index)
 {})",
-	                        GSettings.CppGenerator.GetNameByIndexFuncBody.empty() ? DefaultGetNameByIndexBody : GSettings.CppGenerator.GetNameByIndexFuncBody);
+	                        GSettings.CppGenerator.InSDKUtils.GetNameByIndexFuncBody.empty() ? DefaultGetNameByIndexBody : GSettings.CppGenerator.InSDKUtils.GetNameByIndexFuncBody);
 
 	BasicCpp << "\n";
 
 	BasicCpp << fmt::format(R"(UObject* InSDKUtils::GetObjectByIndex(int32 Index)
 {})",
-	                        GSettings.CppGenerator.GetObjectByIndexFuncBody.empty() ? DefaultGetObjectByIndexBody : GSettings.CppGenerator.GetObjectByIndexFuncBody);
+	                        GSettings.CppGenerator.InSDKUtils.GetObjectByIndexFuncBody.empty() ? DefaultGetObjectByIndexBody : GSettings.CppGenerator.InSDKUtils.GetObjectByIndexFuncBody);
 
 	BasicHpp << R"(
 namespace BasicFilesImplUtils

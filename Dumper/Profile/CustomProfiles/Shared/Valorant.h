@@ -12,7 +12,49 @@ public:
 		return {"com.tencent.tmgp.codev"};
 	}
 
-	void DecryptGNames(uintptr_t& NamesPtr) const override
+	void OverrideDecryptCallbacks(FDecryptCallbacks& Callbacks) const override
+	{
+		Callbacks.Statics.GNames = [](const FDecryptContext<uintptr_t>& Context)
+		{
+			return DecryptGNames(Context.RawValue);
+		};
+
+		Callbacks.NameStorage.Chunk = [](const FDecryptIndexedContext<uintptr_t>& Context)
+		{
+			return DecryptNameChunk(Context.RawValue, Context.Index);
+		};
+	}
+
+	void OverrideSettings(FSettings& Settings) const override
+	{
+		Settings.CppGenerator.DecryptionUtils.DecryptGNamesFuncBody = R"({
+	uint32_t Offsets[8];
+	std::memcpy(Offsets, reinterpret_cast<void*>(NamesPtr + 128), sizeof(Offsets));
+
+	uint64_t DecNames = 0;
+	for (int i = 0; i < 8; ++i)
+		DecNames |= uint64_t(*reinterpret_cast<uint8_t*>(NamesPtr + Offsets[i])) << (i * 8);
+
+	return DecNames;
+})";
+
+		Settings.CppGenerator.DecryptionUtils.DecryptFNameChunkFuncBody = R"({
+#ifdef __APPLE__
+	constexpr int Blocks = 0xD0;
+#else
+	constexpr int Blocks = 0x40;
+#endif
+	const uintptr_t EncBase = InSDKUtils::GetGNames() + 0x10000 + Blocks;
+
+	if (ChunkIndex == 0)
+		ChunkAddr ^= *reinterpret_cast<uint64_t*>(EncBase);
+
+	return ChunkAddr;
+})";
+	}
+
+private:
+	static uintptr_t DecryptGNames(uintptr_t NamesPtr)
 	{
 		uint32_t Offsets[8];
 		GMemory->ReadBytes(NamesPtr + 128, Offsets, sizeof(Offsets));
@@ -22,10 +64,10 @@ public:
 		for (int i = 0; i < 8; ++i)
 			DecNames |= uint64_t(GMemory->Read<uint8_t>(NamesPtr + Offsets[i])) << (i * 8);
 
-		NamesPtr = DecNames;
+		return DecNames;
 	}
 
-	void DecryptNameChunk(uintptr_t NamesPtr, int32 ChunkIdx, uintptr_t& ChunkAddr) const override
+	static uintptr_t DecryptNameChunk(uintptr_t ChunkAddr, int32 ChunkIdx)
 	{
 #ifdef __APPLE__
 		constexpr static int Blocks = 0xD0;
@@ -79,7 +121,9 @@ public:
 			}
 		}
 
-		const uintptr_t EncBase = NamesPtr + 0x10000 + Blocks;
+		// GNames is read here rather than taken as a parameter so the hook follows whichever
+		// candidate detection is currently probing.
+		const uintptr_t EncBase = GNames + 0x10000 + Blocks;
 
 		if (EncFlagAddr && GMemory->Read<uint32_t>(EncFlagAddr) &&
 		    GMemory->Read<uint32_t>(EncBase + 0x18 + ChunkIdx * 4))
@@ -90,5 +134,7 @@ public:
 		{
 			ChunkAddr = (GMemory->Read<uint64_t>(EncBase) ^ ChunkAddr);
 		}
+
+		return ChunkAddr;
 	}
 };

@@ -36,10 +36,67 @@ inline T DecryptIdentity(const FDecryptContext<T>& Context)
 }
 
 /**
+ * @brief What an indexed decryption hook is handed: as @ref FDecryptContext, plus the position of
+ * this element within the series it belongs to, for a cipher that is keyed by it.
+ */
+template <typename T>
+struct FDecryptIndexedContext
+{
+	/// @brief Address the value was read from.
+	uintptr_t Address = 0;
+	/// @brief Position of this element within its series.
+	int32 Index = 0;
+	/// @brief Value exactly as stored in the target, before decryption.
+	T RawValue{};
+};
+
+/// @brief A decryption hook for one element of an indexed series.
+template <typename T>
+using FDecryptIndexedFn = std::function<T(const FDecryptIndexedContext<T>&)>;
+
+/// @brief Default hook, for a target that stores the series in the clear.
+template <typename T>
+inline T DecryptIndexedIdentity(const FDecryptIndexedContext<T>& Context)
+{
+	return Context.RawValue;
+}
+
+/// @brief A decryption hook for a name buffer of @p CharT, rewritten in place.
+template <typename CharT>
+using FDecryptBufferFn = std::function<void(CharT* Data, int32 Len)>;
+
+/// @brief Default hook, for a target that stores name characters in the clear.
+template <typename CharT>
+inline void DecryptBufferIdentity(CharT* Data, int32 Len)
+{
+	((void)Data);
+	((void)Len);
+}
+
+/**
  * @brief Per-offset value decryption hooks.
+ *
+ * No hook is handed a container base, so one that needs @ref GObjects or @ref GNames reads the
+ * global when it is called: both are rewritten per candidate during detection, so a captured copy
+ * would go stale.
  */
 struct FDecryptCallbacks
 {
+	/**
+	 * @brief Hooks for the engine's global pointers.
+	 *
+	 * These transform a candidate pointer rather than a field read out of one, so take it from
+	 * @ref FDecryptContext::RawValue. Nothing was read from a slot, so @ref FDecryptContext::Address
+	 * carries the same candidate only because the struct has the member.
+	 */
+	struct FStaticsCallbacks
+	{
+		/// @brief Decrypts the GUObjectArray pointer.
+		FDecryptFn<uintptr_t> GObjects = DecryptIdentity<uintptr_t>;
+		/// @brief Decrypts the GNames pointer.
+		FDecryptFn<uintptr_t> GNames = DecryptIdentity<uintptr_t>;
+	} Statics;
+
 	/// @brief Hooks for FName fields.
 	struct FNameCallbacks
 	{
@@ -61,6 +118,26 @@ struct FDecryptCallbacks
 		/// @brief Decrypts an outer UObject pointer.
 		FDecryptFn<uintptr_t> Outer = DecryptIdentity<uintptr_t>;
 	} UObject;
+
+	/// @brief Hooks for name container addresses, shared by the legacy array and the pool.
+	struct FNameStorageCallbacks
+	{
+		/// @brief Decrypts a chunk or block address, indexed by its slot in the table.
+		FDecryptIndexedFn<uintptr_t> Chunk = DecryptIndexedIdentity<uintptr_t>;
+		/// @brief Decrypts an FNameEntry address, indexed by its position in the chunk.
+		FDecryptIndexedFn<uintptr_t> Entry = DecryptIndexedIdentity<uintptr_t>;
+	} NameStorage;
+
+	/// @brief Hooks for FNameEntry characters, decrypted in place.
+	struct FStringCallbacks
+	{
+		/// @brief Decrypts a UTF-8 name buffer.
+		FDecryptBufferFn<char> UTF8 = DecryptBufferIdentity<char>;
+		/// @brief Decrypts a UTF-16 name buffer.
+		FDecryptBufferFn<char16_t> UTF16 = DecryptBufferIdentity<char16_t>;
+		/// @brief Decrypts a UTF-32 name buffer.
+		FDecryptBufferFn<char32_t> UTF32 = DecryptBufferIdentity<char32_t>;
+	} String;
 
 	/// @brief Hooks for a legacy indirect name array.
 	struct FNameArrayCallbacks

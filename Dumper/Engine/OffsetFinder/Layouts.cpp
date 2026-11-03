@@ -8,9 +8,9 @@
 #include <string_view>
 
 #include "../../Memory/IMemory.h"
+#include "../../Settings.h"
 #include "../../Utils/Logger.h"
 
-#include "../Unreal/NameArray.h"
 #include "../Unreal/ObjectArray.h"
 
 namespace LayoutDetection
@@ -215,14 +215,14 @@ namespace LayoutDetection
 		 * A game may store block 0 encrypted, so its raw value is not a pointer at all
 		 * and no run ever begins there; the array is then either invisible or, when
 		 * unrelated pointers sit in front of it, folded into a run that starts too
-		 * early. DecryptChunkFn exposes the decrypted view, so each slot is also probed
+		 * early. The chunk hook exposes the decrypted view, so each slot is also probed
 		 * as a would-be block 0 and a run grown from it.
 		 *
 		 * Only a slot the decryption actually rewrites into a readable address is added,
 		 * so a hook that leaves chunks untouched - the default for games without chunk
 		 * encryption - contributes nothing and leaves the raw scan's result unchanged.
 		 */
-		std::vector<FPointerRun> CollectPointerRuns(const std::vector<uint8_t>& Block, const std::function<void(int32, uintptr_t&)>& DecryptChunkFn = {})
+		std::vector<FPointerRun> CollectPointerRuns(const std::vector<uint8_t>& Block)
 		{
 			std::vector<FPointerRun> Result;
 
@@ -245,15 +245,11 @@ namespace LayoutDetection
 				Result.push_back(Run);
 			}
 
-			if (!DecryptChunkFn)
-				return Result;
-
 			for (size_t Start = 0; Start + sizeof(void*) <= Block.size(); Start += sizeof(void*))
 			{
 				const uintptr_t Raw = PeekPtr(Block, Start);
 
-				uintptr_t Decrypted = Raw;
-				DecryptChunkFn(0, Decrypted);
+				const uintptr_t Decrypted = GDecryptCallbacks.NameStorage.Chunk({.Address = Raw, .Index = 0, .RawValue = Raw});
 
 				if (Decrypted == Raw || !IsReadable(Decrypted))
 					continue;
@@ -263,8 +259,9 @@ namespace LayoutDetection
 
 				for (size_t Probe = Start; Probe + sizeof(void*) <= Block.size(); Probe += sizeof(void*))
 				{
-					uintptr_t Value = PeekPtr(Block, Probe);
-					DecryptChunkFn(static_cast<int32>((Probe - Start) / sizeof(void*)), Value);
+					const uintptr_t ProbeRaw = PeekPtr(Block, Probe);
+					const int32 ProbeIdx     = static_cast<int32>((Probe - Start) / sizeof(void*));
+					const uintptr_t Value    = GDecryptCallbacks.NameStorage.Chunk({.Address = ProbeRaw, .Index = ProbeIdx, .RawValue = ProbeRaw});
 
 					if (!IsReadable(Value))
 						break;
@@ -372,55 +369,56 @@ namespace LayoutDetection
 			if (Str.empty())
 				return {};
 
-			if (NameArray::DecryptUTF8Fn)
-				NameArray::DecryptUTF8Fn(Str.data(), Str.length());
-
-			return Str;
-		}
-
-		std::u16string ReadDecryptedNameWide(uintptr_t StringAddr, int32 NameLen)
-		{
-			if (NameLen <= 0 || NameLen > kMaxNameLen || !IsReadable(StringAddr, static_cast<size_t>(NameLen) * 2))
-				return {};
-
-			std::u16string Str = GMemory->ReadUTF16(StringAddr, NameLen);
-			if (Str.empty())
-				return {};
-
-			if (NameArray::DecryptUTF16Fn)
-				NameArray::DecryptUTF16Fn(Str.data(), Str.length());
+			GDecryptCallbacks.String.UTF8(Str.data(), static_cast<int32>(Str.length()));
 
 			return Str;
 		}
 
 		/*
-		 * Cheap "does this look like a name" used by BlocksBit voting.
-		 * The single 64-bit read is only sound when no decryptor is installed; with one
-		 * set, the bytes must be decrypted first or every candidate scores zero and
-		 * detection silently falls back to the default BlocksBit.
+		 * Wide entries carry no ASCII signal, so this only establishes that one decodes at all.
+		 * The engine's TCHAR width is measured before names detection runs, so the right decoder
+		 * is known here - reading a UTF-32 target as UTF-16 would check half the bytes.
+		 */
+		bool WideNameDecodes(uintptr_t StringAddr, int32 NameLen)
+		{
+			if (NameLen <= 0 || NameLen > kMaxNameLen)
+				return false;
+
+			if (InternalSettings::bUseChar16String)
+			{
+				if (!IsReadable(StringAddr, static_cast<size_t>(NameLen) * sizeof(char16_t)))
+					return false;
+
+				std::u16string Str = GMemory->ReadUTF16(StringAddr, NameLen);
+				if (Str.empty())
+					return false;
+
+				GDecryptCallbacks.String.UTF16(Str.data(), static_cast<int32>(Str.length()));
+				return true;
+			}
+
+			if (!IsReadable(StringAddr, static_cast<size_t>(NameLen) * sizeof(char32_t)))
+				return false;
+
+			std::u32string Str = GMemory->ReadUTF32(StringAddr, NameLen);
+			if (Str.empty())
+				return false;
+
+			GDecryptCallbacks.String.UTF32(Str.data(), static_cast<int32>(Str.length()));
+			return true;
+		}
+
+		/*
+		 * Cheap "does this look like a name" used by BlocksBit voting. The characters go through
+		 * the decryptor first; reading the raw bytes would score every candidate zero on an
+		 * obfuscated game and silently fall back to the default BlocksBit.
 		 */
 		bool LooksLikePrintableNameAt(uintptr_t StringAddr, int32 NameLen)
 		{
-			const int32 CheckLen = std::min(NameLen, static_cast<int32>(sizeof(uint64)));
+			const int32 CheckLen  = std::min(NameLen, static_cast<int32>(sizeof(uint64)));
+			const std::string Str = ReadDecryptedName(StringAddr, CheckLen);
 
-			if (NameArray::DecryptUTF8Fn)
-			{
-				const std::string Str = ReadDecryptedName(StringAddr, CheckLen);
-				return static_cast<int32>(Str.size()) == CheckLen && IsPrintableAscii(Str);
-			}
-
-			uint64 NameWord = 0;
-			if (!SafeRead(StringAddr, NameWord))
-				return false;
-
-			for (int32 i = 0; i < CheckLen; i++)
-			{
-				const uint8 Ch = static_cast<uint8>(NameWord >> (i * 8));
-				if (Ch < 0x20 || Ch > 0x7E)
-					return false;
-			}
-
-			return true;
+			return static_cast<int32>(Str.size()) == CheckLen && IsPrintableAscii(Str);
 		}
 
 		// Resolves the address of item Index for a given stride. Fixed and chunked arrays
@@ -763,17 +761,19 @@ namespace LayoutDetection
 		// DecryptChunkFn is only ever supplied by the names call site: chunk pointers are
 		// never encrypted for GObjects, and passing nullptr here (the objects call site)
 		// keeps this identical to a plain readability probe.
-		int32 CountReadableChunkPointers(uintptr_t ChunksBase, const std::function<void(int32, uintptr_t&)>& DecryptChunkFn = nullptr)
+		int32 CountReadableChunkPointers(uintptr_t ChunksBase, const FDecryptIndexedFn<uintptr_t>& DecryptChunkFn = {})
 		{
 			int32 Count = 0;
 			for (int32 i = 0; i < kMaxChunkScan; i++)
 			{
+				const uintptr_t SlotAddr = ChunksBase + static_cast<uintptr_t>(i) * kPtrSize;
+
 				uintptr_t ChunkAddr = 0;
-				if (!SafeRead(ChunksBase + static_cast<uintptr_t>(i) * kPtrSize, ChunkAddr))
+				if (!SafeRead(SlotAddr, ChunkAddr))
 					break;
 
 				if (DecryptChunkFn)
-					DecryptChunkFn(i, ChunkAddr);
+					ChunkAddr = DecryptChunkFn({.Address = SlotAddr, .Index = i, .RawValue = ChunkAddr});
 
 				if (!IsReadable(ChunkAddr))
 					break;
@@ -909,14 +909,14 @@ namespace LayoutDetection
 					Candidate.SamplesTested = Tested;
 					Candidate.SamplesValid  = Valid;
 					Candidate.Summary       = fmt::format("Fixed: Objects@+0x{:X} Num@+0x{:X}={} Item(+0x{:X}, stride 0x{:X}), {}/{} samples valid, {:.0f}% tail populated",
-                                                    ObjectsOffset,
-                                                    NumOffset,
-                                                    Num,
-                                                    Item.ObjectOffset,
-                                                    Item.ItemSize,
-                                                    Valid,
-                                                    Tested,
-                                                    PastRatio * 100.0);
+					                                      ObjectsOffset,
+					                                      NumOffset,
+					                                      Num,
+					                                      Item.ObjectOffset,
+					                                      Item.ItemSize,
+					                                      Valid,
+					                                      Tested,
+					                                      PastRatio * 100.0);
 					Candidate.Layout        = std::move(Layout);
 					Out.push_back(std::move(Candidate));
 				}
@@ -1118,16 +1118,16 @@ namespace LayoutDetection
 					Candidate.SamplesTested = Tested;
 					Candidate.SamplesValid  = Valid;
 					Candidate.Summary       = fmt::format("Chunked: Objects@+0x{:X} Num@+0x{:X}={} EPC=0x{:X} Item(+0x{:X}, stride 0x{:X}), {}/{} samples valid{}, {:.0f}% tail populated",
-                                                    ObjectsOffset,
-                                                    NumOffset,
-                                                    Num,
-                                                    ElementsPerChunk,
-                                                    Item.ObjectOffset,
-                                                    Item.ItemSize,
-                                                    Valid,
-                                                    Tested,
-                                                    bUsedFallback ? " via fallback" : "",
-                                                    PastRatio * 100.0);
+					                                      ObjectsOffset,
+					                                      NumOffset,
+					                                      Num,
+					                                      ElementsPerChunk,
+					                                      Item.ObjectOffset,
+					                                      Item.ItemSize,
+					                                      Valid,
+					                                      Tested,
+					                                      bUsedFallback ? " via fallback" : "",
+					                                      PastRatio * 100.0);
 					Candidate.Layout        = std::move(Layout);
 					Out.push_back(std::move(Candidate));
 				}
@@ -1179,15 +1179,12 @@ namespace LayoutDetection
 				}
 			}
 
-			if (NameArray::DecryptUTF8Fn)
+			for (int32 Offset = 0; Offset + kNoneStrLen <= kNoneSearchBytes; Offset += 2)
 			{
-				for (int32 Offset = 0; Offset + kNoneStrLen <= kNoneSearchBytes; Offset += 2)
+				if (ReadDecryptedName(BaseAddr + Offset, kNoneStrLen) == "None")
 				{
-					if (ReadDecryptedName(BaseAddr + Offset, kNoneStrLen) == "None")
-					{
-						*OutOffset = Offset;
-						return true;
-					}
+					*OutOffset = Offset;
+					return true;
 				}
 			}
 
@@ -1218,9 +1215,8 @@ namespace LayoutDetection
 
 			for (int32 i = 0; i < kNameWalkCount; i++)
 			{
-				uintptr_t EntryAddr = BlockStart + RunningOffset;
-				if (NameArray::DecryptNameEntryFn)
-					NameArray::DecryptNameEntryFn(EntryAddr);
+				const uintptr_t RawEntry  = BlockStart + RunningOffset;
+				const uintptr_t EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = i, .RawValue = RawEntry});
 
 				uint16 Header = 0;
 				if (!SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Header, Header, GDecryptCallbacks.NamePool.FNameEntry.Header))
@@ -1238,7 +1234,7 @@ namespace LayoutDetection
 					if (i == 0)
 						return 0;
 
-					if (ReadDecryptedNameWide(EntryAddr + Layout.FNameEntry.String, NameLen).empty())
+					if (!WideNameDecodes(EntryAddr + Layout.FNameEntry.String, NameLen))
 						break;
 				}
 				else
@@ -1285,9 +1281,7 @@ namespace LayoutDetection
 			// decrypts a chunk-relative offset 0 as an entry in its own right. BlockStart
 			// itself is left untouched so it can still be passed to WalkPoolEntries below,
 			// which redoes this same per-entry decryption internally.
-			uintptr_t Entry0 = BlockStart;
-			if (NameArray::DecryptNameEntryFn)
-				NameArray::DecryptNameEntryFn(Entry0);
+			const uintptr_t Entry0 = GDecryptCallbacks.NameStorage.Entry({.Address = BlockStart, .Index = 0, .RawValue = BlockStart});
 
 			int32 StringOffset = -1;
 			if (!FindNoneOffset(Entry0, &StringOffset))
@@ -1319,12 +1313,12 @@ namespace LayoutDetection
 
 					for (int32 Stride : kPoolStrides)
 					{
-						FNamePoolLayout Candidate      = *Out;
-						Candidate.FNameEntry.Header    = HeaderOffset;
-						Candidate.FNameEntry.String    = StringOffset;
-						Candidate.FNameEntry.Stride    = Stride;
-						Candidate.FNameEntry.GetLength = OverrideGetLength;
-						Candidate.FNameEntry.GetIsWide = OverrideGetIsWide ? OverrideGetIsWide : DefaultGetIsWide;
+						FNamePoolLayout Candidate        = *Out;
+						Candidate.FNameEntry.Header      = HeaderOffset;
+						Candidate.FNameEntry.String      = StringOffset;
+						Candidate.FNameEntry.Stride      = Stride;
+						Candidate.FNameEntry.GetLength   = OverrideGetLength;
+						Candidate.FNameEntry.GetIsWide   = OverrideGetIsWide ? OverrideGetIsWide : DefaultGetIsWide;
 						Candidate.FNameEntry.LengthShift = -1;
 						Candidate.FNameEntry.WideMask    = OverrideGetIsWide ? -1 : kDefaultNameWideMask;
 
@@ -1352,7 +1346,7 @@ namespace LayoutDetection
 							Candidate.FNameEntry.Stride    = Stride;
 							Candidate.FNameEntry.GetLength = [Shift](uint16 H) -> int32
 							{ return H >> Shift; };
-							Candidate.FNameEntry.GetIsWide = OverrideGetIsWide ? OverrideGetIsWide : DefaultGetIsWide;
+							Candidate.FNameEntry.GetIsWide   = OverrideGetIsWide ? OverrideGetIsWide : DefaultGetIsWide;
 							Candidate.FNameEntry.LengthShift = Shift;
 							Candidate.FNameEntry.WideMask    = OverrideGetIsWide ? -1 : kDefaultNameWideMask;
 
@@ -1419,20 +1413,20 @@ namespace LayoutDetection
 					int32 Matches = 0;
 					for (int32 i = 0; i < PairCount; i++)
 					{
+						const uintptr_t CurrentSlot = BlocksStart + static_cast<uintptr_t>(i) * kPtrSize;
+						const uintptr_t NextSlot    = BlocksStart + static_cast<uintptr_t>(i + 1) * kPtrSize;
+
 						uintptr_t Current = 0;
 						uintptr_t Next    = 0;
-						if (!SafeRead(BlocksStart + static_cast<uintptr_t>(i) * kPtrSize, Current))
+						if (!SafeRead(CurrentSlot, Current))
 							break;
-						if (!SafeRead(BlocksStart + static_cast<uintptr_t>(i + 1) * kPtrSize, Next))
+						if (!SafeRead(NextSlot, Next))
 							break;
 
 						// Spacing is measured on decrypted addresses: an encrypted transform
 						// need not preserve the difference between two raw pointers.
-						if (NameArray::DecryptNameChunkFn)
-						{
-							NameArray::DecryptNameChunkFn(i, Current);
-							NameArray::DecryptNameChunkFn(i + 1, Next);
-						}
+						Current = GDecryptCallbacks.NameStorage.Chunk({.Address = CurrentSlot, .Index = i, .RawValue = Current});
+						Next    = GDecryptCallbacks.NameStorage.Chunk({.Address = NextSlot, .Index = i + 1, .RawValue = Next});
 
 						const uintptr_t Diff = Next >= Current ? Next - Current : Current - Next;
 						if (Diff == Expected)
@@ -1480,19 +1474,19 @@ namespace LayoutDetection
 							if (BlockIdx == 0 || BlockIdx > MaxChunkIndex)
 								continue;
 
+							const uintptr_t BlockSlot = BlocksStart + static_cast<uintptr_t>(BlockIdx) * kPtrSize;
+
 							uintptr_t BlockPtr = 0;
-							if (!SafeRead(BlocksStart + static_cast<uintptr_t>(BlockIdx) * kPtrSize, BlockPtr))
+							if (!SafeRead(BlockSlot, BlockPtr))
 								continue;
 
-							if (NameArray::DecryptNameChunkFn)
-								NameArray::DecryptNameChunkFn(BlockIdx, BlockPtr);
+							BlockPtr = GDecryptCallbacks.NameStorage.Chunk({.Address = BlockSlot, .Index = BlockIdx, .RawValue = BlockPtr});
 
 							if (!IsReadable(BlockPtr))
 								continue;
 
-							uintptr_t EntryAddr = BlockPtr + static_cast<uintptr_t>(ByteOff);
-							if (NameArray::DecryptNameEntryFn)
-								NameArray::DecryptNameEntryFn(EntryAddr);
+							const uintptr_t RawEntry  = BlockPtr + static_cast<uintptr_t>(ByteOff);
+							const uintptr_t EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = 0, .RawValue = RawEntry});
 
 							uint16 Header = 0;
 							if (!SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Header, Header, GDecryptCallbacks.NamePool.FNameEntry.Header))
@@ -1614,18 +1608,17 @@ namespace LayoutDetection
 		{
 			bool bAnyBlocks = false;
 
-			for (const FPointerRun& Run : CollectPointerRuns(Header, NameArray::DecryptNameChunkFn))
+			for (const FPointerRun& Run : CollectPointerRuns(Header))
 			{
-				uintptr_t FirstBlock = GDecryptCallbacks.NamePool.Blocks({.Address = Root + Run.Offset, .RawValue = PeekPtr(Header, static_cast<size_t>(Run.Offset))});
-				if (NameArray::DecryptNameChunkFn)
-					NameArray::DecryptNameChunkFn(0, FirstBlock);
+				const uintptr_t BlockSlot = Root + Run.Offset;
+
+				uintptr_t FirstBlock = GDecryptCallbacks.NamePool.Blocks({.Address = BlockSlot, .RawValue = PeekPtr(Header, static_cast<size_t>(Run.Offset))});
+				FirstBlock           = GDecryptCallbacks.NameStorage.Chunk({.Address = BlockSlot, .Index = 0, .RawValue = FirstBlock});
 
 				// Entry 0 of the block gets its own, separate entry decryption for this
 				// probe; DiscoverPoolEntryLayout/WalkPoolEntries redo it internally when
 				// given the chunk-only-decrypted FirstBlock below.
-				uintptr_t FirstBlockEntry0 = FirstBlock;
-				if (NameArray::DecryptNameEntryFn)
-					NameArray::DecryptNameEntryFn(FirstBlockEntry0);
+				const uintptr_t FirstBlockEntry0 = GDecryptCallbacks.NameStorage.Entry({.Address = FirstBlock, .Index = 0, .RawValue = FirstBlock});
 
 				if (!StartsWithNoneEntry(FirstBlockEntry0))
 					continue;
@@ -1645,12 +1638,13 @@ namespace LayoutDetection
 				int32 AllocatedBlocks = 0;
 				for (int32 i = 0; i < kMaxPoolBlocks; i++)
 				{
+					const uintptr_t BlockPtrSlot = Root + Layout.Blocks + static_cast<uintptr_t>(i) * kPtrSize;
+
 					uintptr_t BlockPtr = 0;
-					if (!SafeRead(Root + Layout.Blocks + static_cast<uintptr_t>(i) * kPtrSize, BlockPtr))
+					if (!SafeRead(BlockPtrSlot, BlockPtr))
 						break;
 
-					if (NameArray::DecryptNameChunkFn)
-						NameArray::DecryptNameChunkFn(i, BlockPtr);
+					BlockPtr = GDecryptCallbacks.NameStorage.Chunk({.Address = BlockPtrSlot, .Index = i, .RawValue = BlockPtr});
 
 					if (!IsReadable(BlockPtr))
 						break;
@@ -1727,19 +1721,19 @@ namespace LayoutDetection
 						const int32 ChunkIdx = Index >> Snapshot.BlocksBit;
 						const int32 ByteOff  = (Index & ((1 << Snapshot.BlocksBit) - 1)) * Snapshot.FNameEntry.Stride;
 
+						const uintptr_t ChunkSlot = BlocksBase + static_cast<uintptr_t>(ChunkIdx) * kPtrSize;
+
 						uintptr_t ChunkAddr = 0;
-						if (!SafeRead(BlocksBase + static_cast<uintptr_t>(ChunkIdx) * kPtrSize, ChunkAddr))
+						if (!SafeRead(ChunkSlot, ChunkAddr))
 							return {};
 
-						if (NameArray::DecryptNameChunkFn)
-							NameArray::DecryptNameChunkFn(ChunkIdx, ChunkAddr);
+						ChunkAddr = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
 						if (!IsReadable(ChunkAddr))
 							return {};
 
-						uintptr_t EntryAddr = ChunkAddr + static_cast<uintptr_t>(ByteOff);
-						if (NameArray::DecryptNameEntryFn)
-							NameArray::DecryptNameEntryFn(EntryAddr);
+						const uintptr_t RawEntry  = ChunkAddr + static_cast<uintptr_t>(ByteOff);
+						const uintptr_t EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = 0, .RawValue = RawEntry});
 
 						uint16 EntryHeader = 0;
 						if (!SafeRead(EntryAddr + Snapshot.FNameEntry.Header, EntryHeader))
@@ -1759,15 +1753,15 @@ namespace LayoutDetection
 				Candidate.SamplesTested = kNameWalkCount;
 				Candidate.SamplesValid  = Decoded;
 				Candidate.Summary       = fmt::format("Pool: Blocks@+0x{:X} BlocksBit=0x{:X} ({}) Entry(header +0x{:X}, string +0x{:X}, stride {}), {}/{} entries decoded, {} known",
-                                                Layout.Blocks,
-                                                Layout.BlocksBit,
-                                                BlocksBitSource,
-                                                Layout.FNameEntry.Header,
-                                                Layout.FNameEntry.String,
-                                                Layout.FNameEntry.Stride,
-                                                Decoded,
-                                                kNameWalkCount,
-                                                KnownHits);
+				                                      Layout.Blocks,
+				                                      Layout.BlocksBit,
+				                                      BlocksBitSource,
+				                                      Layout.FNameEntry.Header,
+				                                      Layout.FNameEntry.String,
+				                                      Layout.FNameEntry.Stride,
+				                                      Decoded,
+				                                      kNameWalkCount,
+				                                      KnownHits);
 				Candidate.Layout        = std::make_unique<FNamePoolLayout>(Layout);
 				Out.push_back(std::move(Candidate));
 			}
@@ -1791,8 +1785,7 @@ namespace LayoutDetection
 			if (!SafeRead(FirstChunk, FirstEntry))
 				return false;
 
-			if (NameArray::DecryptNameEntryFn)
-				NameArray::DecryptNameEntryFn(FirstEntry);
+			FirstEntry = GDecryptCallbacks.NameStorage.Entry({.Address = FirstChunk, .Index = 0, .RawValue = FirstEntry});
 
 			if (!IsReadable(FirstEntry))
 				return false;
@@ -1813,12 +1806,13 @@ namespace LayoutDetection
 				{
 					const int32 SampleIdx = kNameIndexSampleIdx[i];
 
+					const uintptr_t SampleSlot = FirstChunk + static_cast<uintptr_t>(SampleIdx) * kPtrSize;
+
 					uintptr_t EntryAddr = 0;
-					if (!SafeRead(FirstChunk + static_cast<uintptr_t>(SampleIdx) * kPtrSize, EntryAddr))
+					if (!SafeRead(SampleSlot, EntryAddr))
 						continue; // An empty slot says nothing about this offset.
 
-					if (NameArray::DecryptNameEntryFn)
-						NameArray::DecryptNameEntryFn(EntryAddr);
+					EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = SampleSlot, .Index = SampleIdx, .RawValue = EntryAddr});
 
 					if (!IsReadable(EntryAddr))
 						continue;
@@ -1853,8 +1847,7 @@ namespace LayoutDetection
 			if (!SafeRead(ChunksBase + kPtrSize, SecondChunk))
 				return 0;
 
-			if (NameArray::DecryptNameChunkFn)
-				NameArray::DecryptNameChunkFn(1, SecondChunk);
+			SecondChunk = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunksBase + kPtrSize, .Index = 1, .RawValue = SecondChunk});
 
 			if (!IsReadable(SecondChunk))
 				return 0;
@@ -1863,8 +1856,7 @@ namespace LayoutDetection
 			if (!SafeRead(SecondChunk, FirstEntry))
 				return 0;
 
-			if (NameArray::DecryptNameEntryFn)
-				NameArray::DecryptNameEntryFn(FirstEntry);
+			FirstEntry = GDecryptCallbacks.NameStorage.Entry({.Address = SecondChunk, .Index = 0, .RawValue = FirstEntry});
 
 			if (!IsReadable(FirstEntry))
 				return 0;
@@ -1897,8 +1889,7 @@ namespace LayoutDetection
 					break;
 				}
 
-				if (NameArray::DecryptNameEntryFn)
-					NameArray::DecryptNameEntryFn(EntryAddr);
+				EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = SlotAddr, .Index = i, .RawValue = EntryAddr});
 
 				/*
 				 * A null slot is a hole, not the end. The engine registers hardcoded EName
@@ -1982,24 +1973,24 @@ namespace LayoutDetection
 				const int32 ChunkIdx = Index / Layout.ElementsPerChunk;
 				const int32 InChunk  = Index % Layout.ElementsPerChunk;
 
+				const uintptr_t ChunkSlot = ChunksBase + static_cast<uintptr_t>(ChunkIdx) * kPtrSize;
+
 				uintptr_t ChunkAddr = 0;
-				if (!SafeRead(ChunksBase + static_cast<uintptr_t>(ChunkIdx) * kPtrSize, ChunkAddr))
+				if (!SafeRead(ChunkSlot, ChunkAddr))
 					return 0;
 
-				if (NameArray::DecryptNameChunkFn)
-					NameArray::DecryptNameChunkFn(ChunkIdx, ChunkAddr);
+				ChunkAddr = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
 				if (!IsReadable(ChunkAddr))
 					return 0;
 
+				const uintptr_t EntrySlot = ChunkAddr + static_cast<uintptr_t>(InChunk) * kPtrSize;
+
 				uintptr_t EntryAddr = 0;
-				if (!SafeRead(ChunkAddr + static_cast<uintptr_t>(InChunk) * kPtrSize, EntryAddr))
+				if (!SafeRead(EntrySlot, EntryAddr))
 					return 0;
 
-				if (NameArray::DecryptNameEntryFn)
-					NameArray::DecryptNameEntryFn(EntryAddr);
-
-				return EntryAddr;
+				return GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = EntryAddr});
 			};
 
 			// The last live entry must both resolve and report its own index. Requiring the
@@ -2065,7 +2056,7 @@ namespace LayoutDetection
 		{
 			bool bAnyChunks = false;
 
-			for (const FPointerRun& Run : CollectPointerRuns(Header, NameArray::DecryptNameChunkFn))
+			for (const FPointerRun& Run : CollectPointerRuns(Header))
 			{
 				const uintptr_t ChunksBase = Root + Run.Offset;
 
@@ -2073,8 +2064,7 @@ namespace LayoutDetection
 				if (!SafeRead(ChunksBase, FirstChunk))
 					continue;
 
-				if (NameArray::DecryptNameChunkFn)
-					NameArray::DecryptNameChunkFn(0, FirstChunk);
+				FirstChunk = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunksBase, .Index = 0, .RawValue = FirstChunk});
 
 				if (!IsReadable(FirstChunk))
 					continue;
@@ -2083,8 +2073,7 @@ namespace LayoutDetection
 				if (!SafeRead(FirstChunk, FirstEntry))
 					continue;
 
-				if (NameArray::DecryptNameEntryFn)
-					NameArray::DecryptNameEntryFn(FirstEntry);
+				FirstEntry = GDecryptCallbacks.NameStorage.Entry({.Address = FirstChunk, .Index = 0, .RawValue = FirstEntry});
 
 				if (!StartsWithNoneEntry(FirstEntry))
 					continue;
@@ -2100,7 +2089,7 @@ namespace LayoutDetection
 					continue;
 				}
 
-				const int32 ChunkCount       = CountReadableChunkPointers(ChunksBase, NameArray::DecryptNameChunkFn);
+				const int32 ChunkCount       = CountReadableChunkPointers(ChunksBase, GDecryptCallbacks.NameStorage.Chunk);
 				const int32 ElementsPerChunk = DiscoverNamesPerChunk(ChunksBase, ChunkCount, Layout);
 				if (ElementsPerChunk <= 0)
 				{
@@ -2114,11 +2103,7 @@ namespace LayoutDetection
 				Layout.NumElements = DiscoverArrayNumElements(Root, ChunksBase, Layout, ChunkCount);
 				if (Layout.NumElements == -1)
 				{
-					Reject(Details, fmt::format("Array: Chunks@+0x{:X} EPC=0x{:X} chunks={}, no int32 within 0x{:X} bytes behaved like NumElements - optional, continuing",
-					                            Run.Offset,
-					                            ElementsPerChunk,
-					                            ChunkCount,
-					                            kNamesHeaderScanSize));
+					Reject(Details, fmt::format("Array: Chunks@+0x{:X} EPC=0x{:X} chunks={}, no int32 within 0x{:X} bytes behaved like NumElements - optional, continuing", Run.Offset, ElementsPerChunk, ChunkCount, kNamesHeaderScanSize));
 				}
 
 				std::vector<std::string> Names;
@@ -2138,32 +2123,34 @@ namespace LayoutDetection
 				{
 					const FNameArrayLayout Snapshot = Layout;
 					CrossRatio                      = CrossValidateWithObjects([&Snapshot, ChunksBase](int32 Index) -> std::string
-                    {
-                        const int32 ChunkIdx = Index / Snapshot.ElementsPerChunk;
-                        const int32 InChunk  = Index % Snapshot.ElementsPerChunk;
+					{
+						const int32 ChunkIdx = Index / Snapshot.ElementsPerChunk;
+						const int32 InChunk  = Index % Snapshot.ElementsPerChunk;
 
-                        uintptr_t ChunkAddr = 0;
-                        if (!SafeRead(ChunksBase + static_cast<uintptr_t>(ChunkIdx) * kPtrSize, ChunkAddr))
-                            return {};
+						const uintptr_t ChunkSlot = ChunksBase + static_cast<uintptr_t>(ChunkIdx) * kPtrSize;
 
-                        if (NameArray::DecryptNameChunkFn)
-                            NameArray::DecryptNameChunkFn(ChunkIdx, ChunkAddr);
+						uintptr_t ChunkAddr = 0;
+						if (!SafeRead(ChunkSlot, ChunkAddr))
+							return {};
 
-                        if (!IsReadable(ChunkAddr))
-                            return {};
+						ChunkAddr = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
-                        uintptr_t EntryAddr = 0;
-                        if (!SafeRead(ChunkAddr + static_cast<uintptr_t>(InChunk) * kPtrSize, EntryAddr))
-                            return {};
+						if (!IsReadable(ChunkAddr))
+							return {};
 
-                        if (NameArray::DecryptNameEntryFn)
-                            NameArray::DecryptNameEntryFn(EntryAddr);
+						const uintptr_t EntrySlot = ChunkAddr + static_cast<uintptr_t>(InChunk) * kPtrSize;
 
-                        if (!IsReadable(EntryAddr))
-                            return {};
+						uintptr_t EntryAddr = 0;
+						if (!SafeRead(EntrySlot, EntryAddr))
+							return {};
 
-                        return ReadDecryptedName(EntryAddr + Snapshot.FNameEntry.String, kMaxNameLen);
-                    });
+						EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = EntryAddr});
+
+						if (!IsReadable(EntryAddr))
+							return {};
+
+						return ReadDecryptedName(EntryAddr + Snapshot.FNameEntry.String, kMaxNameLen);
+					});
 				}
 
 				FNamesCandidate Candidate;
@@ -2172,14 +2159,14 @@ namespace LayoutDetection
 				Candidate.SamplesTested = kNameSampleCount;
 				Candidate.SamplesValid  = Decoded;
 				Candidate.Summary       = fmt::format("Array: Chunks@+0x{:X} EPC=0x{:X} {} Entry(index +0x{:X}, string +0x{:X}), {}/{} entries decoded, {} known",
-                                                Layout.Chunks,
-                                                Layout.ElementsPerChunk,
-                                                Layout.NumElements != -1 ? fmt::format("Num@+0x{:X}", Layout.NumElements) : "Num=absent",
-                                                Layout.FNameEntry.Index,
-                                                Layout.FNameEntry.String,
-                                                Decoded,
-                                                kNameSampleCount,
-                                                KnownHits);
+				                                      Layout.Chunks,
+				                                      Layout.ElementsPerChunk,
+				                                      Layout.NumElements != -1 ? fmt::format("Num@+0x{:X}", Layout.NumElements) : "Num=absent",
+				                                      Layout.FNameEntry.Index,
+				                                      Layout.FNameEntry.String,
+				                                      Decoded,
+				                                      kNameSampleCount,
+				                                      KnownHits);
 				Candidate.Layout        = std::make_unique<FNameArrayLayout>(Layout);
 				Out.push_back(std::move(Candidate));
 			}
@@ -2287,12 +2274,12 @@ namespace LayoutDetection
 		Result.Confidence = Best->Confidence;
 		Result.Layout     = std::move(Best->Layout);
 		Result.Summary    = fmt::format("{} at 0x{:X}, {}/{} samples valid ({:.1f}% confidence, {} candidate(s) considered)",
-                                     TypeName,
-                                     CandidateAddress,
-                                     Best->SamplesValid,
-                                     Best->SamplesTested,
-                                     Best->Confidence * 100.0,
-                                     Candidates.size());
+		                                TypeName,
+		                                CandidateAddress,
+		                                Best->SamplesValid,
+		                                Best->SamplesTested,
+		                                Best->Confidence * 100.0,
+		                                Candidates.size());
 
 		return Result;
 	}
@@ -2405,7 +2392,7 @@ namespace LayoutDetection
 			FNamePoolLayout* Pool = static_cast<FNamePoolLayout*>(Result.Layout.get());
 			if (Options.PoolGetLength)
 			{
-				Pool->FNameEntry.GetLength    = Options.PoolGetLength;
+				Pool->FNameEntry.GetLength   = Options.PoolGetLength;
 				Pool->FNameEntry.LengthShift = -1;
 			}
 			if (Options.PoolGetIsWide)
@@ -2616,8 +2603,7 @@ namespace LayoutDetection
 				return Result;
 			}
 
-			if (NameArray::DecryptNameChunkFn)
-				NameArray::DecryptNameChunkFn(0, FirstBlock);
+			FirstBlock = GDecryptCallbacks.NameStorage.Chunk({.Address = CandidateAddress + L.Blocks, .Index = 0, .RawValue = FirstBlock});
 
 			if (!IsReadable(FirstBlock))
 			{
@@ -2664,8 +2650,7 @@ namespace LayoutDetection
 				return Result;
 			}
 
-			if (NameArray::DecryptNameChunkFn)
-				NameArray::DecryptNameChunkFn(0, FirstChunk);
+			FirstChunk = GDecryptCallbacks.NameStorage.Chunk({.Address = CandidateAddress + L.Chunks, .Index = 0, .RawValue = FirstChunk});
 
 			if (!IsReadable(FirstChunk))
 			{
@@ -2704,8 +2689,7 @@ namespace LayoutDetection
 					uintptr_t EntryAddr      = 0;
 					const uintptr_t SlotAddr = FirstChunk + static_cast<uintptr_t>(i) * kPtrSize;
 					SafeRead(SlotAddr, EntryAddr);
-					if (NameArray::DecryptNameEntryFn)
-						NameArray::DecryptNameEntryFn(EntryAddr);
+					EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = SlotAddr, .Index = i, .RawValue = EntryAddr});
 
 					uint32 IndexField    = 0;
 					const bool bHasIndex = SafeRead(EntryAddr + L.FNameEntry.Index, IndexField);
@@ -2718,8 +2702,7 @@ namespace LayoutDetection
 					uintptr_t ChunkAddr       = 0;
 					const uintptr_t ChunkSlot = CandidateAddress + L.Chunks + static_cast<uintptr_t>(i) * kPtrSize;
 					SafeRead(ChunkSlot, ChunkAddr);
-					if (NameArray::DecryptNameChunkFn)
-						NameArray::DecryptNameChunkFn(i, ChunkAddr);
+					ChunkAddr = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = i, .RawValue = ChunkAddr});
 					Result.Details.push_back(fmt::format("  Chunk[{}] 0x{:X} -> 0x{:X}", i, ChunkSlot, ChunkAddr));
 				}
 			}

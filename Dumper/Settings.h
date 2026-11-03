@@ -108,29 +108,31 @@ struct FSettings
 		/// (e.g. @c "xorstr.hpp").  Empty string disables the include.
 		std::string XORStringInclude = "";
 
-		/// Override body for @c InSDKUtils::GetImageBase().
-		/// Empty emits a default that resolves the Unreal module by name at runtime.
-		std::string GetImageBaseFuncBody = "";
+		struct FInSDKUtils
+		{
+			/// Override body for @c InSDKUtils::GetImageBase().
+			/// Empty emits a default that resolves the Unreal module by name at runtime.
+			std::string GetImageBaseFuncBody = "";
 
-		/// Override body for @c InSDKUtils::GetGNames().
-		/// Empty emits a default built for the layout that was detected.
-		std::string GetGNamesFuncBody = "";
+			/// Override body for @c InSDKUtils::GetGNames().
+			/// Empty emits a default built for the layout that was detected.
+			std::string GetGNamesFuncBody = "";
 
-		/// Override body for @c InSDKUtils::GetGObjects().
-		/// Empty emits a default built for the layout that was detected.
-		std::string GetGObjectsBody = "";
+			/// Override body for @c InSDKUtils::GetGObjects().
+			/// Empty emits a default built for the layout that was detected.
+			std::string GetGObjectsBody = "";
 
-		/// Override body for @c InSDKUtils::GetNameByIndex().
-		/// Empty emits a default built for the layout that was detected.
-		std::string GetNameByIndexFuncBody = "";
+			/// Override body for @c InSDKUtils::GetNameByIndex().
+			/// Empty emits a default built for the layout that was detected.
+			std::string GetNameByIndexFuncBody = "";
 
-		/// Override body for @c InSDKUtils::GetObjectByIndex().
-		/// Empty emits a default built for the layout that was detected.
-		std::string GetObjectByIndexFuncBody = "";
+			/// Override body for @c InSDKUtils::GetObjectByIndex().
+			/// Empty emits a default built for the layout that was detected.
+			std::string GetObjectByIndexFuncBody = "";
 
-		/// Customisable body for @c InSDKUtils::CallGameFunction.
-		std::string CallGameFunction =
-		    R"(
+			/// Customisable body for @c InSDKUtils::CallGameFunction.
+			std::string CallGameFunction =
+			    R"(
 	template<typename FuncType, typename... ParamTypes>
 	requires std::invocable<FuncType, ParamTypes...>
 	inline auto CallGameFunction(FuncType Function, ParamTypes&&... Args)
@@ -138,6 +140,42 @@ struct FSettings
 		return Function(std::forward<ParamTypes>(Args)...);
 	}
 )";
+		} InSDKUtils;
+
+		struct FDecryptionUtils
+		{
+			/// Override body for @c DecryptionUtils::DecryptGNames(uintptr_t).
+			/// Empty emits a default that returns the pointer unchanged.
+			std::string DecryptGNamesFuncBody = "";
+
+			/// Override body for @c DecryptionUtils::DecryptGObjects(uintptr_t).
+			/// Empty emits a default that returns the pointer unchanged.
+			std::string DecryptGObjectsFuncBody = "";
+
+			/// Override body for @c DecryptionUtils::DecryptFNameChunk(uintptr_t, int32).
+			/// Empty emits a default that returns the address unchanged.
+			std::string DecryptFNameChunkFuncBody = "";
+
+			/// Override body for @c DecryptionUtils::DecryptFNameEntry(uintptr_t, int32).
+			/// Empty emits a default that returns the address unchanged.
+			std::string DecryptFNameEntryFuncBody = "";
+
+			/// Override body for @c DecryptionUtils::DecryptFObjectItemEntry(UObject*).
+			/// Empty emits a default that returns the pointer unchanged.
+			std::string DecryptFObjectItemEntryFuncBody = "";
+
+			/// Override body for @c DecryptionUtils::DecryptFNameUTF8(char*, int32).
+			/// Empty emits a default no-op.
+			std::string DecryptFNameUTF8FuncBody = "";
+
+			/// Override body for @c DecryptionUtils::DecryptFNameUTF16(char16_t*, int32).
+			/// Empty emits a default no-op.
+			std::string DecryptFNameUTF16FuncBody = "";
+
+			/// Override body for @c DecryptionUtils::DecryptFNameUTF32(char32_t*, int32).
+			/// Empty emits a default no-op.
+			std::string DecryptFNameUTF32FuncBody = "";
+		} DecryptionUtils;
 
 		/// When true, omits @c UWorld::GetWorld() from the generated SDK and
 		/// forces callers to obtain the world via a @c UEngine instance instead.
@@ -153,6 +191,11 @@ struct FSettings
 
 		/// Whether to include parameter structs when importing the SDK into IDA.
 		bool bIncludeParameterStructsInIDA = true;
+
+		/// Generate a self-contained validation project at @c CppSDK/TestSuit/ that
+		/// builds into a library you load into the live game to check the generated
+		/// SDK against the running process.
+		bool bGenerateSDKCompilationTest = true;
 	} CppGenerator;
 
 	struct MappingGenerator

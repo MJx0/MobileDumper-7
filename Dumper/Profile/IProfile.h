@@ -58,11 +58,6 @@ public:
 		return Sym;
 	}
 
-	/**
-	 * @brief Decrypts the pointer returned by @ref GetGObjects().
-	 * @param[in,out] ObjectsPtr GObjects pointer to decrypt.
-	 */
-	inline virtual void DecryptGObjects(uintptr_t& ObjectsPtr) const { ((void)ObjectsPtr); }
 
 	/// @brief Resolves the layout of the global objects structure.
 	/// @param ObjectsPtr Address of the global objects structure.
@@ -148,12 +143,6 @@ public:
 
 		return 0;
 	}
-
-	/**
-	 * @brief Decrypts the pointer returned by @ref GetGNames().
-	 * @param[in,out] NamesPtr GNames pointer to decrypt.
-	 */
-	inline virtual void DecryptGNames(uintptr_t& NamesPtr) const { ((void)NamesPtr); }
 
 
 	/// @brief Resolves the layout of the global names structure.
@@ -269,11 +258,13 @@ public:
 			const int32 ChunkIdx = Idx / Layout->ElementsPerChunk;
 			const int32 InChunk  = Idx % Layout->ElementsPerChunk;
 
-			uintptr_t ChunkAddr = GMemory->Read<uintptr_t>(NamesPtr + Layout->Chunks + ChunkIdx * sizeof(void*));
-			DecryptNameChunk(NamesPtr, ChunkIdx, ChunkAddr);
+			const uintptr_t ChunkSlot = NamesPtr + Layout->Chunks + ChunkIdx * sizeof(void*);
+			uintptr_t ChunkAddr       = GMemory->Read<uintptr_t>(ChunkSlot);
+			ChunkAddr                 = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
-			uintptr_t NameEntry = GMemory->Read<uintptr_t>(ChunkAddr + InChunk * sizeof(void*));
-			DecryptNameEntry(NamesPtr, NameEntry);
+			const uintptr_t EntrySlot = ChunkAddr + InChunk * sizeof(void*);
+			uintptr_t NameEntry       = GMemory->Read<uintptr_t>(EntrySlot);
+			NameEntry                 = GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = NameEntry});
 
 			if (GMemory->IsAddressReadable(NameEntry))
 				return NameEntry;
@@ -283,20 +274,20 @@ public:
 			auto Layout = reinterpret_cast<FNamePoolLayout*>(NamesLayout.get());
 
 			const int32 ChunkIdx      = Idx >> Layout->BlocksBit;
-			const int32 InChunkOffset = (Idx & ((1 << Layout->BlocksBit) - 1)) * Layout->FNameEntry.Stride;
+			const int32 InChunk       = Idx & ((1 << Layout->BlocksBit) - 1);
+			const int32 InChunkOffset = InChunk * Layout->FNameEntry.Stride;
 
 			if (ChunkIdx < 0)
 				return 0;
 
-			uintptr_t ChunksBase = NamesPtr + Layout->Blocks;
-			uintptr_t ChunkAddr  = GMemory->Read<uintptr_t>(ChunksBase + ChunkIdx * sizeof(void*));
-			DecryptNameChunk(NamesPtr, ChunkIdx, ChunkAddr);
+			const uintptr_t ChunkSlot = NamesPtr + Layout->Blocks + ChunkIdx * sizeof(void*);
+			uintptr_t ChunkAddr       = GMemory->Read<uintptr_t>(ChunkSlot);
+			ChunkAddr                 = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
 			if (GMemory->IsAddressReadable(ChunkAddr))
 			{
-				uintptr_t NameEntry = ChunkAddr + InChunkOffset;
-				DecryptNameEntry(NamesPtr, NameEntry);
-				return NameEntry;
+				const uintptr_t NameEntry = ChunkAddr + InChunkOffset;
+				return GDecryptCallbacks.NameStorage.Entry({.Address = NameEntry, .Index = InChunk, .RawValue = NameEntry});
 			}
 		}
 
@@ -373,10 +364,7 @@ public:
 		{
 			if (!InternalSettings::bUseChar16String)
 			{
-				std::u32string Str = GMemory->ReadUTF32(StrAddr, StrLen, [this](char32_t* Data, int32_t Len)
-				{
-					DecryptUTF32(Data, Len);
-				});
+				std::u32string Str = GMemory->ReadUTF32(StrAddr, StrLen, GDecryptCallbacks.String.UTF32);
 
 				if (!Str.empty())
 				{
@@ -385,10 +373,7 @@ public:
 			}
 			else
 			{
-				std::u16string Str = GMemory->ReadUTF16(StrAddr, StrLen, [this](char16_t* Data, int32_t Len)
-				{
-					DecryptUTF16(Data, Len);
-				});
+				std::u16string Str = GMemory->ReadUTF16(StrAddr, StrLen, GDecryptCallbacks.String.UTF16);
 
 				if (!Str.empty())
 				{
@@ -398,10 +383,7 @@ public:
 		}
 		else
 		{
-			std::string Str = GMemory->ReadUTF8(StrAddr, StrLen, [this](char* Data, int32_t Len)
-			{
-				DecryptUTF8(Data, Len);
-			});
+			std::string Str = GMemory->ReadUTF8(StrAddr, StrLen, GDecryptCallbacks.String.UTF8);
 
 			if (!Str.empty())
 			{
@@ -422,62 +404,6 @@ public:
 	inline virtual bool DisableWideNameEntry() const
 	{
 		return false;
-	}
-
-	/**
-	 * @brief Function to decrypt a FName Chunk address.
-	 * @param[in] NamesPtr GNames pointer.
-	 * @param[in,out] ChunkAddr FName Chunk to decrypt.
-	 */
-	inline virtual void DecryptNameChunk(uintptr_t NamesPtr, int32 ChunkIdx, uintptr_t& ChunkAddr) const
-	{
-		((void)NamesPtr);
-		((void)ChunkIdx);
-		((void)ChunkAddr);
-	}
-
-	/**
-	 * @brief Function to decrypt a FNameEntry address.
-	 * @param[in] NamesPtr GNames pointer.
-	 * @param[in,out] NameEntry NameEntry to decrypt.
-	 */
-	inline virtual void DecryptNameEntry(uintptr_t NamesPtr, uintptr_t& NameEntry) const
-	{
-		((void)NamesPtr);
-		((void)NameEntry);
-	}
-
-	/**
-	 * @brief Decrypts a UTF-8 FNameEntry string buffer.
-	 * @param[in,out] Data String buffer.
-	 * @param[in] Len Buffer length.
-	 */
-	inline virtual void DecryptUTF8(char* Data, int32_t Len) const
-	{
-		((void)Data);
-		((void)Len);
-	}
-
-	/**
-	 * @brief Decrypts a UTF-16 FNameEntry string buffer.
-	 * @param[in,out] Data String buffer.
-	 * @param[in] Len Buffer length.
-	 */
-	inline virtual void DecryptUTF16(char16_t* Data, int32_t Len) const
-	{
-		((void)Data);
-		((void)Len);
-	}
-
-	/**
-	 * @brief Decrypts a UTF-32 FNameEntry string buffer.
-	 * @param[in,out] Data String buffer.
-	 * @param[in] Len Buffer length.
-	 */
-	inline virtual void DecryptUTF32(char32_t* Data, int32_t Len) const
-	{
-		((void)Data);
-		((void)Len);
 	}
 };
 

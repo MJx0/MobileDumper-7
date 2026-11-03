@@ -150,9 +150,8 @@ bool Generator::InitObjects(std::string& OutErrorString)
 	{
 		GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Trying candidate 0x{:X} from {} ({:.1f}% confidence)\n", Address, FindMethod, Confidence * 100.0f);
 
-		uintptr_t ObjectsOffset = GMemory->GetUnrealModule().AddressToOffset(Address);
-		uintptr_t DecAddress    = Address;
-		GProfile->DecryptGObjects(DecAddress);
+		uintptr_t ObjectsOffset    = GMemory->GetUnrealModule().AddressToOffset(Address);
+		const uintptr_t DecAddress = GDecryptCallbacks.Statics.GObjects({.Address = Address, .RawValue = Address});
 		if (DecAddress != Address)
 		{
 			GLogger.FmtWrite(ELogLevel::Info, "InitObjects: Decrypted 0x{:X} -> 0x{:X}\n", Address, DecAddress);
@@ -304,31 +303,6 @@ bool Generator::InitObjects(std::string& OutErrorString)
 
 bool Generator::InitNames(std::string& OutErrorString)
 {
-	NameArray::SetDecryptUTF8Fn([](char* Data, int Len)
-	{
-		GProfile->DecryptUTF8(Data, Len);
-	});
-
-	NameArray::SetDecryptUTF16Fn([](char16_t* Data, int Len)
-	{
-		GProfile->DecryptUTF16(Data, Len);
-	});
-
-	NameArray::SetDecryptUTF32Fn([](char32_t* Data, int Len)
-	{
-		GProfile->DecryptUTF32(Data, Len);
-	});
-
-	NameArray::SetDecryptNameChunkFn([](int32 ChunkIdx, uintptr_t& ChunkAddr)
-	{
-		GProfile->DecryptNameChunk(GNames, ChunkIdx, ChunkAddr);
-	});
-
-	NameArray::SetDecryptNameEntryFn([](uintptr_t& NameEntry)
-	{
-		GProfile->DecryptNameEntry(GNames, NameEntry);
-	});
-
 	auto TryGNamesAt = [](uintptr_t NamesAddress, const char* Interpretation, ELogLevel DiagLevel) -> bool
 	{
 		const auto Report = [Interpretation, DiagLevel](const std::string& Reason)
@@ -376,9 +350,8 @@ bool Generator::InitNames(std::string& OutErrorString)
 	{
 		GLogger.FmtWrite(ELogLevel::Info, "InitNames: Trying candidate 0x{:X} from {} ({:.1f}% confidence)\n", Address, FindMethod, Confidence * 100.0f);
 
-		uintptr_t NamesOffset = GMemory->GetUnrealModule().AddressToOffset(Address);
-		uintptr_t DecAddress  = Address;
-		GProfile->DecryptGNames(DecAddress);
+		uintptr_t NamesOffset      = GMemory->GetUnrealModule().AddressToOffset(Address);
+		const uintptr_t DecAddress = GDecryptCallbacks.Statics.GNames({.Address = Address, .RawValue = Address});
 		if (DecAddress != Address)
 		{
 			GLogger.FmtWrite(ELogLevel::Info, "InitNames: Decrypted 0x{:X} -> 0x{:X}\n", Address, DecAddress);
