@@ -20,7 +20,7 @@
 #include "../Managers/MemberManager.h"
 #include "../Wrappers/MemberWrappers.h"
 
-constexpr std::string GetTypeFromSize(uint8 Size, bool bIsSigned = false)
+inline std::string GetTypeFromSize(uint8 Size, bool bIsSigned = false)
 {
 	switch (Size)
 	{
@@ -1913,7 +1913,7 @@ void CppGenerator::WriteFileHead(StreamType& File, PackageInfoHandle Package, EF
 
 	if constexpr (Utils::Memory::Is32Bit())
 	{
-		File << "#pragma pack(push, 0x4)\n";
+		File << fmt::format("#pragma pack(push, 0x{:X})\n", Utils::Memory::k32BitStructPacking);
 	}
 
 	if (!GSettings.CppGenerator.SDKNamespaceName.empty())
@@ -2803,6 +2803,21 @@ void CppGenerator::InitPredefinedMembers()
 		InitStructSize(FEnumProperty);
 		InitStructSize(FFieldPathProperty);
 		InitStructSize(FOptionalProperty);
+	}
+
+	/* A native member can sit in a super's trailing padding, where reflection never shows it and the super would be padded over it. */
+	for (const auto& [StructIndex, Predefs] : PredefinedMembers)
+	{
+		const UEStruct Struct = ObjectArray::GetByIndex<UEStruct>(StructIndex);
+
+		for (const PredefinedMember& Member : Predefs.Members)
+		{
+			if (Member.bIsStatic || Member.bIsZeroSizeMember)
+				continue;
+
+			for (UEStruct Super = Struct.GetSuper(); StructManager::TrimSizeForReusedPadding(Super, Member.Offset); Super = Super.GetSuper())
+				;
+		}
 	}
 }
 
@@ -4406,12 +4421,12 @@ using namespace UC;
 */
 namespace Offsets
 {{
-	constexpr uint64 GObjects         = 0x{:08X};
-	constexpr uint64 GNames           = 0x{:08X};
-	constexpr uint64 GEngine          = 0x{:08X};
-	constexpr uint64 GWorld           = 0x{:08X};
-	constexpr uint64 ProcessEvent     = 0x{:08X};
-	constexpr int32 ProcessEventIdx   = 0x{:08X};
+	constexpr uintptr_t GObjects       = 0x{:08X};
+	constexpr uintptr_t GNames         = 0x{:08X};
+	constexpr uintptr_t GEngine        = 0x{:08X};
+	constexpr uintptr_t GWorld         = 0x{:08X};
+	constexpr uintptr_t ProcessEvent   = 0x{:08X};
+	constexpr int32 ProcessEventIdx    = 0x{:08X};
 }}
 )",
 	                        GInSDKOffsets.Statics.GObjects,
@@ -6278,6 +6293,13 @@ public:
 )";
 
 
+	/*
+	 * TPersistentObjectPtr places its ObjectID by natural alignment rather than at a fixed offset, since
+	 * FUniqueObjectGuid and FSoftObjectPath align differently. The 32-bit packing would cap that.
+	 */
+	if constexpr (Utils::Memory::Is32Bit())
+		BasicHpp << "\n#pragma pack(pop)\n";
+
 	/* class FUniqueObjectGuid */
 	PredefinedStruct FUniqueObjectGuid = PredefinedStruct{
 	    .UniqueName = "FUniqueObjectGuid", .Size = 0x10, .Alignment = alignof(uint32), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
@@ -6536,6 +6558,9 @@ public:
 	}
 };
 )";
+
+	if constexpr (Utils::Memory::Is32Bit())
+		BasicHpp << fmt::format("\n#pragma pack(push, 0x{:X})\n", Utils::Memory::k32BitStructPacking);
 
 	if (GSettings.EngineCore.bEnableEncryptedObjectPropertySupport)
 	{

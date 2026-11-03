@@ -98,6 +98,10 @@ private:
 public:
 	static void Init();
 
+	/* Trims a struct to an offset a subclass' native member occupies. Reflection never reports those, so InitSizesAndIsFinal
+	 * cannot see them. Returns false when there was nothing to trim. */
+	static bool TrimSizeForReusedPadding(UEStruct Struct, int32 ReusedOffset);
+
 private:
 	static inline const StringEntry& GetName(const StructInfo& Info)
 	{

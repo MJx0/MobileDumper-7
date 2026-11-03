@@ -309,6 +309,24 @@ void StructManager::InitAlignmentsAndNames()
 			}
 		}
 	}
+
+	/*
+	 * Both passes above leave the alignment implicit wherever a member or a super already supplies
+	 * it. The 32-bit SDK is emitted under #pragma pack, which caps exactly that inherited
+	 * alignment while leaving an explicit alignas free to exceed it - so anything needing more
+	 * than the packing has to state it, or it silently drops to the cap.
+	 *
+	 * The packing itself has to stay: a 32-bit engine leaves classes pointer-aligned even when
+	 * they hold an 8-byte member, which natural alignment would otherwise round up.
+	 */
+	if constexpr (Utils::Memory::Is32Bit())
+	{
+		for (auto& [Index, Info] : StructInfoOverrides)
+		{
+			if (Info.Alignment > Utils::Memory::k32BitStructPacking)
+				Info.bUseExplicitAlignment = true;
+		}
+	}
 }
 
 void StructManager::InitSizesAndIsFinal()
@@ -393,6 +411,33 @@ void StructManager::InitSizesAndIsFinal()
 	}
 
 	/*
+	 * UObject has neither a super nor a reflected member to take its alignment from, so it comes from
+	 * the engine instead: the reported size is the measured data end rounded up to the real alignment.
+	 * Assuming the pointer size holds only where the two already agree, as on 64-bit.
+	 */
+	if (const UEObject UObjectClass = ObjectArray::FindClassFast("Object"))
+	{
+		auto It = StructInfoOverrides.find(UObjectClass.GetIndex());
+
+		if (It != StructInfoOverrides.end())
+		{
+			StructInfo& Info         = It->second;
+			const int32 ReportedSize = UObjectClass.Cast<UEStruct>().GetStructSize();
+
+			Info.Alignment = sizeof(void*);
+
+			for (int32 Alignment = sizeof(void*); Alignment <= ReportedSize; Alignment *= 0x2)
+			{
+				if (Utils::Memory::AlignUp(Info.Size, Alignment) == ReportedSize)
+				{
+					Info.Alignment = Alignment;
+					break;
+				}
+			}
+		}
+	}
+
+	/*
 	 * Propagate bHasReusedTrailingPadding through memberless (empty) structs.
 	 *
 	 * If struct A has bHasReusedTrailingPadding and struct B (memberless) inherits from A,
@@ -429,7 +474,15 @@ void StructManager::InitSizesAndIsFinal()
 			if (SuperInfo.bHasReusedTrailingPadding)
 			{
 				Info.bHasReusedTrailingPadding = true;
-				Info.Size                      = SuperInfo.Size;
+
+				/*
+				 * Only where the super's reported size was genuinely too large. A super trimmed to
+				 * no more than its own trailing padding still reports a truthful sizeof(), and so
+				 * does this struct, whose native members in that padding reflection cannot show.
+				 */
+				if (Utils::Memory::AlignUp(SuperInfo.Size, SuperInfo.Alignment) < Super.GetStructSize())
+					Info.Size = SuperInfo.Size;
+
 				break;
 			}
 
@@ -449,18 +502,34 @@ void StructManager::Init()
 	StructInfoOverrides.reserve(0x4000);
 
 	InitAlignmentsAndNames();
-	InitSizesAndIsFinal();
 
-	/*
-	 * The default class-alignment of 0x8 is only set for classes with a valid Super-class, because they inherit from UObject.
-	 * UObject however doesn't have a super, so this needs to be set manually.
-	 */
-	const UEObject UObjectClass                                         = ObjectArray::FindClassFast("Object");
-	StructInfoOverrides.find(UObjectClass.GetIndex())->second.Alignment = sizeof(void*);
+	/* UObject has no super to inherit the default class-alignment from, so InitSizesAndIsFinal sets it from the engine's reported size. */
+	InitSizesAndIsFinal();
 
 	/* I still hate whoever decided to call "UStruct" "Ustruct" on some UE versions. */
 	if (const UEObject UStructClass = ObjectArray::FindClassFast("struct"))
 		StructInfoOverrides.find(UStructClass.GetIndex())->second.Name = UniqueNameTable.FindOrAdd(std::string("UStruct"), false).first;
+}
+
+bool StructManager::TrimSizeForReusedPadding(UEStruct Struct, int32 ReusedOffset)
+{
+	if (!Struct || ReusedOffset < 0x0)
+		return false;
+
+	auto It = StructInfoOverrides.find(Struct.GetIndex());
+
+	if (It == StructInfoOverrides.end())
+		return false;
+
+	StructInfo& Info = It->second;
+
+	if (Info.Size <= ReusedOffset)
+		return false;
+
+	Info.Size                      = ReusedOffset;
+	Info.bHasReusedTrailingPadding = true;
+
+	return true;
 }
 
 StructInfoHandle StructManager::GetInfo(const UEStruct Struct)

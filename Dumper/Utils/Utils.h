@@ -268,6 +268,11 @@ namespace Utils
 		/// @brief True when this build itself is 32-bit.
 		consteval bool Is32Bit() { return sizeof(void*) == 4; }
 
+		/// @brief Struct packing the generated SDK applies on 32-bit. Needed because a 32-bit
+		///        engine leaves classes pointer-aligned even when they hold an 8-byte member, so
+		///        natural alignment would overshoot what the target actually has.
+		inline constexpr int32_t k32BitStructPacking = 0x4;
+
 		/// @brief Truncates a computed address to the analysed image's pointer width.
 		inline uint64_t WrapAddress(uint64_t Address)
 		{
