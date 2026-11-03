@@ -2551,7 +2551,6 @@ void CppGenerator::InitPredefinedMembers()
 		AssignValueIfObjectIsFound("EnumProperty", std::move(EnumPropertyMembers));
 
 		// FieldPathProperty and OptionalProperty don't exist in UE versions which are using UProperty
-		return;
 	}
 	else
 	{
@@ -2635,7 +2634,37 @@ void CppGenerator::InitPredefinedMembers()
 		    };
 
 
-		const int32 FFieldVariantSize     = InternalSettings::bUseMaskForFieldOwner ? sizeof(void*) : sizeof(void*) * 2;
+		/*
+		 * The mask variant is always one pointer. Without a mask the padded { void*, bool } is the
+		 * usual shape, but not the only one - a game can store the bare pointer in 8 bytes, and
+		 * assuming 16 there overruns FField, leaving FProperty's own members no room at their real
+		 * offsets. Whatever field sits after Owner bounds it, so measure instead of assuming.
+		 *
+		 * Only an exact 8 is acted on, and a missing or mis-detected candidate can only push the
+		 * measurement up, never down - so anything unexpected lands back on the padded shape this
+		 * always used.
+		 */
+		const int32 FFieldVariantSize = [&]() -> int32
+		{
+			constexpr int32 PaddedSize = sizeof(void*) * 2;
+
+			if (InternalSettings::bUseMaskForFieldOwner)
+				return sizeof(void*);
+
+			if (GOffsets.FField.Owner < 0)
+				return PaddedSize;
+
+			int32 NextOffset = GOffsets.Property.SizeOf;
+			for (const int32 Candidate : {GOffsets.FField.Class, GOffsets.FField.Next, GOffsets.FField.Name, GOffsets.FField.EditorOnlyMetadata,
+			                              GOffsets.Property.ArrayDim, GOffsets.Property.ElementSize, GOffsets.Property.PropertyFlags, GOffsets.Property.Offset_Internal})
+			{
+				if (Candidate > GOffsets.FField.Owner && Candidate < NextOffset)
+					NextOffset = Candidate;
+			}
+
+			return (NextOffset - GOffsets.FField.Owner) == sizeof(void*) ? static_cast<int32>(sizeof(void*)) : PaddedSize;
+		}();
+
 		const int32 IdentifierOffset      = InternalSettings::bUseMaskForFieldOwner ? 0x0 : sizeof(void*);
 		std::string UObjectIdentifierType = (InternalSettings::bUseMaskForFieldOwner ? "constexpr uint64" : "bool");
 		std::string UObjectIdentifierName = (InternalSettings::bUseMaskForFieldOwner ? "UObjectMask = 0x1" : "bIsUObject");
@@ -2666,19 +2695,25 @@ void CppGenerator::InitPredefinedMembers()
 		            .bIsZeroSizeMember = false,
 		            .bIsBitField       = false,
 		            .BitIndex          = 0xFF},
-		        PredefinedMember{
-		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
-		            .Type              = UObjectIdentifierType,
-		            .Name              = UObjectIdentifierName,
-		            .Offset            = IdentifierOffset,
-		            .Size              = 0x01,
-		            .ArrayDim          = 0x1,
-		            .Alignment         = 0x8,
-		            .bIsStatic         = InternalSettings::bUseMaskForFieldOwner,
-		            .bIsZeroSizeMember = false,
-		            .bIsBitField       = false,
-		            .BitIndex          = 0xFF},
 		    };
+
+		// Nothing to describe when the pointer is stored bare in its own 8 bytes: there is no
+		// trailing flag to name, and no mask riding in the pointer either.
+		if (InternalSettings::bUseMaskForFieldOwner || FFieldVariantSize > static_cast<int32>(sizeof(void*)))
+		{
+			FFieldVariant.Properties.push_back(PredefinedMember{
+			    .Comment           = "NOT AUTO-GENERATED PROPERTY",
+			    .Type              = UObjectIdentifierType,
+			    .Name              = UObjectIdentifierName,
+			    .Offset            = IdentifierOffset,
+			    .Size              = 0x01,
+			    .ArrayDim          = 0x1,
+			    .Alignment         = 0x8,
+			    .bIsStatic         = InternalSettings::bUseMaskForFieldOwner,
+			    .bIsZeroSizeMember = false,
+			    .bIsBitField       = false,
+			    .BitIndex          = 0xFF});
+		}
 
 
 		FField.Properties =
@@ -6371,7 +6406,9 @@ public:
 	    .bIsUnion             = false,
 	    .Super                = nullptr};
 
-	const int32 ObjectIDOffset = InternalSettings::bIsWeakObjectPtrWithoutTag ? 0x8 : 0xC;
+	/* Both fields sit behind FWeakObjectPtr, which is wider than a pointer wherever object references are obfuscated. */
+	const int32 TagAtLastTestOffset = FWeakObjectPtrSize;
+	const int32 ObjectIDOffset      = InternalSettings::bIsWeakObjectPtrWithoutTag ? FWeakObjectPtrSize : FWeakObjectPtrSize + static_cast<int32>(sizeof(int32));
 
 	TPersistentObjectPtr.Properties =
 	    {
@@ -6391,7 +6428,7 @@ public:
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "int32",
 	            .Name              = "TagAtLastTest",
-	            .Offset            = sizeof(void*),
+	            .Offset            = TagAtLastTestOffset,
 	            .Size              = sizeof(int32),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = sizeof(int32),
