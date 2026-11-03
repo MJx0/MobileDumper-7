@@ -158,6 +158,12 @@ private:
 	 */
 	static void GenerateUnicodeLib(StreamType& UnicodeLib);
 
+	/*
+	 * Creates CppSDK/TestSuit/ - a self-contained project that builds into a library you load into
+	 * the live game to check the generated SDK against the running process.
+	 */
+	static void GenerateTestSuit();
+
 public:
 	static void Generate();
 

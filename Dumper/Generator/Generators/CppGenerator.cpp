@@ -1958,6 +1958,1719 @@ void CppGenerator::WriteFileEnd(StreamType& File, EFileType Type)
 	}
 }
 
+void CppGenerator::GenerateTestSuit()
+{
+	const fs::path TestSuitFolder = MainFolder / "TestSuit";
+	const fs::path SrcFolder      = TestSuitFolder / "src";
+
+	std::error_code Ec;
+	fs::create_directories(SrcFolder, Ec);
+
+	const std::string& GameName = InternalSettings::GameName;
+
+	/* Host.h - shared on both platforms. */
+	{
+		StreamType HostHeader(SrcFolder / "Host.h");
+		HostHeader << R"HOSTH(#pragma once
+
+// validation suite helpers.
+
+#include <cstdint>
+#include <functional>
+
+namespace Host
+{
+	// True if Address is readable. Check before dereferencing anything from game memory.
+	bool IsReadable(uintptr_t Address, size_t Size = 1);
+
+	// Refreshes IsReadable's cache, if this platform has one. Call after the engine allocates more memory.
+	void RefreshReadableRanges();
+
+	// Runs Body, turning SIGSEGV/SIGBUS/SIGILL into a false return instead of a crash.
+	bool RunGuarded(const std::function<void()>& Body);
+
+	// Logs one line under MD7_LOG_TAG.
+	void Log(const char* Format, ...) __attribute__((format(printf, 1, 2)));
+} // namespace Host
+
+// Runs the validation suite. Implemented in Validate.cpp, called from each platform's load hook.
+void RunValidationSuite();
+)HOSTH";
+	}
+
+	/* Validate.cpp - identical on both platforms; it only calls Host::* and SDK::*. */
+	{
+		StreamType ValidateFile(SrcFolder / "Validate.cpp");
+		ValidateFile << R"VALIDATE(// Checks the generated SDK against the live game it was dumped from.
+// Checks:
+// GObjects/GNames resolve
+// FNames decode correctly
+// The class hierarchy walks
+
+#include "Host.h"
+
+#include <cctype>
+#include <chrono>
+#include <cinttypes>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "SDK.hpp"
+
+namespace
+{
+	constexpr const char* kDivider = "────────────────────────────────────────────────────────────";
+
+	int GChecks = 0;
+	int GFailed = 0;
+
+	// Logs one PASS/FAIL line, returns bCondition so a failed check can stop a walk early.
+	bool Check(bool bCondition, const char* What, const char* FmtDetail = nullptr, ...)
+	{
+		GChecks++;
+
+		char Detail[512] = {};
+
+		if (FmtDetail)
+		{
+			va_list Args;
+			va_start(Args, FmtDetail);
+			std::vsnprintf(Detail, sizeof(Detail), FmtDetail, Args);
+			va_end(Args);
+		}
+
+		if (!bCondition)
+			GFailed++;
+
+		Host::Log("  [%-4s]  %-46s %s", bCondition ? "PASS" : "FAIL", What, Detail);
+
+		return bCondition;
+	}
+
+	// Prints a section header.
+	void Section(const char* Title)
+	{
+		Host::Log("");
+		Host::Log("┌── %s", Title);
+	}
+
+	// Prints an informational line under the current section - never counted as a check.
+	void Info(const char* Format, ...) __attribute__((format(printf, 1, 2)));
+	void Info(const char* Format, ...)
+	{
+		char Line[512] = {};
+
+		va_list Args;
+		va_start(Args, Format);
+		std::vsnprintf(Line, sizeof(Line), Format, Args);
+		va_end(Args);
+
+		Host::Log("│   %s", Line);
+	}
+
+	// Trims to the part after the last '/', matching what FName::ToString returns.
+	std::string TrimToLeafName(const std::string& Name)
+	{
+		const size_t Slash = Name.rfind('/');
+
+		return Slash == std::string::npos ? Name : Name.substr(Slash + 1);
+	}
+
+	// A sane decoded name: non-empty, printable, not absurdly long.
+	bool LooksLikeName(const std::string& Name)
+	{
+		if (Name.empty() || Name.size() > 0x400)
+			return false;
+
+		for (const char C : Name)
+		{
+			if (static_cast<unsigned char>(C) < 0x20)
+				return false;
+		}
+
+		return true;
+	}
+
+	// Stricter than LooksLikeName: plain ASCII identifier characters only. FNamePool entries are
+	// packed at a variable stride, so most raw indices land mid-entry rather than on a real one -
+	// decoding one of those still produces "printable" bytes, just not a real name. Used only to
+	// pick entries worth showing in the first-N names printout, not for any correctness check.
+	bool LooksLikeIdentifier(const std::string& Name)
+	{
+		if (Name.empty() || Name.size() > 128)
+			return false;
+
+		for (const char C : Name)
+		{
+			const unsigned char Uc = static_cast<unsigned char>(C);
+
+			if (Uc >= 0x80 || !(std::isalnum(Uc) || Uc == '_'))
+				return false;
+		}
+
+		return true;
+	}
+
+	// True if Object, and its Class, can be read as a full UObject.
+	bool IsPlausibleObject(const SDK::UObject* Object)
+	{
+		if (!Host::IsReadable(reinterpret_cast<uintptr_t>(Object), sizeof(SDK::UObject)))
+			return false;
+
+		return Host::IsReadable(reinterpret_cast<uintptr_t>(Object->Class), sizeof(SDK::UObject));
+	}
+
+	// True if Struct can be read far enough to reach SuperStruct.
+	bool IsPlausibleStruct(const SDK::UStruct* Struct)
+	{
+		return Host::IsReadable(reinterpret_cast<uintptr_t>(Struct), sizeof(SDK::UStruct));
+	}
+
+	// ---------------------------------------------------------------- the checks
+
+	void CheckModuleAndOffsets()
+	{
+		Section("Module & Offsets");
+
+		const uintptr_t Base = SDK::InSDKUtils::GetImageBase();
+
+		Check(Base != 0, "GetImageBase() resolves", "base=0x%" PRIxPTR, Base);
+		Info("Module Name: \"%s\"", SDK::EngineInfo::UnrealModuleName);
+
+		Check(SDK::Offsets::GObjects != 0, "Offsets::GObjects is set", "0x%llX", (unsigned long long)SDK::Offsets::GObjects);
+		Check(SDK::Offsets::GNames != 0, "Offsets::GNames is set", "0x%llX", (unsigned long long)SDK::Offsets::GNames);
+
+		// Offsets are module-relative, so they must land inside the module's own mapping.
+		Check(Host::IsReadable(Base + SDK::Offsets::GObjects, sizeof(void*)), "GObjects address is mapped", "0x%" PRIxPTR, Base + SDK::Offsets::GObjects);
+		Check(Host::IsReadable(Base + SDK::Offsets::GNames, sizeof(void*)), "GNames address is mapped", "0x%" PRIxPTR, Base + SDK::Offsets::GNames);
+
+		Info("Engine Info: %s (%d.%d.%d), TCharSize=%d",
+		     SDK::EngineInfo::EngineVersion,
+		     SDK::EngineInfo::EngineMajor,
+		     SDK::EngineInfo::EngineMinor,
+		     SDK::EngineInfo::EnginePatch,
+		     SDK::EngineInfo::TCharSize);
+
+		Check(SDK::EngineInfo::EngineMajor == 4 || SDK::EngineInfo::EngineMajor == 5, "EngineInfo major is 4 or 5", "%d", SDK::EngineInfo::EngineMajor);
+		Check(SDK::EngineInfo::TCharSize == 2 || SDK::EngineInfo::TCharSize == 4, "EngineInfo TCharSize is 2 or 4", "%d", SDK::EngineInfo::TCharSize);
+	}
+
+	void CheckObjectArray(int32_t& OutNum)
+	{
+		Section("GObjects");
+
+		OutNum = 0;
+
+		SDK::TUObjectArray* Objects = SDK::InSDKUtils::GetGObjects();
+
+		if (!Check(Host::IsReadable(reinterpret_cast<uintptr_t>(Objects), sizeof(SDK::TUObjectArray)), "GetGObjects() is mapped", "0x%" PRIxPTR, reinterpret_cast<uintptr_t>(Objects)))
+			return;
+
+		const int32_t Num = Objects->Num();
+		OutNum            = Num;
+
+		// A loaded game has thousands of objects; far fewer or far more means the wrong address.
+		Check(Num > 1000 && Num < 20'000'000, "Num() is plausible", "%d objects", Num);
+	}
+
+	void CheckObjectIteration(int32_t Num, std::vector<SDK::UObject*>& OutSample)
+	{
+		Section("Object Iteration");
+
+		if (Num <= 0)
+		{
+			Check(false, "Iteration skipped", "No object count");
+			return;
+		}
+
+		int32_t Resolved    = 0;
+		int32_t Named       = 0;
+		int32_t Faulted     = 0;
+		const int32_t Limit = Num < 2000 ? Num : 2000;
+
+		for (int32_t i = 0; i < Limit; i++)
+		{
+			// Guarded per index: one corrupt object shouldn't take the whole scan down with it.
+			const bool bOk = Host::RunGuarded([&]
+			{
+				SDK::UObject* Object = SDK::InSDKUtils::GetObjectByIndex(i);
+
+				if (!IsPlausibleObject(Object))
+					return;
+
+				Resolved++;
+
+				const std::string Name = Object->GetName();
+
+				if (LooksLikeName(Name))
+				{
+					Named++;
+
+					if (OutSample.size() < 10)
+						OutSample.push_back(Object);
+				}
+			});
+
+			if (!bOk)
+				Faulted++;
+		}
+
+		// Index gaps are normal, but most low-index slots should still be live.
+		Check(Resolved > Limit / 2, "Most low indices resolve", "%d/%d", Resolved, Limit);
+		Check(Named > 0 && Named >= Resolved - (Resolved / 10), "Resolved objects have sane names", "%d/%d printable", Named, Resolved);
+
+		if (Faulted > 0)
+			Info("%d/%d indices faulted on access and were skipped", Faulted, Limit);
+
+		Check(SDK::InSDKUtils::GetObjectByIndex(-1) == nullptr, "GetObjectByIndex(-1) is null");
+		Check(SDK::InSDKUtils::GetObjectByIndex(Num + 1000) == nullptr, "GetObjectByIndex(out of range) is null");
+
+		for (SDK::UObject* Object : OutSample)
+			Info("[%02d] %s", Object->Index, Object->GetFullName().c_str());
+	}
+
+	void CheckNames(const std::vector<SDK::UObject*>& Sample)
+	{
+		Section("FNames");
+
+		const uintptr_t Names = SDK::InSDKUtils::GetGNames();
+
+		Check(Host::IsReadable(Names, sizeof(void*)), "GetGNames() is mapped", "0x%" PRIxPTR, Names);
+
+		// Index 0 is always "None", in every engine version. Guarded like every other read here.
+		std::string Zero;
+		Host::RunGuarded([&] { Zero = SDK::InSDKUtils::GetNameByIndex(0); });
+		Check(Zero == "None", "GetNameByIndex(0) == \"None\"", "got \"%s\"", Zero.c_str());
+
+		Check(SDK::InSDKUtils::GetNameByIndex(-1).empty(), "GetNameByIndex(-1) is empty");
+
+		// Not just indices 0-9: most raw indices land mid-entry (see LooksLikeIdentifier), so
+		// this scans ahead for the first 10 that actually decode to a real name. Guarded per
+		// index: a single corrupt entry shouldn't take down the whole scan.
+		int32_t NameScanFaults = 0;
+
+		for (int32_t i = 0, Shown = 0; i < 500 && Shown < 10; i++)
+		{
+			std::string Entry;
+			const bool bOk = Host::RunGuarded([&] { Entry = SDK::InSDKUtils::GetNameByIndex(i); });
+
+			if (!bOk)
+			{
+				NameScanFaults++;
+				continue;
+			}
+
+			if (LooksLikeIdentifier(Entry))
+			{
+				Info("[%02d] %s", i, Entry.c_str());
+				Shown++;
+			}
+		}
+
+		if (NameScanFaults > 0)
+			Info("%d indices faulted on access while scanning for names and were skipped", NameScanFaults);
+
+		// A name read via FName must match the same name read straight from the pool.
+		int32_t Agree    = 0;
+		int32_t Compared = 0;
+		int32_t Faulted  = 0;
+
+		for (SDK::UObject* Object : Sample)
+		{
+			Compared++;
+
+			std::string ViaObject, ViaIndex;
+			const bool bOk = Host::RunGuarded([&]
+			{
+				ViaObject = Object->GetName();
+				ViaIndex  = TrimToLeafName(SDK::InSDKUtils::GetNameByIndex(Object->Name.ComparisonIndex));
+			});
+
+			if (!bOk)
+			{
+				Faulted++;
+				continue;
+			}
+
+			if (!ViaIndex.empty() && ViaIndex == ViaObject)
+				Agree++;
+			else
+				Info("Mismatch: Object \"%s\" vs Index %d -> \"%s\"", ViaObject.c_str(), Object->Name.ComparisonIndex, ViaIndex.c_str());
+		}
+
+		if (Faulted > 0)
+			Info("%d/%d sample objects faulted on access and were skipped", Faulted, Compared);
+
+		Check(Compared > Faulted && Agree == Compared - Faulted, "Objects FName and GNames agree on names", "%d/%d", Agree, Compared - Faulted);
+	}
+
+	void CheckClassesAndHierarchy()
+	{
+		Section("Classes & Hierarchy");
+
+		// Exists in every UE game; finding them exercises name lookup and StaticClass caching.
+		const char* const Required[] = {"Object", "Class", "Field", "Struct", "Function", "Actor", "Pawn", "PlayerController", "World"};
+
+		int32_t Found = 0;
+
+		for (const char* Name : Required)
+		{
+			// FindClassFast takes a leaf name, not a full path.
+			SDK::UClass* Class = SDK::UObject::FindClassFast(std::string(Name));
+
+			if (IsPlausibleStruct(Class))
+			{
+				Found++;
+				continue;
+			}
+
+			Info("Missing class: %s", Name);
+		}
+
+		Check(Found == static_cast<int32_t>(sizeof(Required) / sizeof(Required[0])), "Core classes are findable", "%d/%zu", Found, sizeof(Required) / sizeof(Required[0]));
+
+		SDK::UClass* ActorClass  = SDK::UObject::FindClassFast("Actor");
+		SDK::UClass* ObjectClass = SDK::UObject::FindClassFast("Object");
+
+		if (!IsPlausibleStruct(ActorClass) || !IsPlausibleStruct(ObjectClass))
+		{
+			Check(false, "hierarchy walk skipped", "Actor or Object class missing");
+			return;
+		}
+
+		// StaticClass() must land on the same object as the by-name lookup.
+		Check(SDK::AActor::StaticClass() == ActorClass, "AActor::StaticClass() matches FindClass(\"Actor\")");
+		Check(SDK::UObject::StaticClass() == ObjectClass, "UObject::StaticClass() matches FindClass(\"Object\")");
+
+		// Walking Super from Actor must terminate at Object.
+		int32_t Depth         = 0;
+		SDK::UStruct* Current = ActorClass;
+		bool bReachedObject   = false;
+
+		while (IsPlausibleStruct(Current) && Depth < 32)
+		{
+			if (Current == ObjectClass)
+			{
+				bReachedObject = true;
+				break;
+			}
+
+			Current = Current->SuperStruct;
+			Depth++;
+		}
+
+		Check(bReachedObject, "Actor's Super chain reaches Object", "depth %d", Depth);
+
+		// IsA uses cast flags, a separate mechanism from the chain walk above.
+		Check(ActorClass->IsA(SDK::EClassCastFlags::Class), "Actor's class object IsA Class");
+		Check(!ActorClass->IsA(SDK::EClassCastFlags::Enum), "Actor's class object is not an Enum");
+	}
+
+	void CheckOuterChain(const std::vector<SDK::UObject*>& Sample)
+	{
+		Section("Outer Chains");
+
+		if (Sample.empty())
+		{
+			Check(false, "Outer walk skipped", "No sample objects");
+			return;
+		}
+
+		int32_t Terminated = 0;
+
+		for (SDK::UObject* Object : Sample)
+		{
+			SDK::UObject* Current = Object;
+			int32_t Depth         = 0;
+
+			// Every chain should end at a package with a null Outer.
+			while (Depth < 32)
+			{
+				SDK::UObject* Outer = Current->Outer;
+
+				if (!Outer)
+				{
+					Terminated++;
+					break;
+				}
+
+				if (!IsPlausibleObject(Outer))
+					break;
+
+				Current = Outer;
+				Depth++;
+			}
+		}
+
+		Check(Terminated == static_cast<int32_t>(Sample.size()), "Every Outer chain terminates", "%d/%zu", Terminated, Sample.size());
+	}
+
+	// GEngine/GWorld aren't required - a game may legitimately not expose them.
+	void CheckEngineGlobal(const char* Label, uintptr_t Offset, const char* ClassName)
+	{
+		if (Offset == 0)
+		{
+			Info("Offsets::%s not found by the dumper, skipping", Label);
+			return;
+		}
+
+		const uintptr_t Slot = SDK::InSDKUtils::GetImageBase() + Offset;
+
+		if (!Host::IsReadable(Slot, sizeof(void*)))
+		{
+			Info("%s slot 0x%" PRIxPTR " not mapped, skipping", Label, Slot);
+			return;
+		}
+
+		// Typed as UObject*: not every dump has the reflected class, and identity is all we need.
+		SDK::UObject* Instance = *reinterpret_cast<SDK::UObject**>(Slot);
+
+		if (!IsPlausibleObject(Instance))
+		{
+			Info("%s is null or not a live object (normal before a level loads)", Label);
+			return;
+		}
+
+		Info("%s -> %s", Label, Instance->GetFullName().c_str());
+
+		SDK::UClass* Class = SDK::UObject::FindClassFast(ClassName);
+
+		if (!IsPlausibleStruct(Class))
+			return;
+
+		char What[64] = {};
+		std::snprintf(What, sizeof(What), "%s IsA %s", Label, ClassName);
+
+		Check(Instance->IsA(Class), What);
+	}
+
+	void CheckEngineGlobals()
+	{
+		Section("Engine Globals");
+
+		CheckEngineGlobal("GEngine", SDK::Offsets::GEngine, "Engine");
+		CheckEngineGlobal("GWorld", SDK::Offsets::GWorld, "World");
+	}
+
+	// Runs one check group under RunGuarded, so a fault is a failure instead of a crash.
+	void RunGroup(const char* What, const std::function<void()>& Body)
+	{
+		if (Host::RunGuarded(Body))
+			return;
+
+		GChecks++;
+		GFailed++;
+		Host::Log("  [FAIL]  %-46s Faulted - See the last line above for how far it got", What);
+	}
+
+	// Waits for the module to load and GObjects to populate, polling rather than one fixed sleep.
+	bool WaitForEngine(int32_t TimeoutSeconds)
+	{
+		for (int32_t Elapsed = 0; Elapsed < TimeoutSeconds; Elapsed += 2)
+		{
+			Host::RefreshReadableRanges();
+
+			if (SDK::InSDKUtils::GetImageBase())
+			{
+				SDK::TUObjectArray* Objects = SDK::InSDKUtils::GetGObjects();
+
+				if (Host::IsReadable(reinterpret_cast<uintptr_t>(Objects), sizeof(SDK::TUObjectArray)) && Objects->Num() > 1000)
+					return true;
+			}
+
+			std::this_thread::sleep_for(std::chrono::seconds(2));
+		}
+
+		return false;
+	}
+
+	void RunSuite()
+	{
+		Host::Log("%s", kDivider);
+		Host::Log("  SDK VALIDATION — %s", MD7_TARGET_PACKAGE);
+		Host::Log("%s", kDivider);
+
+		if (!WaitForEngine(180))
+		{
+			Host::Log("");
+			Host::Log("Engine did not become ready within 180s (module=0x%" PRIxPTR ") - nothing to validate.",
+			          SDK::InSDKUtils::GetImageBase());
+			return;
+		}
+
+		Host::RefreshReadableRanges();
+
+		int32_t Num = 0;
+		std::vector<SDK::UObject*> Sample;
+
+		RunGroup("Module & Offsets", [&] { CheckModuleAndOffsets(); });
+		RunGroup("GObjects", [&] { CheckObjectArray(Num); });
+		RunGroup("Object Iteration", [&] { CheckObjectIteration(Num, Sample); });
+		RunGroup("FNames", [&] { CheckNames(Sample); });
+		RunGroup("Classes & Hierarchy", [&] { CheckClassesAndHierarchy(); });
+		RunGroup("Outer Chains", [&] { CheckOuterChain(Sample); });
+		RunGroup("Engine Globals", [&] { CheckEngineGlobals(); });
+
+		Host::Log("");
+		Host::Log("%s", kDivider);
+
+		if (GFailed == 0)
+			Host::Log("  ALL %d CHECKS PASSED", GChecks);
+		else
+			Host::Log("  %d OF %d CHECKS FAILED", GFailed, GChecks);
+
+		Host::Log("%s", kDivider);
+	}
+} // namespace
+
+void RunValidationSuite()
+{
+	RunSuite();
+}
+)VALIDATE";
+	}
+
+	/* CMakeLists.txt - shared, branches ANDROID / iOS exactly like this repo's own root CMakeLists.txt. */
+	{
+		StreamType CMakeFile(TestSuitFolder / "CMakeLists.txt");
+		CMakeFile << fmt::format(R"CMAKE(cmake_minimum_required(VERSION 3.22)
+
+project(MD7TestSuit LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(MD7_SDK_DIR "${{CMAKE_CURRENT_LIST_DIR}}/..")
+
+if(NOT EXISTS "${{MD7_SDK_DIR}}/SDK/Basic.cpp")
+	message(FATAL_ERROR "No generated SDK found next to TestSuit/ at ${{MD7_SDK_DIR}}")
+endif()
+
+if(ANDROID)
+	set(MD7_PLATFORM_SRC "${{CMAKE_CURRENT_LIST_DIR}}/src/Host.cpp")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+	enable_language(OBJCXX)
+	set(MD7_PLATFORM_SRC "${{CMAKE_CURRENT_LIST_DIR}}/src/Host.mm")
+else()
+	message(FATAL_ERROR "TestSuit only builds for Android or iOS. Set -DCMAKE_SYSTEM_NAME=Android or iOS.")
+endif()
+
+file(GLOB MD7_SDK_SOURCES "${{MD7_SDK_DIR}}/SDK/*.cpp")
+
+add_library(MD7TestSuit SHARED
+	${{MD7_SDK_SOURCES}}
+	"${{MD7_PLATFORM_SRC}}"
+	"${{CMAKE_CURRENT_LIST_DIR}}/src/Validate.cpp")
+
+target_include_directories(MD7TestSuit PRIVATE
+	"${{MD7_SDK_DIR}}"
+	"${{MD7_SDK_DIR}}/SDK"
+	"${{CMAKE_CURRENT_LIST_DIR}}/src")
+
+target_compile_features(MD7TestSuit PRIVATE cxx_std_20)
+
+target_compile_definitions(MD7TestSuit PRIVATE
+	MD7_TARGET_PACKAGE="{0}"
+	MD7_LOG_TAG="MD7TestSuit")
+
+# Needed by the generated SDK: offsetof on non-standard-layout types, narrowing enum values,
+# and deliberately-unused padding fields that only exist to preserve struct layout.
+target_compile_options(MD7TestSuit PRIVATE
+	-Wno-invalid-offsetof
+	-Wno-c++11-narrowing
+	-Wno-unused-private-field
+	-fvisibility=hidden)
+
+if(ANDROID)
+	target_link_libraries(MD7TestSuit PRIVATE log)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+	target_link_libraries(MD7TestSuit PRIVATE "-framework Foundation")
+endif()
+)CMAKE",
+		                         GameName);
+	}
+
+#ifdef __ANDROID__
+	/* build.sh */
+	{
+		StreamType BuildSh(TestSuitFolder / "build.sh");
+		BuildSh << fmt::format(R"BUILDSH(#!/usr/bin/env bash
+# Builds the TestSuit validation library for the SDK next to this script.
+#
+#   ./build.sh [--build debug|release]
+#
+# Needs ANDROID_NDK_HOME (or ANDROID_NDK_ROOT), cmake 3.22+.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+log()     {{ echo -e "${{CYAN}}${{BOLD}}==> $*${{RESET}}"; }}
+ok()      {{ echo -e "${{GREEN}}${{BOLD}}[ok] $*${{RESET}}"; }}
+warn()    {{ echo -e "${{YELLOW}}${{BOLD}}[warn] $*${{RESET}}"; }}
+err()     {{ echo -e "${{RED}}${{BOLD}}[error] $*${{RESET}}" >&2; }}
+section() {{ echo; echo -e "${{CYAN}}${{BOLD}}┌── $1${{RESET}}"; }}
+info()    {{ echo -e "${{CYAN}}│${{RESET}}   $*"; }}
+
+BUILD_TYPE="release"
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--build) BUILD_TYPE="$2"; shift 2 ;;
+		-h|--help)
+			echo "Usage: $(basename "$0") [--build debug|release]"
+			exit 0 ;;
+		*) err "Unknown option: $1"; exit 1 ;;
+	esac
+done
+
+case "$BUILD_TYPE" in
+	debug|release) ;;
+	*) err "Invalid --build '$BUILD_TYPE' (must be debug or release)"; exit 1 ;;
+esac
+
+if [[ "$BUILD_TYPE" == "debug" ]]; then CMAKE_BUILD_TYPE="Debug"; else CMAKE_BUILD_TYPE="Release"; fi
+
+BUILD_DIR="$HERE/build/android/$BUILD_TYPE"
+
+NDK="${{ANDROID_NDK_HOME:-${{ANDROID_NDK_ROOT:-}}}}"
+
+if [[ -z "$NDK" || ! -d "$NDK" ]]; then
+	err "Set ANDROID_NDK_HOME to your NDK path"
+	exit 1
+fi
+
+TOOLCHAIN="$NDK/build/cmake/android.toolchain.cmake"
+
+if [[ ! -f "$TOOLCHAIN" ]]; then
+	err "No toolchain at $TOOLCHAIN"
+	exit 1
+fi
+
+# ABI matching the dump - not user-selectable.
+ANDROID_ABI="{0}"
+
+section "Android ($ANDROID_ABI, $CMAKE_BUILD_TYPE)"
+info "Configuring..."
+cmake -S "$HERE" -B "$BUILD_DIR" \
+	-DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+	-DANDROID_ABI="$ANDROID_ABI" \
+	-DANDROID_PLATFORM=android-24 \
+	-DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+	-G Ninja
+
+cmake --build "$BUILD_DIR" --parallel
+
+SO=$(find "$BUILD_DIR" -maxdepth 1 -name 'lib*.so' | head -1)
+ok "Android: $SO ($(du -h "$SO" | cut -f1))"
+)BUILDSH",
+		                        Utils::Memory::Is32Bit() ? "armeabi-v7a" : "arm64-v8a");
+
+		fs::permissions(TestSuitFolder / "build.sh",
+		                 fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec | fs::perms::others_read | fs::perms::others_exec,
+		                 fs::perm_options::add,
+		                 Ec);
+	}
+
+	/* build.cmd */
+	{
+		StreamType BuildCmd(TestSuitFolder / "build.cmd");
+		BuildCmd << fmt::format(R"BUILDCMD(@echo off
+setlocal enabledelayedexpansion
+
+FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
+SET "_CYAN=%ESC%[36;1m"
+SET "_GREEN=%ESC%[32;1m"
+SET "_YELLOW=%ESC%[33;1m"
+SET "_RED=%ESC%[31;1m"
+SET "_RESET=%ESC%[0m"
+
+SET "HERE=%~dp0"
+IF "%HERE:~-1%"=="\" SET "HERE=%HERE:~0,-1%"
+
+SET "BUILD_TYPE=release"
+
+:parse_args
+IF "%~1"=="" GOTO :end_parse
+IF /I "%~1"=="--build" (
+	SET "BUILD_TYPE=%~2"
+	SHIFT
+	SHIFT
+	GOTO :parse_args
+)
+CALL :err "Unknown option: %~1"
+EXIT /B 1
+:end_parse
+
+IF /I "%BUILD_TYPE%"=="debug" (
+	SET "CMAKE_BUILD_TYPE=Debug"
+) ELSE IF /I "%BUILD_TYPE%"=="release" (
+	SET "CMAKE_BUILD_TYPE=Release"
+) ELSE (
+	CALL :err "Invalid --build '%BUILD_TYPE%'"
+	EXIT /B 1
+)
+
+SET "NDK=%ANDROID_NDK_HOME%"
+IF "%NDK%"=="" SET "NDK=%ANDROID_NDK%"
+IF "%NDK%"=="" (
+	CALL :err "Set ANDROID_NDK_HOME to your NDK path"
+	EXIT /B 1
+)
+
+SET "TOOLCHAIN=%NDK%\build\cmake\android.toolchain.cmake"
+IF NOT EXIST "%TOOLCHAIN%" (
+	CALL :err "No toolchain at %TOOLCHAIN%"
+	EXIT /B 1
+)
+
+REM ABI matching the dump - not user-selectable.
+SET "ANDROID_ABI={0}"
+
+SET "BUILD_DIR=%HERE%\build\android\%BUILD_TYPE%"
+
+CALL :section "Android (%ANDROID_ABI%, %CMAKE_BUILD_TYPE%)"
+CALL :info "Configuring..."
+cmake -S "%HERE%" -B "%BUILD_DIR%" -DCMAKE_TOOLCHAIN_FILE="%TOOLCHAIN%" -DANDROID_ABI=%ANDROID_ABI% -DANDROID_PLATFORM=android-24 -DCMAKE_BUILD_TYPE=%CMAKE_BUILD_TYPE% -G Ninja
+IF !ERRORLEVEL! NEQ 0 EXIT /B 1
+
+cmake --build "%BUILD_DIR%" --parallel
+IF !ERRORLEVEL! NEQ 0 EXIT /B 1
+
+CALL :ok "Build complete: %BUILD_DIR%"
+EXIT /B 0
+
+:log
+echo !_CYAN!==^> %~1!_RESET!
+GOTO :EOF
+
+:section
+echo.
+echo !_CYAN!┌── %~1!_RESET!
+GOTO :EOF
+
+:info
+echo !_CYAN!│!_RESET!   %~1
+GOTO :EOF
+
+:ok
+echo !_GREEN![ok] %~1!_RESET!
+GOTO :EOF
+
+:warn
+echo !_YELLOW![warn] %~1!_RESET!
+GOTO :EOF
+
+:err
+echo !_RED![error] %~1!_RESET! 1>&2
+GOTO :EOF
+)BUILDCMD",
+		                         Utils::Memory::Is32Bit() ? "armeabi-v7a" : "arm64-v8a");
+	}
+#elif defined(__APPLE__)
+	/* build.sh */
+	{
+		StreamType BuildSh(TestSuitFolder / "build.sh");
+		BuildSh << R"BUILDSH(#!/usr/bin/env bash
+# Builds the TestSuit validation library for the SDK next to this script.
+#
+#   ./build.sh [--build debug|release] [--target dylib|theos]
+#
+# dylib needs Xcode command-line tools, cmake 3.22+. theos needs $THEOS set.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+log()     { echo -e "${CYAN}${BOLD}==> $*${RESET}"; }
+ok()      { echo -e "${GREEN}${BOLD}[ok] $*${RESET}"; }
+warn()    { echo -e "${YELLOW}${BOLD}[warn] $*${RESET}"; }
+err()     { echo -e "${RED}${BOLD}[error] $*${RESET}" >&2; }
+section() { echo; echo -e "${CYAN}${BOLD}┌── $1${RESET}"; }
+info()    { echo -e "${CYAN}│${RESET}   $*"; }
+
+# Asks a yes/no question, default Y unless $2 says otherwise; shows [Y/n]/[y/N].
+confirm() {
+	local default="${2:-Y}" hint reply
+	if [[ "$default" =~ ^[Yy]$ ]]; then hint="Y/n"; else hint="y/N"; fi
+	read -rp "  $1 [$hint] " reply
+	reply="${reply:-$default}"
+	[[ "$reply" =~ ^[Yy] ]]
+}
+
+BUILD_TYPE="release"
+TARGET=""
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--build)  BUILD_TYPE="$2"; shift 2 ;;
+		--target) TARGET="$2"; shift 2 ;;
+		-h|--help)
+			echo "Usage: $(basename "$0") [--build debug|release] [--target dylib|theos]"
+			exit 0 ;;
+		*) err "Unknown option: $1"; exit 1 ;;
+	esac
+done
+
+case "$BUILD_TYPE" in
+	debug|release) ;;
+	*) err "Invalid --build '$BUILD_TYPE' (must be debug or release)"; exit 1 ;;
+esac
+
+if [[ -z "$TARGET" ]]; then
+	section "Target"
+	info "1) dylib  - standalone .dylib, load directly"
+	info "2) theos  - MobileSubstrate tweak (.deb), installs onto a jailbroken device"
+	read -rp "  Select target [1-2]: " target_choice
+	case "$target_choice" in
+		1) TARGET="dylib" ;;
+		2) TARGET="theos" ;;
+		*) err "Invalid selection"; exit 1 ;;
+	esac
+else
+	case "$TARGET" in
+		dylib|theos) ;;
+		*) err "Invalid --target '$TARGET' (must be dylib or theos)"; exit 1 ;;
+	esac
+fi
+
+if [[ "$TARGET" == "dylib" ]]; then
+	if [[ "$BUILD_TYPE" == "debug" ]]; then CMAKE_BUILD_TYPE="Debug"; else CMAKE_BUILD_TYPE="Release"; fi
+	BUILD_DIR="$HERE/build/ios/$BUILD_TYPE"
+
+	section "iOS dylib (arm64, $CMAKE_BUILD_TYPE)"
+	info "Configuring..."
+	cmake -S "$HERE" -B "$BUILD_DIR" \
+		-DCMAKE_SYSTEM_NAME=iOS \
+		-DCMAKE_OSX_ARCHITECTURES=arm64 \
+		-DCMAKE_OSX_SYSROOT=iphoneos \
+		-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+		-DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+		-G Ninja
+
+	cmake --build "$BUILD_DIR" --parallel
+
+	DYLIB=$(find "$BUILD_DIR" -maxdepth 1 -name '*.dylib' | head -1)
+	ok "iOS: $DYLIB"
+	exit 0
+fi
+
+if [[ -z "${THEOS:-}" ]]; then
+	err "THEOS env var is not set (e.g. export THEOS=~/theos)"
+	exit 1
+fi
+
+section "Theos tweak"
+if [[ "$BUILD_TYPE" == "debug" ]]; then
+	(cd "$HERE" && make package DEBUG=1)
+else
+	(cd "$HERE" && make package FINALPACKAGE=1)
+fi
+
+DEB=$(ls -t "$HERE/packages/"*.deb 2>/dev/null | head -1)
+if [[ -z "$DEB" ]]; then
+	err "No .deb found in packages/ after build"
+	exit 1
+fi
+ok "Package: $DEB"
+
+if ! confirm "Install onto a device now?" N; then
+	exit 0
+fi
+
+section "Install"
+read -rp "  Device IP: " device_ip
+if [[ -z "$device_ip" ]]; then
+	err "No device IP given"
+	exit 1
+fi
+
+read -rp "  SSH port [22]: " device_port
+device_port="${device_port:-22}"
+
+info "Checking $device_ip:$device_port is reachable..."
+if command -v nc >/dev/null 2>&1 && ! nc -z -w 3 "$device_ip" "$device_port" 2>/dev/null; then
+	warn "Couldn't reach $device_ip:$device_port"
+	confirm "Try anyway?" N || exit 1
+fi
+
+# "install" alone fails: Theos's internal-install-check requires a package built in the *same*
+# invocation, so install is chained after package again here rather than reusing the build above.
+info "Installing..."
+if [[ "$BUILD_TYPE" == "debug" ]]; then
+	(cd "$HERE" && THEOS_DEVICE_IP="$device_ip" THEOS_DEVICE_PORT="$device_port" make package install DEBUG=1)
+else
+	(cd "$HERE" && THEOS_DEVICE_IP="$device_ip" THEOS_DEVICE_PORT="$device_port" make package install FINALPACKAGE=1)
+fi
+
+ok "Installed onto $device_ip:$device_port"
+)BUILDSH";
+
+		fs::permissions(TestSuitFolder / "build.sh",
+		                 fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec | fs::perms::others_read | fs::perms::others_exec,
+		                 fs::perm_options::add,
+		                 Ec);
+	}
+#endif
+
+	/* clean.sh - shared; removes build/ for both platforms plus any Theos staging artifacts. */
+	{
+		StreamType CleanSh(TestSuitFolder / "clean.sh");
+		CleanSh << R"CLEANSH(#!/usr/bin/env bash
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+log()     { echo -e "${CYAN}${BOLD}==> $*${RESET}"; }
+ok()      { echo -e "${GREEN}${BOLD}[ok] $*${RESET}"; }
+warn()    { echo -e "${YELLOW}${BOLD}[warn] $*${RESET}"; }
+err()     { echo -e "${RED}${BOLD}[error] $*${RESET}" >&2; }
+section() { echo; echo -e "${CYAN}${BOLD}┌── $1${RESET}"; }
+info()    { echo -e "${CYAN}│${RESET}   $*"; }
+
+usage() {
+	echo "Usage: $(basename "$0") [--build debug|release] [-y|--yes]"
+	echo ""
+	echo "Omit --build to remove both configurations (and, on macOS, Theos artifacts)."
+	echo "Without -y, everything that would be removed is listed first and you're asked to confirm."
+}
+
+# Asks a yes/no question, default Y unless $2 says otherwise; shows [Y/n]/[y/N]. Always "yes" under -y.
+confirm() {
+	[[ $AUTO_YES -eq 1 ]] && return 0
+
+	local default="${2:-Y}" hint reply
+	if [[ "$default" =~ ^[Yy]$ ]]; then hint="Y/n"; else hint="y/N"; fi
+	read -rp "  $1 [$hint] " reply
+	reply="${reply:-$default}"
+	[[ "$reply" =~ ^[Yy] ]]
+}
+
+BUILD_TYPE=""
+AUTO_YES=0
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--build)   BUILD_TYPE="$2"; shift 2 ;;
+		-y|--yes)  AUTO_YES=1; shift ;;
+		-h|--help) usage; exit 0 ;;
+		*) err "Unknown option: $1"; echo ""; usage >&2; exit 1 ;;
+	esac
+done
+
+case "$BUILD_TYPE" in
+	""|debug|release) ;;
+	*) err "Invalid --build '$BUILD_TYPE' (must be debug or release)"; exit 1 ;;
+esac
+
+configs=(debug release)
+[[ -n "$BUILD_TYPE" ]] && configs=("$BUILD_TYPE")
+
+TO_REMOVE=()
+
+plan_dir() {
+	# Explicit return 0: under set -e, a bare call to this function would otherwise abort the
+	# whole script the first time a candidate directory doesn't exist - the common case.
+	[[ -d "$1" ]] && TO_REMOVE+=("$1")
+	return 0
+}
+
+for platform in android ios; do
+	for config in "${configs[@]}"; do
+		plan_dir "$HERE/build/$platform/$config"
+	done
+done
+
+STAMP_COUNT=0
+
+if [[ -z "$BUILD_TYPE" ]]; then
+	plan_dir "$HERE/packages"
+	plan_dir "$HERE/.theos"
+
+	# Theos leaves .stamp markers behind since sources compile from outside TestSuit/.
+	STAMP_COUNT="$(find "$HERE" -name '.stamp' -type f 2>/dev/null | wc -l | tr -d ' ')"
+fi
+
+if [[ ${#TO_REMOVE[@]} -eq 0 && "$STAMP_COUNT" -eq 0 ]]; then
+	ok "Nothing to clean."
+	exit 0
+fi
+
+section "Will remove"
+for d in "${TO_REMOVE[@]}"; do
+	info "${d#"$HERE/"}"
+done
+[[ "$STAMP_COUNT" -gt 0 ]] && info "${STAMP_COUNT} .stamp marker(s)"
+
+confirm "Remove the above?" Y || { warn "Cancelled."; exit 0; }
+
+REMOVED=0
+
+for d in "${TO_REMOVE[@]}"; do
+	log "  rm -rf ${d#"$HERE/"}"
+	rm -rf "$d"
+	REMOVED=$((REMOVED + 1))
+done
+
+[[ -d "$HERE/build" ]] && find "$HERE/build" -type d -empty -delete 2>/dev/null || true
+
+if [[ "$STAMP_COUNT" -gt 0 ]]; then
+	log "  rm .stamp markers ($STAMP_COUNT)"
+	find "$HERE" -name '.stamp' -type f -delete 2>/dev/null || true
+	find "$HERE" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+	REMOVED=$((REMOVED + 1))
+fi
+
+ok "Clean complete (${REMOVED} removed)."
+)CLEANSH";
+
+		fs::permissions(TestSuitFolder / "clean.sh",
+		                 fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec | fs::perms::others_read | fs::perms::others_exec,
+		                 fs::perm_options::add,
+		                 Ec);
+	}
+
+#ifdef __ANDROID__
+	/* clean.cmd */
+	{
+		StreamType CleanCmd(TestSuitFolder / "clean.cmd");
+		CleanCmd << R"CLEANCMD(@echo off
+setlocal enabledelayedexpansion
+
+FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
+SET "_CYAN=%ESC%[36;1m"
+SET "_GREEN=%ESC%[32;1m"
+SET "_YELLOW=%ESC%[33;1m"
+SET "_RED=%ESC%[31;1m"
+SET "_RESET=%ESC%[0m"
+
+SET "HERE=%~dp0"
+IF "%HERE:~-1%"=="\" SET "HERE=%HERE:~0,-1%"
+
+SET "BUILD_TYPE="
+SET "AUTO_YES=0"
+
+:parse_args
+IF "%~1"=="" GOTO :end_parse
+IF /I "%~1"=="--build" ( SET "BUILD_TYPE=%~2" & SHIFT & SHIFT & GOTO :parse_args )
+IF /I "%~1"=="-y" ( SET "AUTO_YES=1" & SHIFT & GOTO :parse_args )
+IF /I "%~1"=="--yes" ( SET "AUTO_YES=1" & SHIFT & GOTO :parse_args )
+CALL :err "Unknown option: %~1"
+EXIT /B 1
+:end_parse
+
+SET "_CONFIGS=debug release"
+IF NOT "%BUILD_TYPE%"=="" SET "_CONFIGS=%BUILD_TYPE%"
+
+CALL :section "Will remove"
+
+SET /A _FOUND=0
+FOR %%C IN (%_CONFIGS%) DO (
+	IF EXIST "%HERE%\build\android\%%C" (
+		CALL :info "build\android\%%C"
+		SET /A _FOUND+=1
+	)
+)
+
+IF !_FOUND! EQU 0 (
+	CALL :ok "Nothing to clean."
+	EXIT /B 0
+)
+
+CALL :confirm "Remove the above?" Y
+IF NOT "!CONFIRM_RESULT!"=="1" (
+	CALL :warn "Cancelled."
+	EXIT /B 0
+)
+
+SET /A _REMOVED=0
+
+FOR %%C IN (%_CONFIGS%) DO (
+	IF EXIST "%HERE%\build\android\%%C" (
+		CALL :info "rmdir /s /q build\android\%%C"
+		rmdir /s /q "%HERE%\build\android\%%C"
+		SET /A _REMOVED+=1
+	)
+)
+
+CALL :ok "Clean complete (!_REMOVED! removed)."
+EXIT /B 0
+
+:section
+echo.
+echo !_CYAN!┌── %~1!_RESET!
+GOTO :EOF
+
+:info
+echo !_CYAN!│!_RESET!   %~1
+GOTO :EOF
+
+:ok
+echo !_GREEN![ok] %~1!_RESET!
+GOTO :EOF
+
+:warn
+echo !_YELLOW![warn] %~1!_RESET!
+GOTO :EOF
+
+:err
+echo !_RED![error] %~1!_RESET! 1>&2
+GOTO :EOF
+
+:: Asks a yes/no question (%~1, default %~2). Sets CONFIRM_RESULT to 1/0; shows [Y/n]/[y/N].
+:: Always "yes" under -y.
+:confirm
+IF "!AUTO_YES!"=="1" ( SET "CONFIRM_RESULT=1" & GOTO :EOF )
+SET "_CDEFAULT=%~2"
+IF "!_CDEFAULT!"=="" SET "_CDEFAULT=Y"
+IF /I "!_CDEFAULT!"=="Y" ( SET "_CHINT=Y/n" ) ELSE ( SET "_CHINT=y/N" )
+SET "_CREPLY="
+SET /P "_CREPLY=  %~1 [!_CHINT!] "
+IF "!_CREPLY!"=="" SET "_CREPLY=!_CDEFAULT!"
+IF /I "!_CREPLY:~0,1!"=="Y" ( SET "CONFIRM_RESULT=1" ) ELSE ( SET "CONFIRM_RESULT=0" )
+GOTO :EOF
+)CLEANCMD";
+	}
+#endif
+
+#ifdef __ANDROID__
+	/* Host.cpp */
+	{
+		StreamType HostSource(SrcFolder / "Host.cpp");
+		HostSource << R"HOSTCPP(#include "Host.h"
+
+#include <android/log.h>
+#include <jni.h>
+
+#include <cinttypes>
+#include <csignal>
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+#include <mutex>
+#include <setjmp.h>
+#include <signal.h>
+#include <thread>
+#include <vector>
+
+#ifndef MD7_LOG_TAG
+	#define MD7_LOG_TAG "MD7TestSuit"
+#endif
+
+namespace
+{
+	struct FRange
+	{
+		uintptr_t Start;
+		uintptr_t End;
+	};
+
+	std::vector<FRange> GReadable;
+	std::mutex GReadableMutex;
+
+	void LoadReadableRanges()
+	{
+		GReadable.clear();
+
+		std::FILE* Maps = std::fopen("/proc/self/maps", "r");
+
+		if (!Maps)
+			return;
+
+		char Line[512];
+
+		while (std::fgets(Line, sizeof(Line), Maps))
+		{
+			uintptr_t Start = 0;
+			uintptr_t End   = 0;
+			char Perms[8]   = {};
+
+			if (std::sscanf(Line, "%" SCNxPTR "-%" SCNxPTR " %7s", &Start, &End, Perms) != 3)
+				continue;
+
+			if (Perms[0] != 'r')
+				continue;
+
+			// Merge adjacent ranges so the lookup table stays small.
+			if (!GReadable.empty() && GReadable.back().End == Start)
+				GReadable.back().End = End;
+			else
+				GReadable.push_back({Start, End});
+		}
+
+		std::fclose(Maps);
+	}
+} // namespace
+
+namespace Host
+{
+	void RefreshReadableRanges()
+	{
+		std::lock_guard<std::mutex> Lock(GReadableMutex);
+		LoadReadableRanges();
+	}
+
+	bool IsReadable(uintptr_t Address, size_t Size)
+	{
+		if (Size == 0)
+			return false;
+
+		// ARM64 ignores the top byte of a pointer (TBI); strip it before comparing against
+		// the untagged ranges /proc/self/maps reports, or a tagged pointer misses its own range.
+		// Doesn't apply on arm32, which has no pointer tagging.
+		if constexpr (sizeof(void*) == 8)
+			Address &= 0x00FFFFFFFFFFFFFFull;
+
+		if (!Address)
+			return false;
+
+		// Reject obviously bad pointers first. On arm32 any 32-bit value is already below the
+		// upper bound, so that half of the check only applies on arm64.
+		if (Address < 0x1000)
+			return false;
+
+		if constexpr (sizeof(void*) == 8)
+		{
+			if (Address >= (1ull << 48))
+				return false;
+		}
+
+		std::lock_guard<std::mutex> Lock(GReadableMutex);
+
+		if (GReadable.empty())
+			LoadReadableRanges();
+
+		const uintptr_t Last = Address + Size - 1;
+
+		size_t Low  = 0;
+		size_t High = GReadable.size();
+
+		while (Low < High)
+		{
+			const size_t Mid = Low + ((High - Low) / 2);
+
+			if (GReadable[Mid].End <= Address)
+				Low = Mid + 1;
+			else
+				High = Mid;
+		}
+
+		return Low < GReadable.size() && Address >= GReadable[Low].Start && Last < GReadable[Low].End;
+	}
+
+	void Log(const char* Format, ...)
+	{
+		va_list Args;
+		va_start(Args, Format);
+		__android_log_vprint(ANDROID_LOG_INFO, MD7_LOG_TAG, Format, Args);
+		va_end(Args);
+	}
+
+	bool RunGuarded(const std::function<void()>& Body)
+	{
+		// Per-thread: a fault here won't affect the game's own threads.
+		static thread_local sigjmp_buf FaultJump;
+		static thread_local bool bGuardActive = false;
+
+		struct FGuard
+		{
+			static void Handler(int Sig, siginfo_t*, void*)
+			{
+				if (!bGuardActive)
+				{
+					// Not our fault - restore the default handler and let it report this crash normally.
+					signal(Sig, SIG_DFL);
+					raise(Sig);
+					return;
+				}
+
+				bGuardActive = false;
+				siglongjmp(FaultJump, 1);
+			}
+		};
+
+		const int Signals[]         = {SIGSEGV, SIGBUS, SIGILL};
+		struct sigaction Previous[3] = {};
+		struct sigaction Action      = {};
+
+		Action.sa_sigaction = &FGuard::Handler;
+		Action.sa_flags     = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
+		sigemptyset(&Action.sa_mask);
+
+		for (size_t i = 0; i < 3; i++)
+			sigaction(Signals[i], &Action, &Previous[i]);
+
+		bool bOk = true;
+
+		if (sigsetjmp(FaultJump, 1) == 0)
+		{
+			bGuardActive = true;
+			Body();
+			bGuardActive = false;
+		}
+		else
+		{
+			bOk = false;
+		}
+
+		// Always restore, or we'd consume the game's own crashes for the rest of the process.
+		for (size_t i = 0; i < 3; i++)
+			sigaction(Signals[i], &Previous[i], nullptr);
+
+		return bOk;
+	}
+} // namespace Host
+
+extern "C" jint JNIEXPORT JNI_OnLoad(JavaVM* vm, void* key)
+{
+	Host::Log("--- JNI_OnLoad ---");
+
+	JNIEnv* env = nullptr;
+	if (vm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK)
+	{
+		Host::Log("JavaEnv: %p", env);
+	}
+
+	Host::Log("Running validation suite thread...");
+	std::thread(RunValidationSuite).detach();
+
+	return JNI_VERSION_1_6;
+}
+)HOSTCPP";
+	}
+
+	/* logcat.sh/.cmd - Android only, next to build/clean. */
+	{
+		StreamType LogcatSh(TestSuitFolder / "logcat.sh");
+		LogcatSh << R"LOGCATSH(#!/usr/bin/env bash
+#
+# Tails the TestSuit's log tag.
+#
+#   ./logcat.sh [--clear]
+#
+set -euo pipefail
+
+if [[ "${1:-}" == "--clear" ]]; then
+	adb logcat -c
+fi
+
+adb logcat -v time -s MD7TestSuit:V
+)LOGCATSH";
+
+		fs::permissions(TestSuitFolder / "logcat.sh",
+		                 fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec | fs::perms::others_read | fs::perms::others_exec,
+		                 fs::perm_options::add,
+		                 Ec);
+	}
+
+	{
+		StreamType LogcatCmd(TestSuitFolder / "logcat.cmd");
+		LogcatCmd << R"LOGCATCMD(@echo off
+setlocal enabledelayedexpansion
+
+:: Tails the TestSuit's log tag.
+::
+::   logcat.cmd [--clear]
+
+IF /I "%~1"=="--clear" (
+	adb logcat -c
+)
+
+adb logcat -v time -s MD7TestSuit:V
+)LOGCATCMD";
+	}
+#elif defined(__APPLE__)
+	/* Host.mm - iOS */
+	{
+		StreamType HostSource(SrcFolder / "Host.mm");
+		HostSource << R"HOSTMM(#include "Host.h"
+
+#import <Foundation/Foundation.h>
+
+#include <mach/mach.h>
+
+#include <algorithm>
+#include <csignal>
+#include <cstdarg>
+#include <cstdio>
+#include <mutex>
+#include <setjmp.h>
+#include <signal.h>
+#include <thread>
+#include <vector>
+
+#ifndef MD7_LOG_TAG
+	#define MD7_LOG_TAG "MD7TestSuit"
+#endif
+
+extern "C" kern_return_t mach_vm_region_recurse(vm_map_read_t target_task, mach_vm_address_t* address,
+                                                 mach_vm_size_t* size, natural_t* nesting_depth,
+                                                 vm_region_recurse_info_t info, mach_msg_type_number_t* infoCnt);
+
+namespace
+{
+	struct FRange
+	{
+		uintptr_t Start;
+		uintptr_t End;
+	};
+
+	std::vector<FRange> GReadable;
+	std::mutex GReadableMutex;
+
+	// Walks this task's own VM map to build a cache of readable ranges.
+	void LoadReadableRanges()
+	{
+		GReadable.clear();
+
+		mach_vm_address_t Address = 0;
+		natural_t Depth           = 0;
+
+		while (true)
+		{
+			mach_vm_size_t Size = 0;
+			vm_region_submap_short_info_data_64_t Info{};
+			mach_msg_type_number_t Count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+
+			const kern_return_t Kr = mach_vm_region_recurse(mach_task_self(), &Address, &Size, &Depth,
+			                                                 reinterpret_cast<vm_region_recurse_info_t>(&Info), &Count);
+
+			if (Kr != KERN_SUCCESS)
+				break;
+
+			// A submap is a nested page directory, not a real region - step into it in place.
+			if (Info.is_submap)
+			{
+				Depth++;
+				continue;
+			}
+
+			const mach_vm_address_t Next = Address + Size;
+			if (Next <= Address)
+				break;
+
+			if ((Info.protection & VM_PROT_READ) != 0)
+			{
+				const uintptr_t Start = static_cast<uintptr_t>(Address);
+				const uintptr_t End   = static_cast<uintptr_t>(Next);
+
+				// Merge adjacent ranges so the lookup table stays small.
+				if (!GReadable.empty() && GReadable.back().End == Start)
+					GReadable.back().End = End;
+				else
+					GReadable.push_back({Start, End});
+			}
+
+			Address = Next;
+		}
+	}
+} // namespace
+
+namespace Host
+{
+	void RefreshReadableRanges()
+	{
+		std::lock_guard<std::mutex> Lock(GReadableMutex);
+		LoadReadableRanges();
+	}
+
+	bool RunGuarded(const std::function<void()>& Body)
+	{
+		// Per-thread: a fault here won't affect the game's own threads.
+		static thread_local sigjmp_buf FaultJump;
+		static thread_local bool bGuardActive = false;
+
+		struct FGuard
+		{
+			static void Handler(int Sig, siginfo_t*, void*)
+			{
+				if (!bGuardActive)
+				{
+					// Not our fault - restore the default handler and let it report this crash normally.
+					signal(Sig, SIG_DFL);
+					raise(Sig);
+					return;
+				}
+
+				bGuardActive = false;
+				siglongjmp(FaultJump, 1);
+			}
+		};
+
+		const int Signals[]         = {SIGSEGV, SIGBUS, SIGILL};
+		struct sigaction Previous[3] = {};
+		struct sigaction Action      = {};
+
+		Action.sa_sigaction = &FGuard::Handler;
+		Action.sa_flags     = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
+		sigemptyset(&Action.sa_mask);
+
+		for (size_t i = 0; i < 3; i++)
+			sigaction(Signals[i], &Action, &Previous[i]);
+
+		bool bOk = true;
+
+		if (sigsetjmp(FaultJump, 1) == 0)
+		{
+			bGuardActive = true;
+			Body();
+			bGuardActive = false;
+		}
+		else
+		{
+			bOk = false;
+		}
+
+		// Always restore, or we'd swallow the game's own crashes for the rest of the process.
+		for (size_t i = 0; i < 3; i++)
+			sigaction(Signals[i], &Previous[i], nullptr);
+
+		return bOk;
+	}
+
+	bool IsReadable(uintptr_t Address, size_t Size)
+	{
+		if (Size == 0)
+			return false;
+
+		// ARM64 ignores the top byte of a pointer (TBI); strip it before comparing against
+		// the untagged ranges mach_vm_region_recurse reports, or a tagged pointer misses its
+		// own range.
+		if constexpr (sizeof(void*) == 8)
+			Address &= 0x00FFFFFFFFFFFFFFull;
+
+		if (!Address)
+			return false;
+
+		std::lock_guard<std::mutex> Lock(GReadableMutex);
+
+		if (GReadable.empty())
+			LoadReadableRanges();
+
+		const uintptr_t Last = Address + Size - 1;
+
+		size_t Low  = 0;
+		size_t High = GReadable.size();
+
+		while (Low < High)
+		{
+			const size_t Mid = Low + ((High - Low) / 2);
+
+			if (GReadable[Mid].End <= Address)
+				Low = Mid + 1;
+			else
+				High = Mid;
+		}
+
+		return Low < GReadable.size() && Address >= GReadable[Low].Start && Last < GReadable[Low].End;
+	}
+
+	void Log(const char* Format, ...)
+	{
+		va_list Args;
+		va_start(Args, Format);
+		char Buffer[1024];
+		std::vsnprintf(Buffer, sizeof(Buffer), Format, Args);
+		va_end(Args);
+
+		NSLog(@"[%s] %s", MD7_LOG_TAG, Buffer);
+	}
+} // namespace Host
+
+__attribute__((constructor)) static void onLoad()
+{
+	Host::Log("TestSuit dylib loaded.");
+	std::thread(RunValidationSuite).detach();
+}
+)HOSTMM";
+	}
+
+	/* Theos tweak build - iOS's second build path, scoped to just the dumped app via its own .plist. */
+	{
+		StreamType TheosMakefile(TestSuitFolder / "Makefile");
+		TheosMakefile << fmt::format(R"THEOSMK(## Generated TestSuit — iOS Theos tweak build
+## Build from this directory: make package
+
+THEOS_PACKAGE_SCHEME ?= rootless
+TARGET  = iphone:clang:latest:14.0
+ARCHS   = arm64
+
+SDK_DIR = ..
+
+include $(THEOS)/makefiles/common.mk
+
+TWEAK_NAME = MD7TestSuit
+
+MD7TestSuit_FILES = src/Validate.cpp src/Host.mm $(wildcard $(SDK_DIR)/SDK/*.cpp)
+
+MD7TestSuit_CCFLAGS = \
+    -std=c++20 \
+    -DMD7_TARGET_PACKAGE=\"{0}\" \
+    -DMD7_LOG_TAG=\"MD7TestSuit\" \
+    -Wno-invalid-offsetof \
+    -Wno-c++11-narrowing \
+    -Wno-unused-private-field \
+    -fno-modules \
+    -I$(SDK_DIR) \
+    -I$(SDK_DIR)/SDK \
+    -Isrc
+
+MD7TestSuit_FRAMEWORKS = Foundation
+
+include $(THEOS_MAKE_PATH)/tweak.mk
+)THEOSMK",
+		                            GameName);
+	}
+
+	{
+		StreamType TheosControl(TestSuitFolder / "control");
+		TheosControl << fmt::format(R"THEOSCTRL(Package: io.mobile.dumper7.testsuit
+Name: MD7TestSuit
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Generated SDK validation suite for {0}
+Maintainer: MobileDumper-7
+Author: MobileDumper-7
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000))THEOSCTRL",
+		                           GameName);
+	}
+
+	{
+		// Theos's packaging step requires this exact name (<TWEAK_NAME>.plist) or "Filter.plist" -
+		// a per-game filename here isn't recognized and fails the build.
+		StreamType TheosPlist(TestSuitFolder / "Filter.plist");
+		TheosPlist << fmt::format(R"THEOSPLIST({{ Filter = {{ Bundles = ( "{0}" ); }}; }}
+)THEOSPLIST",
+		                          GameName);
+	}
+#endif
+}
+
 void CppGenerator::Generate()
 {
 	// Generate SDK.hpp with sorted packages
@@ -2117,6 +3830,9 @@ void CppGenerator::Generate()
 	{
 		WriteFileEnd(DebugAssertions, EFileType::DebugAssertions);
 	}
+
+	if (GSettings.Generator.bGenerateCppSDK && GSettings.CppGenerator.bGenerateSDKCompilationTest)
+		GenerateTestSuit();
 }
 
 void CppGenerator::InitPredefinedMembers()
