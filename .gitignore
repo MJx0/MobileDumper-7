@@ -11,6 +11,7 @@ AndKittyInjector/
 AndKittyInjector
 
 SDKTest/
+Tests/
 
 __pycache__/
 examples/
