@@ -211,7 +211,7 @@ bool FInGenOffsets::Init_UObject_Flags()
 			void* Ptr = ObjectArray::GetByIndex(i).GetAddress();
 
 			// Look for 0x43 in this object, as it is a really common value for UObject::Flags
-			Offset = OffsetFinder::FindOffset(std::vector{std::pair{Ptr, EnumFlagValueToSearch}}, Offset, 0x40, FDecryptFn<int32>([](const FDecryptContext<int32>& Context)
+			Offset = OffsetFinder::FindOffset(std::vector{std::pair{Ptr, EnumFlagValueToSearch}}, Offset, OffsetFinder::DefaultMaxOffsetScan, FDecryptFn<int32>([](const FDecryptContext<int32>& Context)
 			{ return static_cast<int32>(GDecryptCallbacks.UObject.Flags({.Address = Context.Address, .RawValue = static_cast<EObjectFlags>(Context.RawValue)})); }));
 
 			if (Offset == OffsetFinder::OffsetNotFound)
