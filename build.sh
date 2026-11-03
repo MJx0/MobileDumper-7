@@ -78,12 +78,25 @@ ALL_ARCHES=(arm64 arm32 x86 x86_64)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-log()  { echo -e "${CYAN}${BOLD}==> $*${RESET}"; }
-ok()   { echo -e "${GREEN}${BOLD}[ok] $*${RESET}"; }
-err()  { echo -e "${RED}${BOLD}[error] $*${RESET}" >&2; }
+log()     { echo -e "${CYAN}${BOLD}==> $*${RESET}"; }
+ok()      { echo -e "${GREEN}${BOLD}[ok] $*${RESET}"; }
+warn()    { echo -e "${YELLOW}${BOLD}[warn] $*${RESET}"; }
+err()     { echo -e "${RED}${BOLD}[error] $*${RESET}" >&2; }
+section() { echo; echo -e "${CYAN}${BOLD}┌── $1${RESET}"; }
+info()    { echo -e "${CYAN}│${RESET}   $*"; }
+
+# Asks a yes/no question, default Y unless $2 says otherwise.
+confirm() {
+    local default="${2:-Y}" hint reply
+    if [[ "$default" =~ ^[Yy]$ ]]; then hint="Y/n"; else hint="y/N"; fi
+    read -rp "  $1 [$hint] " reply
+    reply="${reply:-$default}"
+    [[ "$reply" =~ ^[Yy] ]]
+}
 
 require_ninja() {
     if command -v ninja >/dev/null 2>&1; then
@@ -118,7 +131,7 @@ XCODE_CLANG="$(find_xcode_bin clang || true)"
 XCODE_CLANGXX="$(find_xcode_bin clang++ || true)"
 
 build_ios_theos() {
-    log "Building iOS Theos Tweak (.deb)${SCHEME:+ — scheme=${SCHEME}}"
+    section "iOS Theos tweak (.deb)${SCHEME:+ — scheme=${SCHEME}}"
 
     if [[ -z "${THEOS:-}" ]]; then
         err "THEOS env var is not set (e.g. export THEOS=~/theos)"
@@ -128,6 +141,7 @@ build_ios_theos() {
         err "THEOS dir not found: ${THEOS}"
         return 1
     fi
+    info "\$THEOS = ${THEOS}"
 
     # Theos/Makefile sets THEOS_PACKAGE_SCHEME with ?= (default: roothide).
     # Command-line assignments always override ?=, so passing --scheme here
@@ -137,6 +151,7 @@ build_ios_theos() {
         scheme_args=("THEOS_PACKAGE_SCHEME=${SCHEME}")
     fi
 
+    info "Running make package (this can take a few minutes)..."
     if [[ "${BUILD_TYPE}" == "Debug" ]]; then
         (cd "${THEOS_DIR}" && make package DEBUG=1 "${scheme_args[@]+"${scheme_args[@]}"}")
     else
@@ -172,7 +187,7 @@ build_ios_theos() {
     fi
 
     if [[ -n "${fallback}" ]]; then
-        log "dSYM ${dsym##*/} absent — falling back to ${fallback##*/}, which may predate this build"
+        warn "dSYM ${dsym##*/} absent — falling back to ${fallback##*/}, which may predate this build"
         ok "iOS dSYM:   ${fallback}"
     else
         err "dSYM not found at ${dsym} — symbols not extracted"
@@ -180,7 +195,7 @@ build_ios_theos() {
 }
 
 build_ios_cmake() {
-    log "Building iOS library (.dylib) — type=${BUILD_TYPE}"
+    section "iOS library (.dylib) — type=${BUILD_TYPE}"
 
     require_ninja || return 1
 
@@ -195,7 +210,7 @@ build_ios_cmake() {
     local build_dir
     build_dir="$(build_dir_for ios dylib arm64)"
 
-    log "Preset: ${preset}"
+    info "Preset: ${preset}"
 
     # A preset cannot run xcrun, so the resolved toolchain is layered on top.
     # Without this CMake falls back to the /usr/bin/c++ driver shim and the
@@ -239,7 +254,8 @@ build_android_one() {
     local build_dir
     build_dir="$(build_dir_for android "${target}" "${arch}")"
 
-    log "Building Android ${target} — arch=${arch}, type=${BUILD_TYPE}, preset=${preset}"
+    section "Android ${target} — arch=${arch}, type=${BUILD_TYPE}"
+    info "Preset: ${preset}"
 
     if ! cmake --preset "${preset}"; then
         err "Configure failed for preset: ${preset}"
@@ -294,7 +310,7 @@ build_android() {
 
     # The presets resolve their toolchain through $env{ANDROID_NDK_HOME}.
     export ANDROID_NDK_HOME="${NDK_PATH}"
-    log "NDK: ${NDK_PATH}"
+    info "NDK: ${NDK_PATH}"
 
     local arches=()
     if [[ "${ARCH}" == "all" ]]; then
@@ -376,19 +392,19 @@ if [[ -n "$ARG_BUILD" ]]; then
     esac
 fi
 
-PS3=$'\n> '
-
 echo ""
-echo "  ${TARGET_NAME} Build"
-echo ""
+echo -e "${BOLD}${TARGET_NAME} Build${RESET}"
 
 if [[ -z "$PLATFORM" ]]; then
-    echo "Platform:"
-    select PLATFORM in "Android" "iOS" "Quit"; do
-        [[ -n "$PLATFORM" ]] && break
-    done
-    [[ "$PLATFORM" == "Quit" ]] && exit 0
-    echo ""
+    section "Platform"
+    info "1) Android"
+    info "2) iOS"
+    read -rp "  Select platform [1-2]: " platform_choice
+    case "$platform_choice" in
+        1) PLATFORM="Android" ;;
+        2) PLATFORM="iOS" ;;
+        *) err "Invalid selection"; exit 1 ;;
+    esac
 fi
 
 if [[ -n "$ARG_TARGET" ]]; then
@@ -406,27 +422,35 @@ if [[ -n "$ARG_TARGET" ]]; then
 fi
 
 if [[ -z "$TARGET" ]]; then
-    echo "Target:"
+    section "Target"
     if [[ "$PLATFORM" == "Android" ]]; then
-        select TARGET in "lib" "exe" "Quit"; do
-            [[ -n "$TARGET" ]] && break
-        done
+        info "1) lib    - shared library (.so)"
+        info "2) exe    - standalone executable"
+        read -rp "  Select target [1-2]: " target_choice
+        case "$target_choice" in
+            1) TARGET="lib" ;;
+            2) TARGET="exe" ;;
+            *) err "Invalid selection"; exit 1 ;;
+        esac
     else
-        select TARGET in "dylib" "theos" "Quit"; do
-            [[ -n "$TARGET" ]] && break
-        done
+        info "1) dylib  - standalone .dylib for jailed devices"
+        info "2) theos  - MobileSubstrate tweak (.deb) for jailbroken devices"
+        read -rp "  Select target [1-2]: " target_choice
+        case "$target_choice" in
+            1) TARGET="dylib" ;;
+            2) TARGET="theos" ;;
+            *) err "Invalid selection"; exit 1 ;;
+        esac
     fi
-    [[ "$TARGET" == "Quit" ]] && { err "Cancelled."; exit 1; }
-    echo ""
 fi
 
 if [[ -z "$BTYPE" ]]; then
-    echo "Build type:"
-    select BTYPE in "Release" "Debug" "Quit"; do
-        [[ -n "$BTYPE" ]] && break
-    done
-    [[ "$BTYPE" == "Quit" ]] && { err "Cancelled."; exit 1; }
-    echo ""
+    section "Build type"
+    if confirm "Release build?" Y; then
+        BTYPE="Release"
+    else
+        BTYPE="Debug"
+    fi
 fi
 
 BUILD_TYPE="$BTYPE"
@@ -444,12 +468,21 @@ elif [[ "$TARGET" != "theos" ]]; then
             *) err "Invalid --arch '${ARG_ARCH}' (must be arm64, arm32, x86, x86_64 or all)"; exit 1 ;;
         esac
     else
-        echo "Architecture:"
-        select ARCH in "arm64" "arm32" "x86" "x86_64" "all" "Quit"; do
-            [[ -n "$ARCH" ]] && break
-        done
-        [[ "$ARCH" == "Quit" ]] && { err "Cancelled."; exit 1; }
-        echo ""
+        section "Architecture"
+        info "1) arm64"
+        info "2) arm32"
+        info "3) x86"
+        info "4) x86_64"
+        info "5) all"
+        read -rp "  Select architecture [1-5]: " arch_choice
+        case "$arch_choice" in
+            1) ARCH="arm64" ;;
+            2) ARCH="arm32" ;;
+            3) ARCH="x86" ;;
+            4) ARCH="x86_64" ;;
+            5) ARCH="all" ;;
+            *) err "Invalid selection"; exit 1 ;;
+        esac
     fi
 fi
 

@@ -5,6 +5,7 @@ setlocal enabledelayedexpansion
 FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
 SET "_CYAN=%ESC%[36;1m"
 SET "_GREEN=%ESC%[32;1m"
+SET "_YELLOW=%ESC%[33;1m"
 SET "_RED=%ESC%[31;1m"
 SET "_RESET=%ESC%[0m"
 
@@ -100,17 +101,15 @@ IF NOT "!ARG_BUILD!"=="" (
 :: ── Main ─────────────────────────────────────────────────────────────────────
 echo.
 echo   !TARGET_NAME! Build  (Windows ^— Android only)
-echo.
 
 :: Platform
 IF "!PLATFORM!"=="" (
-    echo Platform:
-    echo   1. Android
-    echo   2. Quit
+    CALL :section "Platform"
+    CALL :info "1) Android"
+    CALL :info "2) Quit"
     CHOICE /C 12 /N /M "> " 2>NUL
     IF !ERRORLEVEL! EQU 2 EXIT /B 0
     IF !ERRORLEVEL! EQU 1 SET "PLATFORM=Android"
-    echo.
 )
 
 :: Resolve --type now that platform is known
@@ -134,28 +133,21 @@ IF NOT "!ARG_TARGET!"=="" (
 
 :: Target
 IF "!TARGET!"=="" (
-    echo Target:
-    echo   1. lib
-    echo   2. exe
-    echo   3. Quit
+    CALL :section "Target"
+    CALL :info "1) lib    - shared library (.so)"
+    CALL :info "2) exe    - standalone executable"
+    CALL :info "3) Quit"
     CHOICE /C 123 /N /M "> " 2>NUL
     IF !ERRORLEVEL! EQU 3 EXIT /B 0
     IF !ERRORLEVEL! EQU 2 SET "TARGET=exe"
     IF !ERRORLEVEL! EQU 1 SET "TARGET=lib"
-    echo.
 )
 
 :: Build type
 IF "!BTYPE!"=="" (
-    echo Build type:
-    echo   1. Release
-    echo   2. Debug
-    echo   3. Quit
-    CHOICE /C 123 /N /M "> " 2>NUL
-    IF !ERRORLEVEL! EQU 3 EXIT /B 0
-    IF !ERRORLEVEL! EQU 2 SET "BTYPE=Debug"
-    IF !ERRORLEVEL! EQU 1 SET "BTYPE=Release"
-    echo.
+    CALL :section "Build type"
+    CALL :confirm "Release build?" Y
+    IF "!CONFIRM_RESULT!"=="1" ( SET "BTYPE=Release" ) ELSE ( SET "BTYPE=Debug" )
 )
 
 SET "BUILD_TYPE=!BTYPE!"
@@ -173,13 +165,13 @@ IF NOT "!ARG_ARCH!"=="" (
 )
 
 IF "!ARCH!"=="" (
-    echo Architecture:
-    echo   1. arm64
-    echo   2. arm32
-    echo   3. x86
-    echo   4. x86_64
-    echo   5. all
-    echo   6. Quit
+    CALL :section "Architecture"
+    CALL :info "1) arm64"
+    CALL :info "2) arm32"
+    CALL :info "3) x86"
+    CALL :info "4) x86_64"
+    CALL :info "5) all"
+    CALL :info "6) Quit"
     CHOICE /C 123456 /N /M "> " 2>NUL
     IF !ERRORLEVEL! EQU 6 EXIT /B 0
     IF !ERRORLEVEL! EQU 5 SET "ARCH=all"
@@ -187,10 +179,8 @@ IF "!ARCH!"=="" (
     IF !ERRORLEVEL! EQU 3 SET "ARCH=x86"
     IF !ERRORLEVEL! EQU 2 SET "ARCH=arm32"
     IF !ERRORLEVEL! EQU 1 SET "ARCH=arm64"
-    echo.
 )
 
-echo.
 CALL :build_android "!TARGET!"
 IF !ERRORLEVEL! NEQ 0 EXIT /B 1
 
@@ -223,12 +213,36 @@ GOTO :EOF
 echo !_CYAN!==> %~1!_RESET!
 GOTO :EOF
 
+:section
+echo.
+echo !_CYAN!┌── %~1!_RESET!
+GOTO :EOF
+
+:info
+echo !_CYAN!│!_RESET!   %~1
+GOTO :EOF
+
 :ok
 echo !_GREEN![ok] %~1!_RESET!
 GOTO :EOF
 
+:warn
+echo !_YELLOW![warn] %~1!_RESET!
+GOTO :EOF
+
 :err
 echo !_RED![error] %~1!_RESET! 1>&2
+GOTO :EOF
+
+:: Asks a yes/no question (%~1, default %~2). Sets CONFIRM_RESULT to 1/0; shows [Y/n]/[y/N].
+:confirm
+SET "_CDEFAULT=%~2"
+IF "!_CDEFAULT!"=="" SET "_CDEFAULT=Y"
+IF /I "!_CDEFAULT!"=="Y" ( SET "_CHINT=Y/n" ) ELSE ( SET "_CHINT=y/N" )
+SET "_CREPLY="
+SET /P "_CREPLY=  %~1 [!_CHINT!] "
+IF "!_CREPLY!"=="" SET "_CREPLY=!_CDEFAULT!"
+IF /I "!_CREPLY:~0,1!"=="Y" ( SET "CONFIRM_RESULT=1" ) ELSE ( SET "CONFIRM_RESULT=0" )
 GOTO :EOF
 
 :: ── NDK detection ─────────────────────────────────────────────────────────────
@@ -293,7 +307,8 @@ IF /I "!BUILD_TYPE!"=="Debug" SET "_PRESET=!_PRESET!-debug"
 IF /I "!BUILD_TYPE!"=="Debug" ( SET "_CFG=debug" ) ELSE ( SET "_CFG=release" )
 SET "_BDIR=!SCRIPT_DIR!\builds\android\!_TARGET!\!_CFG!\!_ARCH!"
 
-CALL :log "Building Android !_TARGET! — arch=!_ARCH!, type=!BUILD_TYPE!, preset=!_PRESET!"
+CALL :section "Android !_TARGET! — arch=!_ARCH!, type=!BUILD_TYPE!"
+CALL :info "Preset: !_PRESET!"
 
 cmake --preset "!_PRESET!"
 IF !ERRORLEVEL! NEQ 0 (
@@ -324,7 +339,7 @@ IF EXIST "!_OBJCOPY!" (
     "!_OBJCOPY!" --only-keep-debug "!_ARTIFACT!" "!_ARTIFACT!.debug"
     CALL :ok "Android symbols: !_ARTIFACT!.debug"
 ) ELSE (
-    CALL :err "llvm-objcopy not found — symbols not extracted"
+    CALL :warn "llvm-objcopy not found — symbols not extracted"
 )
 
 ENDLOCAL & EXIT /B 0
@@ -344,7 +359,7 @@ IF NOT DEFINED FOUND_NDK (
     CALL :err "Android NDK not found. Set ANDROID_NDK_HOME, or install via Android Studio SDK Manager."
     EXIT /B 1
 )
-CALL :log "NDK: !FOUND_NDK!"
+CALL :info "NDK: !FOUND_NDK!"
 
 :: The presets resolve their toolchain through $env{ANDROID_NDK_HOME}.
 SET "ANDROID_NDK_HOME=!FOUND_NDK!"
