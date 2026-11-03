@@ -16,6 +16,8 @@ Mobile-focused dumper for all Unreal Engine games on iOS and Android, based on [
   C++ SDK (see [UsingTheSDK](UsingTheSDK.md)), `.usmap` Mappings, IDA Mappings `.idmap`, and Dumpspace `.json`. The generated C++ SDK avoids MSVC-only calling conventions, so it compiles cleanly under clang/gcc.
 - **IDA & Ghidra mappings importer scripts.**  
   Generated `.idmap` mapping files can be imported directly into IDA Pro or Ghidra, automatically restoring global symbols, exec function names, and VTable names. Global pointer references are also detected and renamed, making globals such as GObjects and their pointer slots easy to identify.
+- **Built-in C++ SDK verification library.**  
+  Every dump also produces `CppSDK/TestSuit/`, a small ready-to-build project that checks the generated C++ SDK that it actually compiles, and that it works correctly when loaded into a live game at runtime. Turn it off with `CppGenerator.bGenerateSDKCompilationTest`.
 
 ## Platform Support
 
@@ -27,8 +29,10 @@ Mobile-focused dumper for all Unreal Engine games on iOS and Android, based on [
 > **Architecture Support**
 >
 > - **ARM64** — Fully supported.
-> - **ARM32** — Partial support; results may vary.
-> - **Emulators** — Use the native `x86_64` or `x86` builds; do not use the ARM builds even if the emulator supports ARM translation.
+> - **ARM32** — Fully supported.
+> - **Emulators** — Use the native `x86_64` or `x86` builds, do not use the ARM builds even if the emulator supports ARM translation.
+>
+> The dumper must match the target's OS architecture.
 
 ## Usage
 
@@ -60,7 +64,7 @@ Optional arguments:
 
 **Recommended - Suspend the game while dumping:**  
 A running game keeps creating objects while it is being dumped, which may cause issues.  
-Freeze it with adding `-s` to the Android Executable, or the **Suspend Threads** toggle on iOS UI menu.  
+Freeze it by adding `-s/--suspend` to the Android executable args, or the **Suspend Threads** toggle on iOS UI menu.  
 
 ## Build
 
@@ -81,8 +85,14 @@ cd MobileDumper-7
 # Android — standalone executable (device, arm64)
 ./build.sh --platform android --target exe --build release --arch arm64
 
+# Android — standalone executable for a 32-bit game (must match the target's architecture)
+./build.sh --platform android --target exe --build release --arch arm32
+
 # Android — standalone executable (emulator, x86_64)
 ./build.sh --platform android --target exe --build release --arch x86_64
+
+# Android — every architecture at once
+./build.sh --platform android --target exe --build release --arch all
 
 # iOS — dylib
 ./build.sh --platform ios --target dylib --build release
@@ -133,32 +143,86 @@ UECustomProfiles.push_back(std::make_shared<MyGameProfile>());
 | Method | When to override |
 | -------- | ----------------- |
 | `GetGObjects()` | GObjects pointer cannot be found automatically |
-| `DecryptGObjects(uintptr_t&)` | GObjects pointer is encrypted after retrieval |
 | `GetGNames()` | GNames pointer cannot be found automatically — see PUBG example below |
-| `DecryptGNames(uintptr_t&)` | GNames pointer is encrypted after retrieval — see PUBG example below |
-| `DecryptNameChunk(...)` | Name chunk addresses are encrypted |
-| `DecryptNameEntry(...)` | Individual name entry addresses are encrypted |
-| `DecryptUTF8/UTF16/UTF32(...)` | Name strings are encrypted in memory — see Delta Force example below |
-| `ResolveGObjectsLayout(...)` | Auto layout detection fails; provide the layout manually |
-| `ResolveGNamesLayout(...)` | Auto layout detection fails; provide the layout manually |
+| `ResolveGObjectsLayout(...)` | Auto layout detection fails; provide the object array layout manually |
+| `ResolveGNamesLayout(...)` | Auto layout detection fails; provide the name container layout manually |
+| `OverrideDecryptCallbacks(FDecryptCallbacks&)` | The game encrypts one or more engine values in memory — see Decryption hooks below |
 | `OverrideSettings(FSettings&)` | Tweak Generator settings for this game |
-| `OverrideDecryptCallbacks(FDecryptCallbacks&)` | Engine values are encrypted in memory |
+| `OverrideInGenOffsets(FInGenOffsets&)` | Force an engine offset the detector gets wrong |
+| `OverrideInSKOffsets(FInSDKOffsets&)` | Force a size/offset baked into the generated SDK |
+| `GetObjectByIndex(...)` / `GetNameEntryByIndex(...)` / `GetNameEntryString(...)` | The game stores its objects or names in a different structure than the standard layout options can describe |
+| `DisableWideNameEntry()` | Wide name entries should be skipped entirely |
+
+### Decryption hooks
+
+Everything a game might encrypt is reached through one struct, `FDecryptCallbacks`
+([Dumper/Engine/OffsetFinder/DecryptCallbacks.h](Dumper/Engine/OffsetFinder/DecryptCallbacks.h)).
+Install decrypt hooks in `IProfile::OverrideDecryptCallbacks`, every hook defaults to identity, so override only what
+the game actually encrypts.
+
+| Group | Hooks |
+| --- | --- |
+| `Statics` | `GObjects`, `GNames` — the global pointers |
+| `FName` | `CompIdx`, `Number` |
+| `UObject` | `Flags`, `Index`, `Class`, `Outer` |
+| `NameStorage` | `Chunk`, `Entry` — chunk/block and name entry addresses, shared by both name layouts |
+| `String` | `UTF8`, `UTF16`, `UTF32` — the name characters |
+| `NameArray` | `Chunks`, `NumElements`, `FNameEntry.Index` |
+| `NamePool` | `Blocks`, `MaxChunkIndex`, `ByteCursor`, `FNameEntry.Header` |
+| `FixedObjects` | `Objects`, `NumObjects`, `MaxObjects`, `FUObjectItem.Object` |
+| `ChunkedObjects` | `Objects`, `NumElements`, `MaxElements`, `MaxChunks`, `NumChunks`, `FUObjectItem.Object` |
+
+A FDecryptCallbacks hook can decrypt one value, one array entry, or a block of name characters.
+
+```cpp
+void OverrideDecryptCallbacks(FDecryptCallbacks& Callbacks) const override
+{
+    // one value
+    Callbacks.Statics.GNames = [](const FDecryptContext<uintptr_t>& Context) -> uintptr_t
+    {
+        constexpr uintptr_t Key = 0x5B7C3A91;
+        return Context.RawValue ^ Key;
+    };
+
+    // array entry
+    Callbacks.NameStorage.Chunk = [](const FDecryptIndexedContext<uintptr_t>& Context) -> uintptr_t
+    {
+        const uint32_t Shift = (Context.Index % 16) + 1;
+        return Utils::Memory::Ror(Context.RawValue, Shift);
+    };
+
+    // string
+    Callbacks.String.UTF8 = [](char* Data, int32 Len)
+    {
+        for (int32_t i = 0; i + 1 < Len; i += 2)
+        {
+            const uint16_t Swapped = Utils::Memory::Swap(*reinterpret_cast<uint16_t*>(Data + i));
+            std::memcpy(Data + i, &Swapped, sizeof(Swapped));
+        }
+
+        for (int32_t i = 0; i < Len; i++)
+            Data[i] = static_cast<char>(Data[i] ^ 0x5A);
+    };
+
+    // one value
+    Callbacks.UObject.Class = [](const FDecryptContext<uintptr_t>& Context) -> uintptr_t
+    {
+        const uint64_t Key = GMemory->Read<uint64_t>(Context.Address + 0x8);
+        return Context.RawValue ^ Utils::Memory::Ror(Key, 5);
+    };
+}
+```
+
+These hooks are what the dumper uses to read an encrypted value correctly. A profile that also
+wants the generated SDK to decrypt the same value at runtime sets the matching
+`Settings.CppGenerator.DecryptionUtils.DecryptXFuncBody` in `OverrideSettings` — see
+[UsingTheSDK.md](UsingTheSDK.md#22-when-the-defaults-are-not-enough) for the full list and the three
+profiles that already do this.
 
 ### Examples
 
-**PUBG Mobile** ([Dumper/Profile/CustomProfiles/Shared/PUBG.h](Dumper/Profile/CustomProfiles/Shared/PUBG.h)) — GNames is encrypted, so the profile scans the executable for a known byte pattern, decodes the ADRP instruction to locate it, then decrypts the pointer chain:
-
-```cpp
-uintptr_t GetGNames() const override { /* pattern scan → ADRP decode */ }
-void DecryptGNames(uintptr_t& NamesPtr) const override { /* pointer chain walk */ }
-```
-
-**Delta Force** ([Dumper/Profile/CustomProfiles/Shared/DeltaForce.h](Dumper/Profile/CustomProfiles/Shared/DeltaForce.h)) — GNames resolves normally; only the name strings are XOR-encrypted with a length-derived key:
-
-```cpp
-void DecryptUTF8(char* Data, int32_t Len) const override { /* XOR each byte */ }
-void DecryptUTF16(char16_t* Data, int32_t Len) const override { /* XOR each char16 */ }
-```
+See [Dumper/Profile/CustomProfiles/](Dumper/Profile/CustomProfiles/) for real profiles exercising every
+decrypt hook type above.
 
 ## Credits & Thanks
 
