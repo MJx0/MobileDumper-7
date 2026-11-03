@@ -121,6 +121,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 	OnProgressCallback("Initializing Decrypt Callbacks...\n");
 	{
 		{
+			GDecryptCallbacks = FDecryptCallbacks{};
 			GProfile->OverrideDecryptCallbacks(GDecryptCallbacks);
 		}
 		GLogger.FmtWrite(ELogLevel::Info, "==================\n");
