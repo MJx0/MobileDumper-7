@@ -154,14 +154,21 @@ DumpLabel:
 		if (bSuspend && GamePid != getpid())
 			Suspension.emplace(GamePid);
 
+		const bool bRemoteMapsReadable = !KittyMemoryEx::getAllMaps(GamePid).empty();
+
 		bool bIsLocal64bit  = !KittyMemoryEx::getMaps(getpid(), EProcMapFilter::Contains, "/lib64/").empty();
 		bool bIsRemote64bit = !KittyMemoryEx::getMaps(GamePid, EProcMapFilter::Contains, "/lib64/").empty();
 
-		bIsBitOk = bIsLocal64bit == bIsRemote64bit;
+		bIsBitOk = bRemoteMapsReadable && bIsLocal64bit == bIsRemote64bit;
 
 		if (bIsBitOk)
 		{
 			bSuccess = FDumperMain::Run(OutDumpZip, OutErr);
+		}
+		else if (!bRemoteMapsReadable)
+		{
+			bSuccess = false;
+			OutErr   = std::format("Unable to read memory maps of target remote process ( {} )!", GamePid);
 		}
 		else
 		{
