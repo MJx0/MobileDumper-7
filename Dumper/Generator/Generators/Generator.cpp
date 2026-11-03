@@ -653,7 +653,9 @@ bool Generator::InitOffsets(std::string& OutErrorString)
 	}
 
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "UStruct::StructBaseChain: 0x{:X}\n", (uint32_t)GOffsets.UStruct.StructBaseChain);
+		if (GOffsets.UStruct.StructBaseChain != -1)
+			GLogger.FmtWrite(ELogLevel::Info, "UStruct::StructBaseChain: 0x{:X}\n", (uint32_t)GOffsets.UStruct.StructBaseChain);
+
 		GLogger.FmtWrite(ELogLevel::Info, "UStruct::SuperStruct: 0x{:X}\n", (uint32_t)GOffsets.UStruct.SuperStruct);
 		GLogger.FmtWrite(ELogLevel::Info, "UStruct::Children: 0x{:X}\n", (uint32_t)GOffsets.UStruct.Children);
 
