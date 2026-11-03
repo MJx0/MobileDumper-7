@@ -243,12 +243,12 @@ struct FInSDKOffsets
 {
 	struct
 	{
-		int64 GNames   = 0x0;
-		int64 GObjects = 0x0;
-		int64 GEngine  = 0x0;
-		int64 GWorld   = 0x0;
-		int64 PEOffset = 0x0;
-		int32 PEIndex  = 0x0;
+		uintptr_t GNames   = 0x0;
+		uintptr_t GObjects = 0x0;
+		uintptr_t GEngine  = 0x0;
+		uintptr_t GWorld   = 0x0;
+		uintptr_t PEOffset = 0x0;
+		int32 PEIndex      = 0x0;
 	} Statics;
 
 	struct

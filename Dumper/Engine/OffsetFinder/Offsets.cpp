@@ -2102,8 +2102,8 @@ void FInSDKOffsets::InitUEngineAndUWorld()
 	};
 	OffsetFinder::FindStaticOffsets(Offsets);
 
-	this->Statics.GEngine = static_cast<int64>(Offsets["Engine"]);
-	this->Statics.GWorld  = static_cast<int64>(Offsets["World"]);
+	this->Statics.GEngine = Offsets["Engine"];
+	this->Statics.GWorld  = Offsets["World"];
 }
 
 void FInSDKOffsets::InitFText()
