@@ -4,14 +4,13 @@
 
 1. Copy the generated `CppSDK` folder into your project.
 2. Include `SDK.hpp` to get everything, or include single package headers
-   (`SDK/Engine_classes.hpp`) for much faster compile times.
+   for much faster compile times.
 3. Compile `SDK/Basic.cpp`, plus every `SDK/<Package>_functions.cpp` whose functions you call.
 4. Build with **C++20**. clang and gcc are both supported.
 
 ## 2. The accessors
 
-There are five functions that connect the SDK to the running process. `SDK/Basic.cpp` has all five functions
-implemented for the layout the dumper detected, so an unmodified SDK builds and runs as generated.
+There are five functions that connect the SDK to the running process. The dumper generates default implemention for all five functions in `SDK/Basic.cpp`, so an unmodified SDK builds and runs as generated.
 
 ```c++
 uintptr_t      InSDKUtils::GetImageBase();
@@ -38,8 +37,8 @@ The remaining four follow the layout recorded at dump time:
 | Function | Generated behaviour |
 | --- | --- |
 | `GetGNames` | adds `Offsets::GNames` to the image base, dereferencing it when the dumper found a pointer rather than the container itself |
-| `GetGObjects` | the same choice for `Offsets::GObjects` |
-| `GetObjectByIndex` | indexes a fixed array directly, or selects a chunk first when the array is chunked |
+| `GetGObjects` | adds `Offsets::GObjects` to the image base, dereferencing it when the dumper found a pointer rather than the container itself |
+| `GetObjectByIndex` | gets an object item from `FFixedUObjectArray` or `FChunkedUObjectArrayLayout` |
 | `GetNameByIndex` | decodes a legacy `TNameEntryArray` entry or an `FNamePool` entry |
 
 A game that resolves these differently can be
@@ -47,24 +46,43 @@ accommodated by manually editing those functions.
 
 ### 2.2 When the defaults are not enough
 
-The generated bodies read memory **as-is**. A game that obfuscates/encrypts any value on these paths needs
-them adapted, because the dumper applies its decryption through custom profiles that have no equivalent in the generated SDK. The affected values are:
+If a game encrypts `GNames`, `GObjects`, the name chunk/entry addresses, the `UObject` pointer
+inside each `FUObjectItem`, or the name characters themselves, the default accessors above can't
+read them — they only know how to read plain values. For each of those, there's a matching
+function in a second namespace, `DecryptionUtils`, next to `InSDKUtils`:
 
-- the `GObjects` and `GNames` pointers themselves (`DecryptGObjects`, `DecryptGNames`)
-- the object array's chunk table, counts, and the `UObject*` inside each `FUObjectItem`
-- the name container's chunk or block table, and an `FNameEntry`'s header or packed index
-- the name characters, which a profile may decrypt in place per encoding
-- `FName`'s comparison index and number
+| Function | Decrypts |
+| --- | --- |
+| `DecryptGNames(uintptr_t)` / `DecryptGObjects(uintptr_t)` | the two global pointers |
+| `DecryptFNameChunk(uintptr_t, int32)` / `DecryptFNameEntry(uintptr_t, int32)` | the name container's chunk/block table and its entries |
+| `DecryptFObjectItemEntry(UObject*)` | the `UObject*` inside each `FUObjectItem` |
+| `DecryptFNameUTF8/16/32(CharT*, int32)` | the name characters, in place |
 
-A dump can succeed while the SDK reads nothing useful, since only the dumper side knows how to undo
-the obfuscation. Porting the matching profile logic into the accessor is what closes that gap.
+Each one does nothing by default. To use one, set
+the matching `Settings.CppGenerator.DecryptionUtils.DecryptXFuncBody` in your profile's
+`OverrideSettings` (same mechanism as 2.3 below) to a string of real C++ — it gets compiled
+straight into the generated SDK, not interpreted:
+
+```c++
+Settings.CppGenerator.DecryptionUtils.DecryptFNameUTF8FuncBody = R"({
+    for (int32_t i = 0; i < Len; i++)
+        Data[i] ^= 0x5A;
+})";
+```
+
+Once set, every SDK generated for that game decrypts the value on its own. See [Dumper/Profile/CustomProfiles/](Dumper/Profile/CustomProfiles/) for
+real examples.
 
 ### 2.3 Overriding a default permanently
 
-Setting `GetImageBaseFuncBody`, `GetGNamesFuncBody`, `GetGObjectsBody`, `GetNameByIndexFuncBody` or
-`GetObjectByIndexFuncBody` in [Dumper/Settings.h](Dumper/Settings.h) replaces that body in every
-SDK generated afterwards, which is the better option than re-editing a regenerated file. An empty
-setting keeps the generated default.
+Every override lives under `GSettings.CppGenerator`, grouped by which generated namespace it belongs
+to: `InSDKUtils.GetImageBaseFuncBody` / `.GetGNamesFuncBody` / `.GetGObjectsBody` /
+`.GetNameByIndexFuncBody` / `.GetObjectByIndexFuncBody`, and `DecryptionUtils.DecryptGNamesFuncBody` /
+`.DecryptGObjectsFuncBody` / `.DecryptFNameChunkFuncBody` / `.DecryptFNameEntryFuncBody` /
+`.DecryptFObjectItemEntryFuncBody` / `.DecryptFNameUTF8FuncBody` / `.DecryptFNameUTF16FuncBody` /
+`.DecryptFNameUTF32FuncBody` — all in [Dumper/Settings.h](Dumper/Settings.h). Setting one replaces that
+body in every SDK generated afterwards, which is the better option than re-editing a regenerated file.
+An empty setting keeps the generated default.
 
 ## 3. Using the SDK
 
@@ -213,6 +231,35 @@ __attribute__((constructor)) static void OnLoad()
     pthread_create(&Thread, nullptr, MainThread, nullptr);
 }
 ```
+
+## 5. Validating the generated SDK
+
+Every dump also produces `CppSDK/TestSuit/`, a small project you build and load into the same
+running game. The `TestSuit` purpose is to check that the SDK's layout is internally consistent — every
+`sizeof`/`alignof`/`offsetof` is checked at compile time, and also checks that the layout actually matches what's really in the game's memory at runtime by running a series of checks, in order, and logs each one under the `MD7TestSuit` tag:
+
+| Check | What it looks for |
+| --- | --- |
+| Module & Offsets | The game's base address was found, and every offset points at real memory |
+| GObjects | The object list was found and its object count looks right |
+| Object Iteration | A sample of objects have normal, readable names |
+| FNames | Name lookups work, and both ways of looking up a name agree |
+| Classes & Hierarchy | Engine classes can be found by name, type checks work, and class inheritance resolves |
+| Outer Chains | Every object's owner chain ends properly instead of looping or going nowhere |
+| Engine Globals | The engine and world objects, if found, are valid |
+
+A failed check is logged as one `[FAIL]` line rather than crashing the run. The log ends with
+either `ALL N CHECKS PASSED` or `N OF M CHECKS FAILED`.
+
+- **Android** — build with `TestSuit/build.sh` (or `build.cmd` on Windows) to get a `.so`. Clean
+  up with `clean.sh`/`clean.cmd`.
+- **iOS** — `TestSuit/build.sh` asks whether you want a standalone `.dylib` or a Theos tweak; for
+  a tweak, it can also install it onto a device over SSH once it's built (needs `$THEOS` set).
+  `clean.sh` removes both the build output and any Theos files.
+
+`TestSuit` only proves the generated SDK is correct.
+
+Turn this off with `GSettings.CppGenerator.bGenerateSDKCompilationTest` (on by default).
 
 ## Notes
 
