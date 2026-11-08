@@ -11,7 +11,7 @@ setlocal enabledelayedexpansion
 ::
 :: deploy.cmd
 
-:: ── ANSI color setup (Windows 10 / 11) ───────────────────────────────────────
+:: ANSI color setup (Windows 10 / 11)
 FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
 SET "_CYAN=%ESC%[36;1m"
 SET "_GREEN=%ESC%[32;1m"
@@ -26,7 +26,7 @@ IF /I "%~1"=="-h" ( CALL :usage & EXIT /B 0 )
 IF /I "%~1"=="--help" ( CALL :usage & EXIT /B 0 )
 IF NOT "%~1"=="" ( CALL :err "Unknown option: %~1" & CALL :usage & EXIT /B 1 )
 
-:: ── Deployment target ─────────────────────────────────────────────────────────
+:: Deployment target
 
 CALL :section "Deployment target"
 CALL :info "1) Android Executable (ADB)"
@@ -42,7 +42,7 @@ IF NOT "!TARGET_CHOICE!"=="1" (
 	EXIT /B 1
 )
 
-:: ── Architecture ──────────────────────────────────────────────────────────────
+:: Architecture
 
 CALL :section "Architecture"
 CALL :info "1) arm32   - a 32-bit game on mobile"
@@ -59,7 +59,7 @@ IF "!_ARCH_CHOICE!"=="3" SET "ARCH=x86"
 IF "!_ARCH_CHOICE!"=="4" SET "ARCH=x86_64"
 IF "!ARCH!"=="" ( CALL :err "Invalid selection" & EXIT /B 1 )
 
-:: ── Suspend while dumping ────────────────────────────────────────────────────
+:: Suspend while dumping
 
 CALL :section "Suspend while dumping"
 CALL :info "A running game keeps creating objects while it's being dumped, which can cause issues."
@@ -67,7 +67,7 @@ CALL :confirm "Suspend the game while dumping?" Y
 SET "SUSPEND="
 IF "!CONFIRM_RESULT!"=="1" SET "SUSPEND=--suspend"
 
-:: ── Dumper build: prompt to build it if missing or on request ────────────────
+:: Dumper build: prompt to build it if missing or on request
 
 CALL :section "Dumper build"
 
@@ -101,7 +101,7 @@ IF "!NEED_BUILD!"=="1" (
 
 CALL :ok "Using: %LOCAL_EXE%"
 
-:: ── Root access: prefer `adb root`, fall back to `su -c` ─────────────────────
+:: Root access: prefer `adb root`, fall back to `su -c`
 
 CALL :section "Root access"
 
@@ -143,7 +143,7 @@ IF "!_UID!"=="0" (
 
 IF "!ROOT_MODE!"=="direct" ( CALL :info "Root access: adb root" ) ELSE ( CALL :info "Root access: su -c" )
 
-:: ── Push & run ───────────────────────────────────────────────────────────────
+:: Push & run
 
 SET "REMOTE_EXE=/data/local/tmp/MobileDumper-7-%ARCH%"
 SET "REMOTE_OUTPUT=/data/local/tmp/md7_dumps"
@@ -154,7 +154,7 @@ CALL :run_root "rm -rf %REMOTE_OUTPUT%" >NUL 2>&1
 
 CALL :section "Push & run"
 CALL :info "Installing: %LOCAL_EXE%"
-CALL :info "       -^>   %REMOTE_EXE%"
+CALL :info "       to   %REMOTE_EXE%"
 adb push "%LOCAL_EXE%" "%REMOTE_EXE%"
 IF !ERRORLEVEL! NEQ 0 EXIT /B 1
 
@@ -197,7 +197,7 @@ IF "!REMOTE_ZIP!"=="" (
 SET "LOCAL_ZIP=%TEMP%\md7_dump_%PACKAGE%.zip"
 IF EXIST "%LOCAL_ZIP%" DEL /F /Q "%LOCAL_ZIP%"
 
-:: ── Pull dump ────────────────────────────────────────────────────────────────
+:: Pull dump
 
 CALL :section "Pull dump"
 CALL :info "Pulling !REMOTE_ZIP!"
@@ -228,9 +228,9 @@ CALL :ok "Dump ready: %DEST_DIR%"
 CALL :ok "Build TestSuit: %DEST_DIR%\CppSDK\TestSuit\build.cmd"
 EXIT /B 0
 
-:: ═════════════════════════════════════════════════════════════════════════════
+:: -----------------------------------------------------------------------------
 :: SUBROUTINES
-:: ═════════════════════════════════════════════════════════════════════════════
+:: -----------------------------------------------------------------------------
 
 :usage
 echo Usage: %~n0
@@ -264,11 +264,11 @@ GOTO :EOF
 
 :section
 echo.
-echo !_CYAN!┌── %~1!_RESET!
+echo !_CYAN!+-- %~1!_RESET!
 GOTO :EOF
 
 :info
-echo !_CYAN!│!_RESET!   %~1
+echo !_CYAN![info]!_RESET! %~1
 GOTO :EOF
 
 :ok
