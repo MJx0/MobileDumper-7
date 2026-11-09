@@ -17,7 +17,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 	for (auto& [Name, _] : ClassNamesToOffsets)
 	{
 		Classes[Name] = ObjectArray::FindClassFast(Name.c_str());
-		GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found '{}' instance at {}.\n", Name, Classes[Name].GetAddress());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found '{}' instance at {}.\n", Name, Classes[Name].GetAddress());
 	}
 
 	// Find one live (non-CDO) instance per class in a single pass
@@ -48,7 +48,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 			break;
 	}
 
-	const ModuleInfo ModInfo = GMemory->GetUnrealModule();
+	const ModuleInfo ModInfo = MD7::Globals::GMemory->GetUnrealModule();
 
 	for (auto& [Name, Instance] : Instances)
 	{
@@ -58,7 +58,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 		{
 			if (Region.IsReadable() && !Region.IsExecutable())
 			{
-				std::vector<uintptr_t> TempResults = GMemory->FindAllAlignedValuesInRange(
+				std::vector<uintptr_t> TempResults = MD7::Globals::GMemory->FindAllAlignedValuesInRange(
 				    reinterpret_cast<uintptr_t>(Instance.GetAddress()),
 				    sizeof(uintptr_t),
 				    Region.GetStart(),
@@ -74,7 +74,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 			return false;
 		});
 
-		GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found {} candidates for '{}'.\n", Results.size(), Name);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found {} candidates for '{}'.\n", Results.size(), Name);
 
 		uintptr_t Result = 0;
 
@@ -88,12 +88,12 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 			// in that case Results[1] is the stable static global.
 			const uintptr_t CandidateAddr = reinterpret_cast<uintptr_t>(Results[0]);
 			const uintptr_t ObjAddr       = reinterpret_cast<uintptr_t>(Instance.GetAddress());
-			uintptr_t CurrentValue        = GMemory->Read<uintptr_t>(CandidateAddr);
+			uintptr_t CurrentValue        = MD7::Globals::GMemory->Read<uintptr_t>(CandidateAddr);
 
 			for (int i = 0; CurrentValue == ObjAddr && i < 50; ++i)
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
-				CurrentValue = GMemory->Read<uintptr_t>(CandidateAddr);
+				CurrentValue = MD7::Globals::GMemory->Read<uintptr_t>(CandidateAddr);
 			}
 			if (CurrentValue == ObjAddr)
 			{
@@ -102,7 +102,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 			else
 			{
 				Result = Results[1];
-				GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Filtered volatile pointer at 0x{:X} for '{}'.\n", CandidateAddr, Name);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Filtered volatile pointer at 0x{:X} for '{}'.\n", CandidateAddr, Name);
 			}
 		}
 		else
@@ -110,7 +110,7 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 			continue;
 		}
 
-		ClassNamesToOffsets[Name] = GMemory->GetUnrealModule().AddressToOffset(Result);
-		GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: '{}' offset at 0x{:X}.\n", Name, ClassNamesToOffsets[Name]);
+		ClassNamesToOffsets[Name] = MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(Result);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: '{}' offset at 0x{:X}.\n", Name, ClassNamesToOffsets[Name]);
 	}
 }

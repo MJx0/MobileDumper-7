@@ -1,3 +1,6 @@
 #include "DecryptCallbacks.h"
 
-FDecryptCallbacks GDecryptCallbacks{};
+namespace MD7::Globals
+{
+	FDecryptCallbacks GDecryptCallbacks{};
+}

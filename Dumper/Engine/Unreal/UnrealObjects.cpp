@@ -12,12 +12,12 @@
 
 UEFFieldClass::UEFFieldClass(void* NewFieldClass)
 {
-	Class = !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NewFieldClass)) ? nullptr : reinterpret_cast<uint8*>(NewFieldClass);
+	Class = !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NewFieldClass)) ? nullptr : reinterpret_cast<uint8*>(NewFieldClass);
 }
 
 UEFFieldClass::UEFFieldClass(const UEFFieldClass& OldFieldClass)
 {
-	Class = !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(OldFieldClass.Class)) ? nullptr : OldFieldClass.Class;
+	Class = !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(OldFieldClass.Class)) ? nullptr : OldFieldClass.Class;
 }
 
 void* UEFFieldClass::GetAddress()
@@ -32,12 +32,12 @@ UEFFieldClass::operator bool() const
 
 EClassCastFlags UEFFieldClass::GetCastFlags() const
 {
-	return GMemory->Read<EClassCastFlags>(reinterpret_cast<uintptr_t>(Class) + GOffsets.FFieldClass.CastFlags);
+	return MD7::Globals::GMemory->Read<EClassCastFlags>(reinterpret_cast<uintptr_t>(Class) + MD7::Globals::GOffsets.FFieldClass.CastFlags);
 }
 
 FName UEFFieldClass::GetFName() const
 {
-	return FName(Class + GOffsets.FFieldClass.Name); // Not the real FName, but a wrapper which holds the address of a FName
+	return FName(Class + MD7::Globals::GOffsets.FFieldClass.Name); // Not the real FName, but a wrapper which holds the address of a FName
 }
 
 bool UEFFieldClass::IsType(EClassCastFlags Flags) const
@@ -63,12 +63,12 @@ std::string UEFFieldClass::GetCppName() const
 
 UEFField::UEFField(void* NewField)
 {
-	Field = !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NewField)) ? nullptr : reinterpret_cast<uint8*>(NewField);
+	Field = !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NewField)) ? nullptr : reinterpret_cast<uint8*>(NewField);
 }
 
 UEFField::UEFField(const UEFField& OldField)
 {
-	Field = !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(OldField.Field)) ? nullptr : OldField.Field;
+	Field = !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(OldField.Field)) ? nullptr : OldField.Field;
 }
 
 void* UEFField::GetAddress()
@@ -83,7 +83,7 @@ const void* UEFField::GetAddress() const
 
 UEObject::UEObject(void* NewObject)
 {
-	Object = !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NewObject)) ? nullptr : reinterpret_cast<uint8*>(NewObject);
+	Object = !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NewObject)) ? nullptr : reinterpret_cast<uint8*>(NewObject);
 }
 
 class UEObject UEFField::GetOwnerAsUObject() const
@@ -91,9 +91,9 @@ class UEObject UEFField::GetOwnerAsUObject() const
 	if (IsOwnerUObject())
 	{
 		if (InternalSettings::bUseMaskForFieldOwner)
-			return reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + GOffsets.FField.Owner) & ~0x1ull);
+			return reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + MD7::Globals::GOffsets.FField.Owner) & ~0x1ull);
 
-		return reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + GOffsets.FField.Owner));
+		return reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + MD7::Globals::GOffsets.FField.Owner));
 	}
 
 	return nullptr;
@@ -102,7 +102,7 @@ class UEObject UEFField::GetOwnerAsUObject() const
 class UEFField UEFField::GetOwnerAsFField() const
 {
 	if (!IsOwnerUObject())
-		return reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + GOffsets.FField.Owner));
+		return reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + MD7::Globals::GOffsets.FField.Owner));
 
 	return nullptr;
 }
@@ -122,17 +122,17 @@ class UEObject UEFField::GetOwnerUObject() const
 
 UEFFieldClass UEFField::GetClass() const
 {
-	return UEFFieldClass(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + GOffsets.FField.Class)));
+	return UEFFieldClass(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + MD7::Globals::GOffsets.FField.Class)));
 }
 
 FName UEFField::GetFName() const
 {
-	return FName(Field + GOffsets.FField.Name); // Not the real FName, but a wrapper which holds the address of a FName
+	return FName(Field + MD7::Globals::GOffsets.FField.Name); // Not the real FName, but a wrapper which holds the address of a FName
 }
 
 UEFField UEFField::GetNext() const
 {
-	return UEFField(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + GOffsets.FField.Next)));
+	return UEFField(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + MD7::Globals::GOffsets.FField.Next)));
 }
 
 std::vector<std::pair<std::string, std::string>> UEFField::GetMetaData() const
@@ -164,7 +164,7 @@ std::vector<std::pair<std::string, std::string>> UEFField::GetMetaData() const
 	{
 		std::vector<std::pair<std::string, std::string>> Result;
 
-		TMap<NameType, FString> LocalMap = GMemory->Read<TMap<NameType, FString>>(MapAddr);
+		TMap<NameType, FString> LocalMap = MD7::Globals::GMemory->Read<TMap<NameType, FString>>(MapAddr);
 		if (!LocalMap.IsValid())
 			return Result;
 
@@ -174,7 +174,7 @@ std::vector<std::pair<std::string, std::string>> UEFField::GetMetaData() const
 				continue;
 
 			const uintptr_t ElemAddr = LocalMap.GetElementAddress(i);
-			FString LocalStr         = GMemory->Read<FString>(ElemAddr + sizeof(NameType));
+			FString LocalStr         = MD7::Globals::GMemory->Read<FString>(ElemAddr + sizeof(NameType));
 			Result.emplace_back(
 			    FName(reinterpret_cast<const void*>(ElemAddr)).ToString(),
 			    LocalStr.ToString());
@@ -183,12 +183,12 @@ std::vector<std::pair<std::string, std::string>> UEFField::GetMetaData() const
 		return Result;
 	};
 
-	const uintptr_t mapAddr = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + GOffsets.FField.EditorOnlyMetadata);
+	const uintptr_t mapAddr = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + MD7::Globals::GOffsets.FField.EditorOnlyMetadata);
 
-	if (!mapAddr || !GMemory->IsAddressReadable(mapAddr))
+	if (!mapAddr || !MD7::Globals::GMemory->IsAddressReadable(mapAddr))
 		return {};
 
-	if (GOffsets.FName.SizeOf > 0x8)
+	if (MD7::Globals::GOffsets.FName.SizeOf > 0x8)
 		return GetPairsAsStrings.template operator()<Name16Byte>(mapAddr);
 
 	return GetPairsAsStrings.template operator()<Name08Byte>(mapAddr);
@@ -204,10 +204,10 @@ bool UEFField::IsOwnerUObject() const
 {
 	if (InternalSettings::bUseMaskForFieldOwner)
 	{
-		return GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + GOffsets.FField.Owner) & 0x1;
+		return MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Field) + MD7::Globals::GOffsets.FField.Owner) & 0x1;
 	}
 
-	return GMemory->Read<bool>(reinterpret_cast<uintptr_t>(Field) + GOffsets.FField.Owner + 0x8);
+	return MD7::Globals::GMemory->Read<bool>(reinterpret_cast<uintptr_t>(Field) + MD7::Globals::GOffsets.FField.Owner + 0x8);
 }
 
 bool UEFField::IsA(EClassCastFlags Flags) const
@@ -251,7 +251,7 @@ std::string UEFField::GetCppName() const
 
 UEFField::operator bool() const
 {
-	return Field != nullptr && reinterpret_cast<void*>(Field + GOffsets.FField.Class) != nullptr;
+	return Field != nullptr && reinterpret_cast<void*>(Field + MD7::Globals::GOffsets.FField.Class) != nullptr;
 }
 
 bool UEFField::operator==(const UEFField& Other) const
@@ -278,36 +278,36 @@ const void* UEObject::GetAddress() const
 
 void* UEObject::GetVft() const
 {
-	return reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object)));
+	return reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object)));
 }
 
 EObjectFlags UEObject::GetFlags() const
 {
-	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + GOffsets.UObject.Flags;
-	return GDecryptCallbacks.UObject.Flags({.Address = Addr, .RawValue = GMemory->Read<EObjectFlags>(Addr)});
+	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UObject.Flags;
+	return MD7::Globals::GDecryptCallbacks.UObject.Flags({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<EObjectFlags>(Addr)});
 }
 
 int32 UEObject::GetIndex() const
 {
-	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + GOffsets.UObject.Index;
-	return GDecryptCallbacks.UObject.Index({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
+	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UObject.Index;
+	return MD7::Globals::GDecryptCallbacks.UObject.Index({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<int32>(Addr)});
 }
 
 UEClass UEObject::GetClass() const
 {
-	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + GOffsets.UObject.Class;
-	return UEClass(reinterpret_cast<void*>(GDecryptCallbacks.UObject.Class({.Address = Addr, .RawValue = GMemory->Read<uintptr_t>(Addr)})));
+	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UObject.Class;
+	return UEClass(reinterpret_cast<void*>(MD7::Globals::GDecryptCallbacks.UObject.Class({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(Addr)})));
 }
 
 FName UEObject::GetFName() const
 {
-	return FName(Object + GOffsets.UObject.Name); // Not the real FName, but a wrapper which holds the address of a FName
+	return FName(Object + MD7::Globals::GOffsets.UObject.Name); // Not the real FName, but a wrapper which holds the address of a FName
 }
 
 UEObject UEObject::GetOuter() const
 {
-	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + GOffsets.UObject.Outer;
-	return UEObject(reinterpret_cast<void*>(GDecryptCallbacks.UObject.Outer({.Address = Addr, .RawValue = GMemory->Read<uintptr_t>(Addr)})));
+	const uintptr_t Addr = reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UObject.Outer;
+	return UEObject(reinterpret_cast<void*>(MD7::Globals::GDecryptCallbacks.UObject.Outer({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(Addr)})));
 }
 
 int32 UEObject::GetPackageIndex() const
@@ -343,7 +343,7 @@ UEObject UEObject::GetOutermost() const
 {
 	UEObject Outermost = *this;
 
-	for (UEObject Outer = *this; GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Outer.GetAddress())); Outer = Outer.GetOuter())
+	for (UEObject Outer = *this; MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Outer.GetAddress())); Outer = Outer.GetOuter())
 	{
 		Outermost = Outer;
 	}
@@ -407,7 +407,7 @@ std::string UEObject::GetFullName(int32& OutNameLength) const
 	{
 		std::string Temp;
 
-		for (UEObject Outer = GetOuter(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Outer.GetAddress())); Outer = Outer.GetOuter())
+		for (UEObject Outer = GetOuter(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Outer.GetAddress())); Outer = Outer.GetOuter())
 		{
 			Temp = Outer.GetName() + '.' + Temp;
 		}
@@ -429,7 +429,7 @@ std::string UEObject::GetFullName() const
 	{
 		std::string Temp;
 
-		for (UEObject Outer = GetOuter(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Outer.GetAddress())); Outer = Outer.GetOuter())
+		for (UEObject Outer = GetOuter(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Outer.GetAddress())); Outer = Outer.GetOuter())
 		{
 			Temp = Outer.GetName() + "." + Temp;
 		}
@@ -451,7 +451,7 @@ std::string UEObject::GetPathName() const
 	{
 		std::string Temp;
 
-		for (UEObject Outer = GetOuter(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Outer.GetAddress())); Outer = Outer.GetOuter())
+		for (UEObject Outer = GetOuter(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Outer.GetAddress())); Outer = Outer.GetOuter())
 		{
 			Temp = Outer.GetNameWithPath() + "." + Temp;
 		}
@@ -471,7 +471,7 @@ std::string UEObject::GetPathName() const
 UEObject::operator bool() const
 {
 	// if an object is 0x10000F000 it passes the nullptr check
-	return Object != nullptr && reinterpret_cast<void*>(Object + GOffsets.UObject.Class) != nullptr;
+	return Object != nullptr && reinterpret_cast<void*>(Object + MD7::Globals::GOffsets.UObject.Class) != nullptr;
 }
 
 UEObject::operator uint8*()
@@ -491,8 +491,8 @@ bool UEObject::operator!=(const UEObject& Other) const
 
 void UEObject::ProcessEvent(UEFunction Func, void* Params)
 {
-	uintptr_t VftAddr                = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GetAddress()));
-	uintptr_t PrdAddr                = GMemory->Read<uintptr_t>(VftAddr + static_cast<uintptr_t>(GInSDKOffsets.Statics.PEIndex) * sizeof(void*));
+	uintptr_t VftAddr                = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GetAddress()));
+	uintptr_t PrdAddr                = MD7::Globals::GMemory->Read<uintptr_t>(VftAddr + static_cast<uintptr_t>(MD7::Globals::GInSDKOffsets.Statics.PEIndex) * sizeof(void*));
 	void (*Prd)(void*, void*, void*) = reinterpret_cast<decltype(Prd)>(PrdAddr);
 
 	Prd(Object, Func.GetAddress(), Params);
@@ -500,12 +500,12 @@ void UEObject::ProcessEvent(UEFunction Func, void* Params)
 
 UEField UEField::GetNext() const
 {
-	return UEField(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UField.Next)));
+	return UEField(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UField.Next)));
 }
 
 bool UEField::IsNextValid() const
 {
-	return GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(GetNext().GetAddress()));
+	return MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(GetNext().GetAddress()));
 }
 
 std::vector<std::pair<FName, int64>> UEEnum::GetNameValuePairs() const
@@ -546,22 +546,22 @@ std::vector<std::pair<FName, int64>> UEEnum::GetNameValuePairs() const
 	{
 		std::vector<std::pair<FName, int64>> Ret;
 
-		const uintptr_t TaggedNamesPtr = GMemory->Read<uintptr_t>(Object + EnumNamesOffset);
+		const uintptr_t TaggedNamesPtr = MD7::Globals::GMemory->Read<uintptr_t>(Object + EnumNamesOffset);
 		const bool bIsNamesPtrTagged   = (TaggedNamesPtr & PointeFlagHasTag) != 0;
 		const uint8* NamesPtr          = reinterpret_cast<uint8*>(TaggedNamesPtr & PointerMaskNoTag);
 
 		if (!bIsNamesPtrTagged)
 		{
 			/* StaticNamesUTF8 is not supported yet. See: https://github.com/EpicGames/UnrealEngine/blob/ue5-main/Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h#L3408*/
-			GLogger.FmtWrite(ELogLevel::Error, "[UEEnum::GetNameValuePairs()]: UEnum::Names pointer is tagged! This is not supported yet!\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "[UEEnum::GetNameValuePairs()]: UEnum::Names pointer is tagged! This is not supported yet!\n");
 		}
 
-		const uintptr_t ValuesAddr = GMemory->Read<uintptr_t>(Object + EnumNamesOffset + 0x8) & PointerMaskNoTag;
-		const int32 NumValues      = GMemory->Read<int32>(Object + EnumNamesOffset + 0x10);
+		const uintptr_t ValuesAddr = MD7::Globals::GMemory->Read<uintptr_t>(Object + EnumNamesOffset + 0x8) & PointerMaskNoTag;
+		const int32 NumValues      = MD7::Globals::GMemory->Read<int32>(Object + EnumNamesOffset + 0x10);
 
 		for (int32 i = 0; i < NumValues; i++)
 		{
-			Ret.push_back({FName(NamesPtr + (i * FNameSize)), GMemory->Read<int64>(ValuesAddr + i * sizeof(int64))});
+			Ret.push_back({FName(NamesPtr + (i * FNameSize)), MD7::Globals::GMemory->Read<int64>(ValuesAddr + i * sizeof(int64))});
 		}
 
 		return Ret;
@@ -569,7 +569,7 @@ std::vector<std::pair<FName, int64>> UEEnum::GetNameValuePairs() const
 
 	if (InternalSettings::bIsNewUE5EnumNamesContainer)
 	{
-		return GetNameValuePairsForFNameData(reinterpret_cast<const uintptr_t>(Object), GOffsets.UEnum.Names - 0x8, GOffsets.FName.SizeOf);
+		return GetNameValuePairsForFNameData(reinterpret_cast<const uintptr_t>(Object), MD7::Globals::GOffsets.UEnum.Names - 0x8, MD7::Globals::GOffsets.FName.SizeOf);
 	}
 
 
@@ -581,7 +581,7 @@ std::vector<std::pair<FName, int64>> UEEnum::GetNameValuePairs() const
 		{
 			const uintptr_t ElemAddr = EnumNameValuePairs.GetElementAddress(i);
 			Ret.push_back({FName(reinterpret_cast<const void*>(ElemAddr)),
-			               GMemory->Read<ValueType>(ElemAddr + sizeof(NameType))});
+			               MD7::Globals::GMemory->Read<ValueType>(ElemAddr + sizeof(NameType))});
 		}
 
 		return Ret;
@@ -603,9 +603,9 @@ std::vector<std::pair<FName, int64>> UEEnum::GetNameValuePairs() const
 	if (InternalSettings::bIsEnumNameOnly)
 	{
 		if (InternalSettings::bUseCasePreservingName)
-			return GetNameValuePairs(GMemory->Read<TArray<Name16Byte>>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UEnum.Names));
+			return GetNameValuePairs(MD7::Globals::GMemory->Read<TArray<Name16Byte>>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UEnum.Names));
 
-		return GetNameValuePairs(GMemory->Read<TArray<Name08Byte>>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UEnum.Names));
+		return GetNameValuePairs(MD7::Globals::GMemory->Read<TArray<Name08Byte>>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UEnum.Names));
 	}
 	else
 	{
@@ -613,15 +613,15 @@ std::vector<std::pair<FName, int64>> UEEnum::GetNameValuePairs() const
 		if (InternalSettings::bIsSmallEnumValue)
 		{
 			if (InternalSettings::bUseCasePreservingName)
-				return GetNameValuePairsWithIndex(GMemory->Read<TArray<TPair<Name16Byte, UInt8As64>>>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UEnum.Names));
+				return GetNameValuePairsWithIndex(MD7::Globals::GMemory->Read<TArray<TPair<Name16Byte, UInt8As64>>>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UEnum.Names));
 
-			return GetNameValuePairsWithIndex(GMemory->Read<TArray<TPair<Name08Byte, UInt8As64>>>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UEnum.Names));
+			return GetNameValuePairsWithIndex(MD7::Globals::GMemory->Read<TArray<TPair<Name08Byte, UInt8As64>>>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UEnum.Names));
 		}
 
 		if (InternalSettings::bUseCasePreservingName)
-			return GetNameValuePairsWithIndex(GMemory->Read<TArray<TPair<Name16Byte, int64>>>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UEnum.Names));
+			return GetNameValuePairsWithIndex(MD7::Globals::GMemory->Read<TArray<TPair<Name16Byte, int64>>>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UEnum.Names));
 
-		return GetNameValuePairsWithIndex(GMemory->Read<TArray<TPair<Name08Byte, int64>>>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UEnum.Names));
+		return GetNameValuePairsWithIndex(MD7::Globals::GMemory->Read<TArray<TPair<Name08Byte, int64>>>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UEnum.Names));
 	}
 }
 
@@ -647,7 +647,7 @@ std::pair<uint8_t, bool> UEEnum::GetSizeSignedPair() const
 	if (!InternalSettings::bHasUnderlayingTypeInUEnum)
 		return {1, false};
 
-	const EUnderlyingType Type = GMemory->Read<EUnderlyingType>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UEnum.UnderlyingType);
+	const EUnderlyingType Type = MD7::Globals::GMemory->Read<EUnderlyingType>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UEnum.UnderlyingType);
 
 	const bool bIsSigned = Type < EUnderlyingType::uint8;
 	const uint8_t Size   = 1 << (static_cast<uint8_t>(Type) % 4);
@@ -657,27 +657,27 @@ std::pair<uint8_t, bool> UEEnum::GetSizeSignedPair() const
 
 UEStruct UEStruct::GetSuper() const
 {
-	return UEStruct(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UStruct.SuperStruct)));
+	return UEStruct(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UStruct.SuperStruct)));
 }
 
 UEField UEStruct::GetChild() const
 {
-	return UEField(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UStruct.Children)));
+	return UEField(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UStruct.Children)));
 }
 
 UEFField UEStruct::GetChildProperties() const
 {
-	return UEFField(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UStruct.ChildProperties)));
+	return UEFField(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UStruct.ChildProperties)));
 }
 
 int16 UEStruct::GetMinAlignment() const
 {
-	return GMemory->Read<int16>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UStruct.MinAlignment);
+	return MD7::Globals::GMemory->Read<int16>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UStruct.MinAlignment);
 }
 
 int32 UEStruct::GetStructSize() const
 {
-	return GMemory->Read<int32>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UStruct.Size);
+	return MD7::Globals::GMemory->Read<int32>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UStruct.Size);
 }
 
 bool UEStruct::HasType(UEStruct Type) const
@@ -685,7 +685,7 @@ bool UEStruct::HasType(UEStruct Type) const
 	if (Type == nullptr)
 		return false;
 
-	for (UEStruct S = *this; GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(S.GetAddress())); S = S.GetSuper())
+	for (UEStruct S = *this; MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(S.GetAddress())); S = S.GetSuper())
 	{
 		if (S == Type)
 			return true;
@@ -715,7 +715,7 @@ std::vector<UEProperty> UEStruct::GetProperties() const
 
 	if (InternalSettings::bUseFProperty)
 	{
-		for (UEFField Field = GetChildProperties(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+		for (UEFField Field = GetChildProperties(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 		{
 			if (!VisitedFields.insert(reinterpret_cast<uintptr_t>(Field.GetAddress())).second)
 				break;
@@ -730,7 +730,7 @@ std::vector<UEProperty> UEStruct::GetProperties() const
 
 		return Properties;
 	}
-	for (UEField Field = GetChild(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+	for (UEField Field = GetChild(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 	{
 		if (!VisitedFields.insert(reinterpret_cast<uintptr_t>(Field.GetAddress())).second)
 			break;
@@ -750,7 +750,7 @@ std::vector<UEFunction> UEStruct::GetFunctions() const
 {
 	std::vector<UEFunction> Functions;
 
-	for (UEField Field = GetChild(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+	for (UEField Field = GetChild(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 	{
 		if (Field.IsA(EClassCastFlags::Function))
 			Functions.push_back(Field.Cast<UEFunction>());
@@ -766,7 +766,7 @@ UEProperty UEStruct::FindMember(const std::string& MemberName, EClassCastFlags T
 
 	if (InternalSettings::bUseFProperty)
 	{
-		for (UEFField Field = GetChildProperties(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+		for (UEFField Field = GetChildProperties(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 		{
 			if (Field.IsA(TypeFlags) && Field.GetName() == MemberName)
 			{
@@ -775,7 +775,7 @@ UEProperty UEStruct::FindMember(const std::string& MemberName, EClassCastFlags T
 		}
 	}
 
-	for (UEField Field = GetChild(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+	for (UEField Field = GetChild(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 	{
 		if (Field.IsA(TypeFlags) && Field.GetName() == MemberName)
 		{
@@ -793,7 +793,7 @@ bool UEStruct::HasMembers() const
 
 	if (InternalSettings::bUseFProperty)
 	{
-		for (UEFField Field = GetChildProperties(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+		for (UEFField Field = GetChildProperties(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 		{
 			if (Field.IsA(EClassCastFlags::Property))
 				return true;
@@ -801,7 +801,7 @@ bool UEStruct::HasMembers() const
 	}
 	else
 	{
-		for (UEField Field = GetChild(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+		for (UEField Field = GetChild(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 		{
 			if (Field.IsA(EClassCastFlags::Property))
 				return true;
@@ -813,7 +813,7 @@ bool UEStruct::HasMembers() const
 
 EClassCastFlags UEClass::GetCastFlags() const
 {
-	return GMemory->Read<EClassCastFlags>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UClass.CastFlags);
+	return MD7::Globals::GMemory->Read<EClassCastFlags>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UClass.CastFlags);
 }
 
 std::string UEClass::StringifyCastFlags() const
@@ -828,22 +828,22 @@ bool UEClass::IsType(EClassCastFlags TypeFlag) const
 
 UEObject UEClass::GetDefaultObject() const
 {
-	return UEObject(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UClass.ClassDefaultObject)));
+	return UEObject(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UClass.ClassDefaultObject)));
 }
 
 TArray<FImplementedInterface> UEClass::GetImplementedInterfaces() const
 {
-	return GMemory->Read<TArray<FImplementedInterface>>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UClass.ImplementedInterfaces);
+	return MD7::Globals::GMemory->Read<TArray<FImplementedInterface>>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UClass.ImplementedInterfaces);
 }
 
 UEFunction UEClass::GetFunction(const std::string& ClassName, const std::string& FuncName) const
 {
-	for (UEStruct Struct = *this; GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Struct.GetAddress())); Struct = Struct.GetSuper())
+	for (UEStruct Struct = *this; MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Struct.GetAddress())); Struct = Struct.GetSuper())
 	{
 		if (Struct.GetName() != ClassName)
 			continue;
 
-		for (UEField Field = Struct.GetChild(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+		for (UEField Field = Struct.GetChild(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 		{
 			if (Field.IsA(EClassCastFlags::Function) && Field.GetName() == FuncName)
 			{
@@ -857,7 +857,7 @@ UEFunction UEClass::GetFunction(const std::string& ClassName, const std::string&
 
 EFunctionFlags UEFunction::GetFunctionFlags() const
 {
-	return GMemory->Read<EFunctionFlags>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UFunction.FunctionFlags);
+	return MD7::Globals::GMemory->Read<EFunctionFlags>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UFunction.FunctionFlags);
 }
 
 bool UEFunction::HasFlags(EFunctionFlags FuncFlags) const
@@ -867,17 +867,17 @@ bool UEFunction::HasFlags(EFunctionFlags FuncFlags) const
 
 uint8 UEFunction::GetNumParams() const
 {
-	return GMemory->Read<uint8>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UFunction.NumParams);
+	return MD7::Globals::GMemory->Read<uint8>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UFunction.NumParams);
 }
 
 uint16 UEFunction::GetParamSize() const
 {
-	return GMemory->Read<uint16>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UFunction.ParamSize);
+	return MD7::Globals::GMemory->Read<uint16>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UFunction.ParamSize);
 }
 
 void* UEFunction::GetExecFunction() const
 {
-	return reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + GOffsets.UFunction.ExecFunction));
+	return reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object) + MD7::Globals::GOffsets.UFunction.ExecFunction));
 }
 
 UEProperty UEFunction::GetReturnProperty() const
@@ -929,7 +929,7 @@ EClassCastFlags UEProperty::GetCastFlags() const
 
 UEProperty::operator bool() const
 {
-	return Base != nullptr && ((Base + GOffsets.UObject.Class) != nullptr || (Base + GOffsets.FField.Class) != nullptr);
+	return Base != nullptr && ((Base + MD7::Globals::GOffsets.UObject.Class) != nullptr || (Base + MD7::Globals::GOffsets.FField.Class) != nullptr);
 }
 
 
@@ -945,33 +945,33 @@ FName UEProperty::GetFName() const
 {
 	if (InternalSettings::bUseFProperty)
 	{
-		return FName(Base + GOffsets.FField.Name); // Not the real FName, but a wrapper which holds the address of a FName
+		return FName(Base + MD7::Globals::GOffsets.FField.Name); // Not the real FName, but a wrapper which holds the address of a FName
 	}
 
-	return FName(Base + GOffsets.UObject.Name); // Not the real FName, but a wrapper which holds the address of a FName
+	return FName(Base + MD7::Globals::GOffsets.UObject.Name); // Not the real FName, but a wrapper which holds the address of a FName
 }
 
 int32 UEProperty::GetArrayDim() const
 {
 	if (InternalSettings::bUseUint8ArrayDim)
-		return GMemory->Read<uint8>(reinterpret_cast<uintptr_t>(Base) + GOffsets.Property.ArrayDim);
+		return MD7::Globals::GMemory->Read<uint8>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.Property.ArrayDim);
 
-	return GMemory->Read<int32>(reinterpret_cast<uintptr_t>(Base) + GOffsets.Property.ArrayDim);
+	return MD7::Globals::GMemory->Read<int32>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.Property.ArrayDim);
 }
 
 int32 UEProperty::GetSize() const
 {
-	return GMemory->Read<int32>(reinterpret_cast<uintptr_t>(Base) + GOffsets.Property.ElementSize);
+	return MD7::Globals::GMemory->Read<int32>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.Property.ElementSize);
 }
 
 int32 UEProperty::GetOffset() const
 {
-	return GMemory->Read<int32>(reinterpret_cast<uintptr_t>(Base) + GOffsets.Property.Offset_Internal);
+	return MD7::Globals::GMemory->Read<int32>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.Property.Offset_Internal);
 }
 
 EPropertyFlags UEProperty::GetPropertyFlags() const
 {
-	return GMemory->Read<EPropertyFlags>(reinterpret_cast<uintptr_t>(Base) + GOffsets.Property.PropertyFlags);
+	return MD7::Globals::GMemory->Read<EPropertyFlags>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.Property.PropertyFlags);
 }
 
 bool UEProperty::HasPropertyFlags(EPropertyFlags PropertyFlag) const
@@ -1340,7 +1340,7 @@ std::string UEProperty::StringifyFlags() const
 
 UEEnum UEByteProperty::GetEnum() const
 {
-	return UEEnum(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.ByteProperty.Enum)));
+	return UEEnum(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.ByteProperty.Enum)));
 }
 
 std::string UEByteProperty::GetCppType() const
@@ -1355,12 +1355,12 @@ std::string UEByteProperty::GetCppType() const
 
 uint8 UEBoolProperty::GetFieldMask() const
 {
-	return GMemory->Read<PropertyBaseTypes::UBoolPropertyBase>(reinterpret_cast<uintptr_t>(Base) + GOffsets.BoolProperty.Base).FieldMask;
+	return MD7::Globals::GMemory->Read<PropertyBaseTypes::UBoolPropertyBase>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.BoolProperty.Base).FieldMask;
 }
 
 uint8 UEBoolProperty::GetByteOffset() const
 {
-	return GMemory->Read<PropertyBaseTypes::UBoolPropertyBase>(reinterpret_cast<uintptr_t>(Base) + GOffsets.BoolProperty.Base).ByteOffset;
+	return MD7::Globals::GMemory->Read<PropertyBaseTypes::UBoolPropertyBase>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.BoolProperty.Base).ByteOffset;
 }
 
 uint8 UEBoolProperty::GetBitIndex() const
@@ -1410,7 +1410,7 @@ uint8 UEBoolProperty::GetBitIndex() const
 
 bool UEBoolProperty::IsNativeBool() const
 {
-	return GMemory->Read<PropertyBaseTypes::UBoolPropertyBase>(reinterpret_cast<uintptr_t>(Base) + GOffsets.BoolProperty.Base).FieldMask == 0xFF;
+	return MD7::Globals::GMemory->Read<PropertyBaseTypes::UBoolPropertyBase>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.BoolProperty.Base).FieldMask == 0xFF;
 }
 
 std::string UEBoolProperty::GetCppType() const
@@ -1420,7 +1420,7 @@ std::string UEBoolProperty::GetCppType() const
 
 UEClass UEObjectProperty::GetPropertyClass() const
 {
-	return UEClass(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.ObjectProperty.PropertyClass)));
+	return UEClass(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.ObjectProperty.PropertyClass)));
 }
 
 std::string UEObjectProperty::GetCppType() const
@@ -1430,7 +1430,7 @@ std::string UEObjectProperty::GetCppType() const
 
 UEClass UEClassProperty::GetMetaClass() const
 {
-	return UEClass(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.ClassProperty.MetaClass)));
+	return UEClass(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.ClassProperty.MetaClass)));
 }
 
 std::string UEClassProperty::GetCppType() const
@@ -1465,7 +1465,7 @@ std::string UEInterfaceProperty::GetCppType() const
 
 UEStruct UEStructProperty::GetUnderlayingStruct() const
 {
-	return UEStruct(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.StructProperty.Struct)));
+	return UEStruct(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.StructProperty.Struct)));
 }
 
 std::string UEStructProperty::GetCppType() const
@@ -1475,7 +1475,7 @@ std::string UEStructProperty::GetCppType() const
 
 UEProperty UEArrayProperty::GetInnerProperty() const
 {
-	return UEProperty(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.ArrayProperty.Inner)));
+	return UEProperty(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.ArrayProperty.Inner)));
 }
 
 std::string UEArrayProperty::GetCppType() const
@@ -1485,7 +1485,7 @@ std::string UEArrayProperty::GetCppType() const
 
 UEFunction UEDelegateProperty::GetSignatureFunction() const
 {
-	return UEFunction(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.DelegateProperty.SignatureFunction)));
+	return UEFunction(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.DelegateProperty.SignatureFunction)));
 }
 
 std::string UEDelegateProperty::GetCppType() const
@@ -1496,7 +1496,7 @@ std::string UEDelegateProperty::GetCppType() const
 UEFunction UEMulticastInlineDelegateProperty::GetSignatureFunction() const
 {
 	// Uses "GOffsets.DelegateProperty.SignatureFunction" on purpose
-	return UEFunction(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.DelegateProperty.SignatureFunction)));
+	return UEFunction(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.DelegateProperty.SignatureFunction)));
 }
 
 std::string UEMulticastInlineDelegateProperty::GetCppType() const
@@ -1506,12 +1506,12 @@ std::string UEMulticastInlineDelegateProperty::GetCppType() const
 
 UEProperty UEMapProperty::GetKeyProperty() const
 {
-	return UEProperty(GMemory->Read<PropertyBaseTypes::UMapPropertyBase>(reinterpret_cast<uintptr_t>(Base) + GOffsets.MapProperty.Base).KeyProperty);
+	return UEProperty(MD7::Globals::GMemory->Read<PropertyBaseTypes::UMapPropertyBase>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.MapProperty.Base).KeyProperty);
 }
 
 UEProperty UEMapProperty::GetValueProperty() const
 {
-	return UEProperty(GMemory->Read<PropertyBaseTypes::UMapPropertyBase>(reinterpret_cast<uintptr_t>(Base) + GOffsets.MapProperty.Base).ValueProperty);
+	return UEProperty(MD7::Globals::GMemory->Read<PropertyBaseTypes::UMapPropertyBase>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.MapProperty.Base).ValueProperty);
 }
 
 std::string UEMapProperty::GetCppType() const
@@ -1521,7 +1521,7 @@ std::string UEMapProperty::GetCppType() const
 
 UEProperty UESetProperty::GetElementProperty() const
 {
-	return UEProperty(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.SetProperty.ElementProp)));
+	return UEProperty(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.SetProperty.ElementProp)));
 }
 
 std::string UESetProperty::GetCppType() const
@@ -1531,12 +1531,12 @@ std::string UESetProperty::GetCppType() const
 
 UEProperty UEEnumProperty::GetUnderlayingProperty() const
 {
-	return UEProperty(GMemory->Read<PropertyBaseTypes::UEnumPropertyBase>(reinterpret_cast<uintptr_t>(Base) + GOffsets.EnumProperty.Base).UnderlayingProperty);
+	return UEProperty(MD7::Globals::GMemory->Read<PropertyBaseTypes::UEnumPropertyBase>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.EnumProperty.Base).UnderlayingProperty);
 }
 
 UEEnum UEEnumProperty::GetEnum() const
 {
-	return UEEnum(GMemory->Read<PropertyBaseTypes::UEnumPropertyBase>(reinterpret_cast<uintptr_t>(Base) + GOffsets.EnumProperty.Base).Enum);
+	return UEEnum(MD7::Globals::GMemory->Read<PropertyBaseTypes::UEnumPropertyBase>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.EnumProperty.Base).Enum);
 }
 
 std::string UEEnumProperty::GetCppType() const
@@ -1549,7 +1549,7 @@ std::string UEEnumProperty::GetCppType() const
 
 UEFFieldClass UEFieldPathProperty::GetFieldClass() const
 {
-	return UEFFieldClass(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.FieldPathProperty.FieldClass)));
+	return UEFFieldClass(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.FieldPathProperty.FieldClass)));
 }
 
 std::string UEFieldPathProperty::GetCppType() const
@@ -1559,7 +1559,7 @@ std::string UEFieldPathProperty::GetCppType() const
 
 UEProperty UEOptionalProperty::GetValueProperty() const
 {
-	return UEProperty(reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + GOffsets.OptionalProperty.ValueProperty)));
+	return UEProperty(reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Base) + MD7::Globals::GOffsets.OptionalProperty.ValueProperty)));
 }
 
 std::string UEOptionalProperty::GetCppType() const

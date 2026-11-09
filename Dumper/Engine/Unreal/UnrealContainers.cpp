@@ -13,9 +13,9 @@ namespace UC
 		const int32 CharCount = NumElements - 1;
 
 		if (InternalSettings::bUseChar16String || sizeof(wchar_t) == 2)
-			return Utils::String::UTF16ToString(GMemory->ReadUTF16(Addr, CharCount));
+			return Utils::String::UTF16ToString(MD7::Globals::GMemory->ReadUTF16(Addr, CharCount));
 
-		return Utils::String::UTF32ToString(GMemory->ReadUTF32(Addr, CharCount));
+		return Utils::String::UTF32ToString(MD7::Globals::GMemory->ReadUTF32(Addr, CharCount));
 	}
 
 	std::wstring FString::ToWString() const
@@ -27,9 +27,9 @@ namespace UC
 		const int32 CharCount = NumElements - 1;
 
 		if (InternalSettings::bUseChar16String)
-			return Utils::String::UTF16ToWString(GMemory->ReadUTF16(Addr, CharCount));
+			return Utils::String::UTF16ToWString(MD7::Globals::GMemory->ReadUTF16(Addr, CharCount));
 
-		return Utils::String::UTF32ToWString(GMemory->ReadUTF32(Addr, CharCount));
+		return Utils::String::UTF32ToWString(MD7::Globals::GMemory->ReadUTF32(Addr, CharCount));
 	}
 
 	std::string FUtf8String::ToString() const
@@ -37,7 +37,7 @@ namespace UC
 		if (!*this)
 			return "";
 
-		return GMemory->ReadUTF8(reinterpret_cast<uintptr_t>(Data), NumElements - 1);
+		return MD7::Globals::GMemory->ReadUTF8(reinterpret_cast<uintptr_t>(Data), NumElements - 1);
 	}
 
 	std::wstring FUtf8String::ToWString() const
@@ -50,7 +50,7 @@ namespace UC
 		if (!*this)
 			return "";
 
-		return GMemory->ReadUTF8(reinterpret_cast<uintptr_t>(Data), NumElements - 1);
+		return MD7::Globals::GMemory->ReadUTF8(reinterpret_cast<uintptr_t>(Data), NumElements - 1);
 	}
 
 	std::wstring FAnsiString::ToWString() const

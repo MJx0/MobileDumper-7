@@ -78,7 +78,7 @@ std::string CppGenerator::MakeMemberString(
     const std::string& Name,
     std::string&& Comment)
 {
-	const auto& Settings = GSettings.CppGenerator;
+	const auto& Settings = MD7::Globals::GSettings.CppGenerator;
 
 	if (Settings.UseMemberCustomSpacing)
 	{
@@ -114,7 +114,7 @@ std::string CppGenerator::MakeMemberString(
 
 std::string CppGenerator::MakeEnumMemberString(const std::string& Name, const std::string& Value, const std::string& Underlyingtype, bool bIsOutOfRange)
 {
-	const auto& Settings = GSettings.CppGenerator;
+	const auto& Settings = MD7::Globals::GSettings.CppGenerator;
 
 	if (Settings.UseMemberCustomSpacing)
 	{
@@ -423,7 +423,7 @@ CppGenerator::FunctionInfo CppGenerator::GenerateFunctionInfo(const FunctionWrap
 
 std::string CppGenerator::GenerateSingleFunction(const FunctionWrapper& Func, const std::string& StructName, StreamType& FunctionFile, StreamType& ParamFile, StreamType& AssertionFile)
 {
-	const auto& CppSettings = GSettings.CppGenerator;
+	const auto& CppSettings = MD7::Globals::GSettings.CppGenerator;
 
 	std::string InHeaderFunctionText;
 
@@ -439,7 +439,7 @@ std::string CppGenerator::GenerateSingleFunction(const FunctionWrapper& Func, co
 		if (!Func.IsPredefined())
 		{
 			const auto UnrealFunc = Func.GetUnrealFunction();
-			uintptr_t FuncOffset  = GMemory->GetUnrealModule().AddressToOffset(reinterpret_cast<uintptr_t>(UnrealFunc.GetExecFunction()));
+			uintptr_t FuncOffset  = MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(reinterpret_cast<uintptr_t>(UnrealFunc.GetExecFunction()));
 
 			if (Func.HasFunctionFlag(EFunctionFlags::Native) & 1)
 			{
@@ -513,7 +513,7 @@ std::string CppGenerator::GenerateSingleFunction(const FunctionWrapper& Func, co
 	bool bHasOutPtrParamsToInit = false;
 	bool bHasOutRefParamsToInit = false;
 
-	const auto& Settings = GSettings.CppGenerator;
+	const auto& Settings = MD7::Globals::GSettings.CppGenerator;
 
 	for (const ParamInfo& PInfo : FuncInfo.UnrealFuncParams)
 	{
@@ -641,7 +641,7 @@ std::string CppGenerator::GenerateSingleFunction(const FunctionWrapper& Func, co
 
 std::string CppGenerator::GenerateFunctions(const StructWrapper& Struct, const MemberManager& Members, const std::string& StructName, StreamType& FunctionFile, StreamType& ParamFile, StreamType& AssertionFile)
 {
-	const auto& CppSettings = GSettings.CppGenerator;
+	const auto& CppSettings = MD7::Globals::GSettings.CppGenerator;
 
 	static PredefinedFunction StaticClass;
 	static PredefinedFunction StaticName;
@@ -929,7 +929,7 @@ void CppGenerator::GenerateStruct(const StructWrapper& Struct, StreamType& Struc
 	                          bIsClass ? "class" : (bIsUnion ? "union" : "struct"),
 	                          AlignmentString,
 	                          UniqueName,
-	                          GSettings.CppGenerator.bAddFinalSpecifier && Struct.IsFinal() ? " final" : "",
+	                          MD7::Globals::GSettings.CppGenerator.bAddFinalSpecifier && Struct.IsFinal() ? " final" : "",
 	                          bHasValidSuper ? (" : public " + UniqueSuperName) : "");
 
 	MemberManager Members = Struct.GetMembers();
@@ -966,14 +966,14 @@ void CppGenerator::GenerateStruct(const StructWrapper& Struct, StreamType& Struc
 
 	if (bHasFunctions)
 	{
-		StreamType& FuncParamsAssertionFile = GSettings.Debug.bGenerateAssertionFile ? AssertionFile : ParamFile;
+		StreamType& FuncParamsAssertionFile = MD7::Globals::GSettings.Debug.bGenerateAssertionFile ? AssertionFile : ParamFile;
 
 		StructFile << GenerateFunctions(Struct, Members, UniqueName, FunctionFile, ParamFile, FuncParamsAssertionFile);
 	}
 
 	StructFile << "};\n";
 
-	if (GSettings.Debug.bGenerateAssertionFile)
+	if (MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 	{
 		if (bIsTemplatedType)
 			return;
@@ -994,9 +994,9 @@ void CppGenerator::GenerateStruct(const StructWrapper& Struct, StreamType& Struc
 		AssertionFile << "#define " << AssertionMacroName << " \\\n";
 	}
 
-	const char* AssertionNewLineStr = GSettings.Debug.bGenerateAssertionFile ? " \\\n" : "\n";
+	const char* AssertionNewLineStr = MD7::Globals::GSettings.Debug.bGenerateAssertionFile ? " \\\n" : "\n";
 
-	if (GSettings.Debug.bGenerateInlineAssertionsForStructSize || GSettings.Debug.bGenerateAssertionFile)
+	if (MD7::Globals::GSettings.Debug.bGenerateInlineAssertionsForStructSize || MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 	{
 		if (bIsTemplatedType)
 			return;
@@ -1010,9 +1010,9 @@ void CppGenerator::GenerateStruct(const StructWrapper& Struct, StreamType& Struc
 		AssertionFile << fmt::format("static_assert(sizeof({}) == 0x{:06X}, \"Wrong size on {}\");{}", UniqueName, StructSize, UniqueName, AssertionNewLineStr);
 	}
 
-	if (GSettings.Debug.bGenerateInlineAssertionsForStructMembers || GSettings.Debug.bGenerateAssertionFile)
+	if (MD7::Globals::GSettings.Debug.bGenerateInlineAssertionsForStructMembers || MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 	{
-		if (!GSettings.Debug.bGenerateAssertionFile)
+		if (!MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 		{
 			AssertionFile << "#if defined(__clang__) || defined(__GNUC__)\n"
 			                 "#pragma GCC diagnostic push\n"
@@ -1029,14 +1029,14 @@ void CppGenerator::GenerateStruct(const StructWrapper& Struct, StreamType& Struc
 			// whole SDK its compile. The member is emitted regardless, so skip only its assertion.
 			if (Member.GetOffset() < 0)
 			{
-				GLogger.FmtWrite(ELogLevel::Warning, "GenerateStruct: '{}::{}' has no resolved offset - its assertion is omitted.\n", UniqueName, Member.GetName());
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "GenerateStruct: '{}::{}' has no resolved offset - its assertion is omitted.\n", UniqueName, Member.GetName());
 				continue;
 			}
 
 			AssertionFile << fmt::format("static_assert(offsetof({0}, {1}) == 0x{2:06X}, \"Member \'{0}::{1}\' has a wrong offset!\");{3}", UniqueName, Member.GetName(), Member.GetOffset(), AssertionNewLineStr);
 		}
 
-		if (!GSettings.Debug.bGenerateAssertionFile)
+		if (!MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 		{
 			AssertionFile << "#if defined(__clang__) || defined(__GNUC__)\n"
 			                 "#pragma GCC diagnostic pop\n"
@@ -1044,7 +1044,7 @@ void CppGenerator::GenerateStruct(const StructWrapper& Struct, StreamType& Struc
 		}
 	}
 
-	if (GSettings.Debug.bGenerateAssertionFile)
+	if (MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 	{
 		AssertionFile << '\n';
 	}
@@ -1191,7 +1191,7 @@ std::string CppGenerator::GetAssertionMacroString(const std::string& PrefixedStr
 	std::string MacroStructName = PrefixedStructUniqueName;
 	std::replace(MacroStructName.begin(), MacroStructName.end(), ':', '_');
 
-	return GSettings.Debug.AssertionMacroPrefix + MacroStructName;
+	return MD7::Globals::GSettings.Debug.AssertionMacroPrefix + MacroStructName;
 }
 
 std::string CppGenerator::GetCycleFixupType(const StructWrapper& Struct, bool bIsForInheritance)
@@ -1383,7 +1383,7 @@ std::string CppGenerator::GetMemberTypeStringWithoutConst(UEProperty Member, int
 
 		return "class UObject*";
 	}
-	else if (GSettings.EngineCore.bEnableEncryptedObjectPropertySupport && Flags & EClassCastFlags::ObjectPropertyBase)
+	else if (MD7::Globals::GSettings.EngineCore.bEnableEncryptedObjectPropertySupport && Flags & EClassCastFlags::ObjectPropertyBase)
 	{
 		if (UEClass PropertyClass = Member.Cast<UEObjectProperty>().GetPropertyClass())
 			return fmt::format("TEncryptedObjPtr<class {}>", GetStructPrefixedName(PropertyClass));
@@ -1590,7 +1590,7 @@ void CppGenerator::GenerateEnumFwdDeclarations(StreamType& ClassOrStructFile, Pa
 
 void CppGenerator::GenerateNameCollisionsInl(StreamType& NameCollisionsFile)
 {
-	// const auto& CppSettings = GSettings.CppGenerator;
+	// const auto& CppSettings = MD7::Globals::GSettings.CppGenerator;
 
 	WriteFileHead(NameCollisionsFile, nullptr, EFileType::NameCollisionsInl, "FORWARD DECLARATIONS");
 
@@ -1732,7 +1732,7 @@ void CppGenerator::GenerateDebugAssertions(StreamType& AssertionStream)
 		{
 			const DependencyManager& Structs = Package.GetSortedStructs();
 
-			AssertionStream << fmt::format("\n#define {}_STRUCTS_{} \\\n", GSettings.Debug.AssertionMacroPrefix, PackageName);
+			AssertionStream << fmt::format("\n#define {}_STRUCTS_{} \\\n", MD7::Globals::GSettings.Debug.AssertionMacroPrefix, PackageName);
 
 			Structs.VisitAllNodesWithCallback(GenerateStructAssertionsCallback);
 		}
@@ -1741,10 +1741,10 @@ void CppGenerator::GenerateDebugAssertions(StreamType& AssertionStream)
 		{
 			const DependencyManager& Classes = Package.GetSortedClasses();
 
-			AssertionStream << fmt::format("\n#define {}_CLASSES_{} \\\n", GSettings.Debug.AssertionMacroPrefix, PackageName);
+			AssertionStream << fmt::format("\n#define {}_CLASSES_{} \\\n", MD7::Globals::GSettings.Debug.AssertionMacroPrefix, PackageName);
 			Classes.VisitAllNodesWithCallback(GenerateStructAssertionsCallback);
 
-			AssertionStream << fmt::format("\n#define {}_PARAMS_{} \\\n", GSettings.Debug.AssertionMacroPrefix, PackageName);
+			AssertionStream << fmt::format("\n#define {}_PARAMS_{} \\\n", MD7::Globals::GSettings.Debug.AssertionMacroPrefix, PackageName);
 			Classes.VisitAllNodesWithCallback(GenerateParamStructAssertionsCallback);
 		}
 	}
@@ -1773,7 +1773,7 @@ void CppGenerator::GenerateSDKHeader(StreamType& SdkHpp)
 
 	PackageManager::IterateDependencies(ForEachElementCallback);
 
-	if (!GSettings.CppGenerator.bIncludeParameterStructsInIDA)
+	if (!MD7::Globals::GSettings.CppGenerator.bIncludeParameterStructsInIDA)
 	{
 		// Causes param structs not to be included when importing the SDK, but still keeps them in SDK.hpp.
 		SdkHpp << R"(
@@ -1804,7 +1804,7 @@ void CppGenerator::GenerateSDKHeader(StreamType& SdkHpp)
 
 void CppGenerator::WriteFileHead(StreamType& File, PackageInfoHandle Package, EFileType Type, const std::string& CustomFileComment, const std::string& CustomIncludes)
 {
-	const auto& CppSettings = GSettings.CppGenerator;
+	const auto& CppSettings = MD7::Globals::GSettings.CppGenerator;
 
 	/* Write the utf8 BOM to indicate that this is a utf8 encoded file. */
 	File << "\xEF\xBB\xBF";
@@ -1828,9 +1828,9 @@ void CppGenerator::WriteFileHead(StreamType& File, PackageInfoHandle Package, EF
 	File << fmt::format("\n// {}\n\n", Package.IsValidHandle() ? fmt::format("Package: {}", Package.GetName()) : CustomFileComment);
 
 	/* The precompiled header needs to be the first include.*/
-	if ((Type == EFileType::Functions || Type == EFileType::BasicCpp) && !GSettings.CppGenerator.PrecompiledHeaderFileName.empty())
+	if ((Type == EFileType::Functions || Type == EFileType::BasicCpp) && !MD7::Globals::GSettings.CppGenerator.PrecompiledHeaderFileName.empty())
 	{
-		File << fmt::format("#include <{}>\n\n", GSettings.CppGenerator.PrecompiledHeaderFileName);
+		File << fmt::format("#include <{}>\n\n", MD7::Globals::GSettings.CppGenerator.PrecompiledHeaderFileName);
 	}
 
 	if (!CustomIncludes.empty())
@@ -1847,14 +1847,14 @@ void CppGenerator::WriteFileHead(StreamType& File, PackageInfoHandle Package, EF
 		File << "#include \"../PropertyFixup.hpp\"\n";
 		File << "#include \"../UnrealContainers.hpp\"\n";
 
-		if (GSettings.Debug.bGenerateAssertionFile)
+		if (MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 		{
 			File << "#include \"../Assertions.inl\"\n";
 		}
 
-		if (!GSettings.CppGenerator.XORStringInclude.empty())
+		if (!MD7::Globals::GSettings.CppGenerator.XORStringInclude.empty())
 		{
-			File << fmt::format("#include \"{}\"\n", GSettings.CppGenerator.XORStringInclude);
+			File << fmt::format("#include \"{}\"\n", MD7::Globals::GSettings.CppGenerator.XORStringInclude);
 		}
 	}
 
@@ -1916,7 +1916,7 @@ void CppGenerator::WriteFileHead(StreamType& File, PackageInfoHandle Package, EF
 		File << fmt::format("#pragma pack(push, 0x{:X})\n", Utils::Memory::k32BitStructPacking);
 	}
 
-	if (!GSettings.CppGenerator.SDKNamespaceName.empty())
+	if (!MD7::Globals::GSettings.CppGenerator.SDKNamespaceName.empty())
 	{
 		File << "SDK_NAMESPACE_START\n";
 
@@ -1932,12 +1932,12 @@ void CppGenerator::WriteFileHead(StreamType& File, PackageInfoHandle Package, EF
 
 void CppGenerator::WriteFileEnd(StreamType& File, EFileType Type)
 {
-	const auto& CppSettings = GSettings.CppGenerator;
+	const auto& CppSettings = MD7::Globals::GSettings.CppGenerator;
 
 	if (Type == EFileType::SdkHpp || Type == EFileType::NameCollisionsInl || Type == EFileType::UnrealContainers || Type == EFileType::UnicodeLib)
 		return; /* No namespace or packing in SDK.hpp or NameCollisions.inl */
 
-	if (!GSettings.CppGenerator.SDKNamespaceName.empty())
+	if (!MD7::Globals::GSettings.CppGenerator.SDKNamespaceName.empty())
 	{
 		File << "\n";
 
@@ -3695,7 +3695,7 @@ void CppGenerator::Generate()
 
 	StreamType DebugAssertions;
 
-	if (GSettings.Debug.bGenerateAssertionFile)
+	if (MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 	{
 		// Generate Assertions.inl file containing assertions on struct-size, struct-align and member offsets
 		DebugAssertions.open(MainFolder / "Assertions.inl");
@@ -3707,7 +3707,7 @@ void CppGenerator::Generate()
 	// Generate Basic.hpp and Basic.cpp files
 	StreamType BasicHpp(Subfolder / "Basic.hpp");
 	StreamType BasicCpp(Subfolder / "Basic.cpp");
-	GenerateBasicFiles(BasicHpp, BasicCpp, (GSettings.Debug.bGenerateAssertionFile ? DebugAssertions : BasicHpp));
+	GenerateBasicFiles(BasicHpp, BasicCpp, (MD7::Globals::GSettings.Debug.bGenerateAssertionFile ? DebugAssertions : BasicHpp));
 
 
 	// Generates all packages and writes them to files
@@ -3716,7 +3716,7 @@ void CppGenerator::Generate()
 		if (Package.IsEmpty())
 			continue;
 
-		const std::string FileName     = GSettings.CppGenerator.FilePrefix + Package.GetName();
+		const std::string FileName     = MD7::Globals::GSettings.CppGenerator.FilePrefix + Package.GetName();
 		const std::u8string U8FileName = reinterpret_cast<const std::u8string&>(FileName);
 
 		StreamType ClassesFile;
@@ -3730,7 +3730,7 @@ void CppGenerator::Generate()
 			ClassesFile = StreamType(Subfolder / (U8FileName + u8"_classes.hpp"));
 
 			if (!ClassesFile.is_open())
-				GLogger.FmtWrite(ELogLevel::Error, "Error opening file \"{}_classes.hpp\"\n", FileName);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error opening file \"{}_classes.hpp\"\n", FileName);
 
 			WriteFileHead(ClassesFile, Package, EFileType::Classes);
 
@@ -3743,7 +3743,7 @@ void CppGenerator::Generate()
 			StructsFile = StreamType(Subfolder / (U8FileName + u8"_structs.hpp"));
 
 			if (!StructsFile.is_open())
-				GLogger.FmtWrite(ELogLevel::Error, "Error opening file \"{}_structs.hpp\"\n", FileName);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error opening file \"{}_structs.hpp\"\n", FileName);
 
 			WriteFileHead(StructsFile, Package, EFileType::Structs);
 
@@ -3756,7 +3756,7 @@ void CppGenerator::Generate()
 			ParametersFile = StreamType(Subfolder / (U8FileName + u8"_parameters.hpp"));
 
 			if (!ParametersFile.is_open())
-				GLogger.FmtWrite(ELogLevel::Error, "Error opening file \"{}_parameters.hpp\"\n", FileName);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error opening file \"{}_parameters.hpp\"\n", FileName);
 
 			WriteFileHead(ParametersFile, Package, EFileType::Parameters);
 		}
@@ -3766,7 +3766,7 @@ void CppGenerator::Generate()
 			FunctionsFile = StreamType(Subfolder / (U8FileName + u8"_functions.cpp"));
 
 			if (!FunctionsFile.is_open())
-				GLogger.FmtWrite(ELogLevel::Error, "Error opening file \"{}_functions.cpp\"\n", FileName);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error opening file \"{}_functions.cpp\"\n", FileName);
 
 			WriteFileHead(FunctionsFile, Package, EFileType::Functions);
 		}
@@ -3787,7 +3787,7 @@ void CppGenerator::Generate()
 		{
 			const DependencyManager& Structs = Package.GetSortedStructs();
 
-			StreamType& FileForAssertions = GSettings.Debug.bGenerateAssertionFile ? DebugAssertions : StructsFile;
+			StreamType& FileForAssertions = MD7::Globals::GSettings.Debug.bGenerateAssertionFile ? DebugAssertions : StructsFile;
 
 			DependencyManager::OnVisitCallbackType GenerateStructCallback = [&](int32 Index) -> void
 			{
@@ -3801,7 +3801,7 @@ void CppGenerator::Generate()
 		{
 			const DependencyManager& Classes = Package.GetSortedClasses();
 
-			StreamType& FileForAssertions = GSettings.Debug.bGenerateAssertionFile ? DebugAssertions : ClassesFile;
+			StreamType& FileForAssertions = MD7::Globals::GSettings.Debug.bGenerateAssertionFile ? DebugAssertions : ClassesFile;
 
 			DependencyManager::OnVisitCallbackType GenerateClassCallback = [&](int32 Index) -> void
 			{
@@ -3826,12 +3826,12 @@ void CppGenerator::Generate()
 			WriteFileEnd(FunctionsFile, EFileType::Functions);
 	}
 
-	if (GSettings.Debug.bGenerateAssertionFile)
+	if (MD7::Globals::GSettings.Debug.bGenerateAssertionFile)
 	{
 		WriteFileEnd(DebugAssertions, EFileType::DebugAssertions);
 	}
 
-	if (GSettings.Generator.bGenerateCppSDK && GSettings.CppGenerator.bGenerateSDKCompilationTest)
+	if (MD7::Globals::GSettings.Generator.bGenerateCppSDK && MD7::Globals::GSettings.CppGenerator.bGenerateSDKCompilationTest)
 		GenerateTestSuit();
 }
 
@@ -3896,7 +3896,7 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "UScriptStruct*",
 		            .Name              = "ScriptStruct",
-		            .Offset            = GOffsets.FInstancedStruct.ScriptStruct,
+		            .Offset            = MD7::Globals::GOffsets.FInstancedStruct.ScriptStruct,
 		            .Size              = sizeof(void*),
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(void*),
@@ -3908,7 +3908,7 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "uint8*",
 		            .Name              = "StructMemory",
-		            .Offset            = GOffsets.FInstancedStruct.StructMemory,
+		            .Offset            = MD7::Globals::GOffsets.FInstancedStruct.StructMemory,
 		            .Size              = sizeof(void*),
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(void*),
@@ -3928,7 +3928,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "int32",
 	            .Name              = "ArrayDim",
-	            .Offset            = GOffsets.Property.ArrayDim,
+	            .Offset            = MD7::Globals::GOffsets.Property.ArrayDim,
 	            .Size              = sizeof(int32),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(int32),
@@ -3940,7 +3940,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "int32",
 	            .Name              = "ElementSize",
-	            .Offset            = GOffsets.Property.ElementSize,
+	            .Offset            = MD7::Globals::GOffsets.Property.ElementSize,
 	            .Size              = sizeof(int32),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(int32),
@@ -3952,7 +3952,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "uint64",
 	            .Name              = "PropertyFlags",
-	            .Offset            = GOffsets.Property.PropertyFlags,
+	            .Offset            = MD7::Globals::GOffsets.Property.PropertyFlags,
 	            .Size              = sizeof(uint64),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(uint64),
@@ -3964,7 +3964,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "int32",
 	            .Name              = "Offset",
-	            .Offset            = GOffsets.Property.Offset_Internal,
+	            .Offset            = MD7::Globals::GOffsets.Property.Offset_Internal,
 	            .Size              = sizeof(int32),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(int32),
@@ -3980,7 +3980,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class UEnum*",
 	            .Name              = "Enum",
-	            .Offset            = GOffsets.ByteProperty.Enum,
+	            .Offset            = MD7::Globals::GOffsets.ByteProperty.Enum,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -3996,7 +3996,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "uint8",
 	            .Name              = "FieldSize",
-	            .Offset            = GOffsets.BoolProperty.Base,
+	            .Offset            = MD7::Globals::GOffsets.BoolProperty.Base,
 	            .Size              = sizeof(uint8),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(uint8),
@@ -4008,7 +4008,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "uint8",
 	            .Name              = "ByteOffset",
-	            .Offset            = GOffsets.BoolProperty.Base + 0x1,
+	            .Offset            = MD7::Globals::GOffsets.BoolProperty.Base + 0x1,
 	            .Size              = sizeof(uint8),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(uint8),
@@ -4020,7 +4020,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "uint8",
 	            .Name              = "ByteMask",
-	            .Offset            = GOffsets.BoolProperty.Base + 0x2,
+	            .Offset            = MD7::Globals::GOffsets.BoolProperty.Base + 0x2,
 	            .Size              = sizeof(uint8),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(uint8),
@@ -4032,7 +4032,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "uint8",
 	            .Name              = "FieldMask",
-	            .Offset            = GOffsets.BoolProperty.Base + 0x3,
+	            .Offset            = MD7::Globals::GOffsets.BoolProperty.Base + 0x3,
 	            .Size              = sizeof(uint8),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(uint8),
@@ -4048,7 +4048,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class UClass*",
 	            .Name              = "PropertyClass",
-	            .Offset            = GOffsets.ObjectProperty.PropertyClass,
+	            .Offset            = MD7::Globals::GOffsets.ObjectProperty.PropertyClass,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4064,7 +4064,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class UClass*",
 	            .Name              = "MetaClass",
-	            .Offset            = GOffsets.ClassProperty.MetaClass,
+	            .Offset            = MD7::Globals::GOffsets.ClassProperty.MetaClass,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4080,7 +4080,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class UStruct*",
 	            .Name              = "Struct",
-	            .Offset            = GOffsets.StructProperty.Struct,
+	            .Offset            = MD7::Globals::GOffsets.StructProperty.Struct,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4096,7 +4096,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = PropertyTypePtr,
 	            .Name              = "InnerProperty",
-	            .Offset            = GOffsets.ArrayProperty.Inner,
+	            .Offset            = MD7::Globals::GOffsets.ArrayProperty.Inner,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4112,7 +4112,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class UFunction*",
 	            .Name              = "SignatureFunction",
-	            .Offset            = GOffsets.DelegateProperty.SignatureFunction,
+	            .Offset            = MD7::Globals::GOffsets.DelegateProperty.SignatureFunction,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4128,7 +4128,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = PropertyTypePtr,
 	            .Name              = "KeyProperty",
-	            .Offset            = GOffsets.MapProperty.Base,
+	            .Offset            = MD7::Globals::GOffsets.MapProperty.Base,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4140,7 +4140,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = PropertyTypePtr,
 	            .Name              = "ValueProperty",
-	            .Offset            = GOffsets.MapProperty.Base + (int)sizeof(void*),
+	            .Offset            = MD7::Globals::GOffsets.MapProperty.Base + (int)sizeof(void*),
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4156,7 +4156,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = PropertyTypePtr,
 	            .Name              = "ElementProperty",
-	            .Offset            = GOffsets.SetProperty.ElementProp,
+	            .Offset            = MD7::Globals::GOffsets.SetProperty.ElementProp,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4172,7 +4172,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = PropertyTypePtr,
 	            .Name              = "UnderlayingProperty",
-	            .Offset            = GOffsets.EnumProperty.Base,
+	            .Offset            = MD7::Globals::GOffsets.EnumProperty.Base,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4184,7 +4184,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class UEnum*",
 	            .Name              = "Enum",
-	            .Offset            = GOffsets.EnumProperty.Base + (int)sizeof(void*),
+	            .Offset            = MD7::Globals::GOffsets.EnumProperty.Base + (int)sizeof(void*),
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4200,7 +4200,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class FFieldClass*",
 	            .Name              = "FieldClass",
-	            .Offset            = GOffsets.FieldPathProperty.FieldClass,
+	            .Offset            = MD7::Globals::GOffsets.FieldPathProperty.FieldClass,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4216,7 +4216,7 @@ void CppGenerator::InitPredefinedMembers()
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = PropertyTypePtr,
 	            .Name              = "ValueProperty",
-	            .Offset            = GOffsets.OptionalProperty.ValueProperty,
+	            .Offset            = MD7::Globals::GOffsets.OptionalProperty.ValueProperty,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(void*),
@@ -4282,7 +4282,7 @@ void CppGenerator::InitPredefinedMembers()
 		    .UniqueName = "FField", .Size = 0x0, .Alignment = alignof(void*), .bUseExplictAlignment = false, .bIsFinal = false, .bIsClass = true, .Super = nullptr});
 
 		PredefinedStruct& FProperty           = PredefinedStructs.emplace_back(PredefinedStruct{
-		              .UniqueName = "FProperty", .Size = GOffsets.Property.SizeOf, .Alignment = alignof(void*), .bUseExplictAlignment = false, .bIsFinal = false, .bIsClass = true, .Super = &FField /* FField */
+		              .UniqueName = "FProperty", .Size = MD7::Globals::GOffsets.Property.SizeOf, .Alignment = alignof(void*), .bUseExplictAlignment = false, .bIsFinal = false, .bIsClass = true, .Super = &FField /* FField */
         });
 		PredefinedStruct& FByteProperty       = PredefinedStructs.emplace_back(PredefinedStruct{
 		          .UniqueName = "FByteProperty", .Size = 0x0, .Alignment = alignof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .Super = &FProperty /* FProperty */
@@ -4327,8 +4327,8 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "FName",
 		            .Name              = "Name",
-		            .Offset            = GOffsets.FFieldClass.Name,
-		            .Size              = GOffsets.FName.SizeOf,
+		            .Offset            = MD7::Globals::GOffsets.FFieldClass.Name,
+		            .Size              = MD7::Globals::GOffsets.FName.SizeOf,
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(int32),
 		            .bIsStatic         = false,
@@ -4339,7 +4339,7 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "uint64",
 		            .Name              = "CastFlags",
-		            .Offset            = GOffsets.FFieldClass.CastFlags,
+		            .Offset            = MD7::Globals::GOffsets.FFieldClass.CastFlags,
 		            .Size              = sizeof(uint64),
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(uint64),
@@ -4367,18 +4367,18 @@ void CppGenerator::InitPredefinedMembers()
 			if (InternalSettings::bUseMaskForFieldOwner)
 				return sizeof(void*);
 
-			if (GOffsets.FField.Owner < 0)
+			if (MD7::Globals::GOffsets.FField.Owner < 0)
 				return PaddedSize;
 
-			int32 NextOffset = GOffsets.Property.SizeOf;
-			for (const int32 Candidate : {GOffsets.FField.Class, GOffsets.FField.Next, GOffsets.FField.Name, GOffsets.FField.EditorOnlyMetadata,
-			                              GOffsets.Property.ArrayDim, GOffsets.Property.ElementSize, GOffsets.Property.PropertyFlags, GOffsets.Property.Offset_Internal})
+			int32 NextOffset = MD7::Globals::GOffsets.Property.SizeOf;
+			for (const int32 Candidate : {MD7::Globals::GOffsets.FField.Class, MD7::Globals::GOffsets.FField.Next, MD7::Globals::GOffsets.FField.Name, MD7::Globals::GOffsets.FField.EditorOnlyMetadata,
+			                              MD7::Globals::GOffsets.Property.ArrayDim, MD7::Globals::GOffsets.Property.ElementSize, MD7::Globals::GOffsets.Property.PropertyFlags, MD7::Globals::GOffsets.Property.Offset_Internal})
 			{
-				if (Candidate > GOffsets.FField.Owner && Candidate < NextOffset)
+				if (Candidate > MD7::Globals::GOffsets.FField.Owner && Candidate < NextOffset)
 					NextOffset = Candidate;
 			}
 
-			return (NextOffset - GOffsets.FField.Owner) == sizeof(void*) ? static_cast<int32>(sizeof(void*)) : PaddedSize;
+			return (NextOffset - MD7::Globals::GOffsets.FField.Owner) == sizeof(void*) ? static_cast<int32>(sizeof(void*)) : PaddedSize;
 		}();
 
 		const int32 IdentifierOffset      = InternalSettings::bUseMaskForFieldOwner ? 0x0 : sizeof(void*);
@@ -4438,7 +4438,7 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "void*",
 		            .Name              = "VTable",
-		            .Offset            = GOffsets.FField.Vft,
+		            .Offset            = MD7::Globals::GOffsets.FField.Vft,
 		            .Size              = sizeof(void*),
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(void*),
@@ -4450,7 +4450,7 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "class FFieldClass*",
 		            .Name              = "ClassPrivate",
-		            .Offset            = GOffsets.FField.Class,
+		            .Offset            = MD7::Globals::GOffsets.FField.Class,
 		            .Size              = sizeof(void*),
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(void*),
@@ -4462,7 +4462,7 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "FFieldVariant",
 		            .Name              = "Owner",
-		            .Offset            = GOffsets.FField.Owner,
+		            .Offset            = MD7::Globals::GOffsets.FField.Owner,
 		            .Size              = FFieldVariantSize,
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(void*),
@@ -4474,7 +4474,7 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "class FField*",
 		            .Name              = "Next",
-		            .Offset            = GOffsets.FField.Next,
+		            .Offset            = MD7::Globals::GOffsets.FField.Next,
 		            .Size              = sizeof(void*),
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(void*),
@@ -4486,8 +4486,8 @@ void CppGenerator::InitPredefinedMembers()
 		            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		            .Type              = "FName",
 		            .Name              = "Name",
-		            .Offset            = GOffsets.FField.Name,
-		            .Size              = GOffsets.FName.SizeOf,
+		            .Offset            = MD7::Globals::GOffsets.FField.Name,
+		            .Size              = MD7::Globals::GOffsets.FName.SizeOf,
 		            .ArrayDim          = 0x1,
 		            .Alignment         = alignof(int32),
 		            .bIsStatic         = false,
@@ -4825,7 +4825,7 @@ void CppGenerator::InitPredefinedFunctions()
 	return false;
 })";
 
-	if (GOffsets.UStruct.StructBaseChain != -1)
+	if (MD7::Globals::GOffsets.UStruct.StructBaseChain != -1)
 	{
 		IsStructOfTypeCode =
 		    R"({
@@ -5036,7 +5036,7 @@ void CppGenerator::InitPredefinedFunctions()
 
 	return nullptr;
 }})",
-	                            !GSettings.CppGenerator.bForceNoGWorldInSDK ? GetWorldThroughGWorldCode : ""),
+	                            !MD7::Globals::GSettings.CppGenerator.bForceNoGWorldInSDK ? GetWorldThroughGWorldCode : ""),
 	            .bIsStatic     = true,
 	            .bIsConst      = false,
 	            .bIsBodyInline = false,
@@ -6087,7 +6087,7 @@ void CppGenerator::InitPredefinedFunctions()
 
 void CppGenerator::GenerateBasicFiles(StreamType& BasicHpp, StreamType& BasicCpp, StreamType& AssertionsFile)
 {
-	const auto& CppSettings = GSettings.CppGenerator;
+	const auto& CppSettings = MD7::Globals::GSettings.CppGenerator;
 
 	static auto SortMembers = [](std::vector<PredefinedMember>& Members) -> void
 	{
@@ -6129,7 +6129,7 @@ void CppGenerator::GenerateBasicFiles(StreamType& BasicHpp, StreamType& BasicCpp
 #define SDK_PARAM_NAMESPACE_END }}
 
 )",
-	                                                    GSettings.CppGenerator.SDKNamespaceName,
+	                                                    MD7::Globals::GSettings.CppGenerator.SDKNamespaceName,
 	                                                    CppSettings.ParamNamespaceName);
 
 	const std::string CustomIncludes = fmt::format(R"(#define VC_EXTRALEAN
@@ -6140,7 +6140,7 @@ void CppGenerator::GenerateBasicFiles(StreamType& BasicHpp, StreamType& BasicCpp
 #include <type_traits>
 #include <format>
 )",
-	                                               (!GSettings.CppGenerator.SDKNamespaceName.empty() ? SDKMacroDefinitions : ""));
+	                                               (!MD7::Globals::GSettings.CppGenerator.SDKNamespaceName.empty() ? SDKMacroDefinitions : ""));
 
 	WriteFileHead(BasicHpp, nullptr, EFileType::BasicHpp, "Basic file containing structs required by the SDK", CustomIncludes);
 	WriteFileHead(BasicCpp, nullptr, EFileType::BasicCpp, "Basic file containing function-implementations from Basic.hpp", "");
@@ -6180,12 +6180,12 @@ namespace Offsets
 	constexpr int32 ProcessEventIdx    = 0x{:08X};
 }}
 )",
-	                        GInSDKOffsets.Statics.GObjects,
-	                        GInSDKOffsets.Statics.GNames,
-	                        GInSDKOffsets.Statics.GEngine,
-	                        GInSDKOffsets.Statics.GWorld,
-	                        GInSDKOffsets.Statics.PEOffset,
-	                        GInSDKOffsets.Statics.PEIndex);
+	                        MD7::Globals::GInSDKOffsets.Statics.GObjects,
+	                        MD7::Globals::GInSDKOffsets.Statics.GNames,
+	                        MD7::Globals::GInSDKOffsets.Statics.GEngine,
+	                        MD7::Globals::GInSDKOffsets.Statics.GWorld,
+	                        MD7::Globals::GInSDKOffsets.Statics.PEOffset,
+	                        MD7::Globals::GInSDKOffsets.Statics.PEIndex);
 
 	/* Engine build info, as detected. TCharSize is the width of one TCHAR in the target, which the
 	   name-reading helpers below depend on; it is measured from the target, not assumed from the
@@ -6278,7 +6278,7 @@ namespace InSDKUtils
 	BasicHpp << "}\n\n";
 	// End Namespace 'InSDKUtils'
 
-	// Generated-SDK counterpart to GDecryptCallbacks; defaults are identity/no-op.
+	// Generated-SDK counterpart to MD7::Globals::GDecryptCallbacks; defaults are identity/no-op.
 	BasicHpp << R"(namespace DecryptionUtils
 {
 	uintptr_t DecryptGNames(uintptr_t NamesPtr);
@@ -6379,7 +6379,7 @@ bool InSDKUtils::PathEndsWithModuleName(const char* Path)
 	/* Custom 'GetImageBase' function */
 	BasicCpp << fmt::format(R"(uintptr_t InSDKUtils::GetImageBase()
 {})",
-	                        GSettings.CppGenerator.InSDKUtils.GetImageBaseFuncBody.empty() ? DefaultGetImageBaseBody : GSettings.CppGenerator.InSDKUtils.GetImageBaseFuncBody);
+	                        MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetImageBaseFuncBody.empty() ? DefaultGetImageBaseBody : MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetImageBaseFuncBody);
 
 	BasicCpp << "\n";
 
@@ -6523,7 +6523,7 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 
 	BasicCpp << "\n";
 
-	// Default bodies; decrypt before the pointer/direct deref, matching GDecryptCallbacks.Statics.
+	// Default bodies; decrypt before the pointer/direct deref, matching MD7::Globals::GDecryptCallbacks.Statics.
 	const std::string DefaultGetGNamesBody = fmt::format(R"({{
 	/* Offsets::GNames {}. Change this if the game resolves GNames some other way. */
 	const uintptr_t Base = GetImageBase();
@@ -6563,7 +6563,7 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 	/* A fixed array indexes straight into one contiguous run; a chunked one selects a chunk first.
 	   TUObjectArray::GetObjects() returns FUObjectItem* in the first case and FUObjectItem** in the
 	   second, so the two expressions are not interchangeable. */
-	const bool bIsChunkedObjects = GLayouts.ObjectsLayout->GetType() != EObjectsType::Array;
+	const bool bIsChunkedObjects = MD7::Globals::GLayouts.ObjectsLayout->GetType() != EObjectsType::Array;
 
 	const std::string DefaultGetObjectByIndexBody = bIsChunkedObjects
 	                                                    ? R"({
@@ -6612,9 +6612,9 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 
 	std::string DefaultGetNameByIndexBody;
 
-	if (GLayouts.NamesLayout->GetType() == ENamesType::Array)
+	if (MD7::Globals::GLayouts.NamesLayout->GetType() == ENamesType::Array)
 	{
-		const auto NameLayout = reinterpret_cast<FNameArrayLayout*>(GLayouts.NamesLayout.get());
+		const auto NameLayout = reinterpret_cast<FNameArrayLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 
 		/* The legacy container holds its chunk table inline, so the table base is the address of the
 		   Chunks member rather than its value. Entries are NUL-terminated, and the packed Index field
@@ -6693,7 +6693,7 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 	}
 	else
 	{
-		const auto NameLayout = reinterpret_cast<FNamePoolLayout*>(GLayouts.NamesLayout.get());
+		const auto NameLayout = reinterpret_cast<FNamePoolLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 
 		/* A pool index is a block selector plus a byte offset scaled by Stride, so it is not ordinal:
 		   the entry is a packed record whose header carries both the length and the wide flag. */
@@ -6791,25 +6791,25 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 
 	BasicCpp << fmt::format(R"(uintptr_t InSDKUtils::GetGNames()
 {})",
-	                        GSettings.CppGenerator.InSDKUtils.GetGNamesFuncBody.empty() ? DefaultGetGNamesBody : GSettings.CppGenerator.InSDKUtils.GetGNamesFuncBody);
+	                        MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetGNamesFuncBody.empty() ? DefaultGetGNamesBody : MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetGNamesFuncBody);
 
 	BasicCpp << "\n";
 
 	BasicCpp << fmt::format(R"(TUObjectArray* InSDKUtils::GetGObjects()
 {})",
-	                        GSettings.CppGenerator.InSDKUtils.GetGObjectsBody.empty() ? DefaultGetGObjectsBody : GSettings.CppGenerator.InSDKUtils.GetGObjectsBody);
+	                        MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetGObjectsBody.empty() ? DefaultGetGObjectsBody : MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetGObjectsBody);
 
 	BasicCpp << "\n";
 
 	BasicCpp << fmt::format(R"(std::string InSDKUtils::GetNameByIndex(int32 Index)
 {})",
-	                        GSettings.CppGenerator.InSDKUtils.GetNameByIndexFuncBody.empty() ? DefaultGetNameByIndexBody : GSettings.CppGenerator.InSDKUtils.GetNameByIndexFuncBody);
+	                        MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetNameByIndexFuncBody.empty() ? DefaultGetNameByIndexBody : MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetNameByIndexFuncBody);
 
 	BasicCpp << "\n";
 
 	BasicCpp << fmt::format(R"(UObject* InSDKUtils::GetObjectByIndex(int32 Index)
 {})",
-	                        GSettings.CppGenerator.InSDKUtils.GetObjectByIndexFuncBody.empty() ? DefaultGetObjectByIndexBody : GSettings.CppGenerator.InSDKUtils.GetObjectByIndexFuncBody);
+	                        MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetObjectByIndexFuncBody.empty() ? DefaultGetObjectByIndexBody : MD7::Globals::GSettings.CppGenerator.InSDKUtils.GetObjectByIndexFuncBody);
 
 	BasicHpp << R"(
 namespace BasicFilesImplUtils
@@ -7020,9 +7020,9 @@ ClassType* GetDefaultObjImpl()
 }
 )";
 
-	if (GLayouts.ObjectsLayout->GetType() == EObjectsType::Array)
+	if (MD7::Globals::GLayouts.ObjectsLayout->GetType() == EObjectsType::Array)
 	{
-		const auto ObjLayout        = reinterpret_cast<FFixedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
+		const auto ObjLayout        = reinterpret_cast<FFixedUObjectArrayLayout*>(MD7::Globals::GLayouts.ObjectsLayout.get());
 		const int32 ObjectArraySize = (std::max)({FieldEnd(ObjLayout->Objects, (int32)sizeof(void*)), FieldEnd(ObjLayout->MaxObjects, (int32)sizeof(int32)), FieldEnd(ObjLayout->NumObjects, (int32)sizeof(int32))});
 
 		// Start class 'FUObjectItem'
@@ -7158,7 +7158,7 @@ ClassType* GetDefaultObjImpl()
 	}
 	else
 	{
-		auto ObjLayout              = reinterpret_cast<FChunkedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
+		auto ObjLayout              = reinterpret_cast<FChunkedUObjectArrayLayout*>(MD7::Globals::GLayouts.ObjectsLayout.get());
 		const int32 ObjectArraySize = std::max({FieldEnd(ObjLayout->Objects, (int32)sizeof(void*)), FieldEnd(ObjLayout->MaxElements, (int32)sizeof(int32)), FieldEnd(ObjLayout->NumElements, (int32)sizeof(int32)), FieldEnd(ObjLayout->MaxChunks, (int32)sizeof(int32)), FieldEnd(ObjLayout->NumChunks, (int32)sizeof(int32))});
 
 		// Start class 'FUObjectItem'
@@ -7314,9 +7314,9 @@ ClassType* GetDefaultObjImpl()
 
 
 	// Start struct 'FNameEntry' and the names container
-	if (GLayouts.NamesLayout->GetType() == ENamesType::Array)
+	if (MD7::Globals::GLayouts.NamesLayout->GetType() == ENamesType::Array)
 	{
-		const auto NameLayout = reinterpret_cast<FNameArrayLayout*>(GLayouts.NamesLayout.get());
+		const auto NameLayout = reinterpret_cast<FNameArrayLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 
 		constexpr int32 EntryAlignment = alignof(int32);
 
@@ -7444,7 +7444,7 @@ ClassType* GetDefaultObjImpl()
 	}
 	else
 	{
-		const auto NameLayout = reinterpret_cast<FNamePoolLayout*>(GLayouts.NamesLayout.get());
+		const auto NameLayout = reinterpret_cast<FNamePoolLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 
 		constexpr int32 EntryAlignment = alignof(uint16);
 
@@ -7640,7 +7640,7 @@ ClassType* GetDefaultObjImpl()
 
 	/* class FName */
 	PredefinedStruct FName = PredefinedStruct{
-	    .UniqueName = "FName", .Size = GOffsets.FName.SizeOf, .Alignment = alignof(int32), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
+	    .UniqueName = "FName", .Size = MD7::Globals::GOffsets.FName.SizeOf, .Alignment = alignof(int32), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
 
 	FName.Properties =
 	    {
@@ -7665,7 +7665,7 @@ ClassType* GetDefaultObjImpl()
 		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
 		    .Type              = (InternalSettings::bUseNamePool ? "uint32" : "int32"),
 		    .Name              = "Number",
-		    .Offset            = GOffsets.FName.Number,
+		    .Offset            = MD7::Globals::GOffsets.FName.Number,
 		    .Size              = sizeof(int32),
 		    .ArrayDim          = 0x1,
 		    .Alignment         = alignof(int32),
@@ -7678,7 +7678,7 @@ ClassType* GetDefaultObjImpl()
 
 	if (InternalSettings::bUseCasePreservingName)
 	{
-		const int32 DisplayIndexOffset = GOffsets.FName.Number == 4 ? 0x8 : 0x4;
+		const int32 DisplayIndexOffset = MD7::Globals::GOffsets.FName.Number == 4 ? 0x8 : 0x4;
 
 		FName.Properties.push_back(PredefinedMember{
 		    .Comment           = "NOT AUTO-GENERATED PROPERTY",
@@ -7944,7 +7944,7 @@ public:
 	}
 
 
-	const int32 TextDataSize = (GInSDKOffsets.FText.InTextDataString + sizeof(FString));
+	const int32 TextDataSize = (MD7::Globals::GInSDKOffsets.FText.InTextDataString + sizeof(FString));
 
 	/* class FTextData */
 	PredefinedStruct FTextData = PredefinedStruct{
@@ -7956,7 +7956,7 @@ public:
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class FString",
 	            .Name              = "TextSource",
-	            .Offset            = GInSDKOffsets.FText.InTextDataString,
+	            .Offset            = MD7::Globals::GInSDKOffsets.FText.InTextDataString,
 	            .Size              = sizeof(FString),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(FString),
@@ -7974,7 +7974,7 @@ namespace FTextImpl
 
 	/* class FText */
 	PredefinedStruct FText = PredefinedStruct{
-	    .UniqueName = "FText", .Size = GInSDKOffsets.FText.SizeOf, .Alignment = sizeof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
+	    .UniqueName = "FText", .Size = MD7::Globals::GInSDKOffsets.FText.SizeOf, .Alignment = sizeof(void*), .bUseExplictAlignment = false, .bIsFinal = true, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
 
 	FText.Properties =
 	    {
@@ -7982,7 +7982,7 @@ namespace FTextImpl
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "class FTextImpl::FTextData*",
 	            .Name              = "TextData",
-	            .Offset            = GInSDKOffsets.FText.TextData,
+	            .Offset            = MD7::Globals::GInSDKOffsets.FText.TextData,
 	            .Size              = sizeof(void*),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = 0x1,
@@ -8025,7 +8025,7 @@ namespace FTextImpl
 
 	/* Wider than the stock int32 pair wherever a game obfuscates object references. FScriptDelegate
 	   and TPersistentObjectPtr are built on it, so sizing it wrongly shifts every member past one. */
-	const int32 FWeakObjectPtrSize = GInSDKOffsets.WeakObjectProperty.SizeOf > 0 ? GInSDKOffsets.WeakObjectProperty.SizeOf : 0x08;
+	const int32 FWeakObjectPtrSize = MD7::Globals::GInSDKOffsets.WeakObjectProperty.SizeOf > 0 ? MD7::Globals::GInSDKOffsets.WeakObjectProperty.SizeOf : 0x08;
 
 	/* class FWeakObjectPtr */
 	PredefinedStruct FWeakObjectPtr = PredefinedStruct{
@@ -8441,7 +8441,7 @@ public:
 	if constexpr (Utils::Memory::Is32Bit())
 		BasicHpp << fmt::format("\n#pragma pack(push, 0x{:X})\n", Utils::Memory::k32BitStructPacking);
 
-	if (GSettings.EngineCore.bEnableEncryptedObjectPropertySupport)
+	if (MD7::Globals::GSettings.EngineCore.bEnableEncryptedObjectPropertySupport)
 	{
 		/* struct FEncryptedObjPtr */
 		BasicHpp <<
@@ -8603,7 +8603,7 @@ public:
 		// class FFieldPath
 		// Use explict alignment for padding
 		PredefinedStruct FFieldPath = PredefinedStruct{
-		    .UniqueName = "FFieldPath", .Size = GInSDKOffsets.FieldPathProperty.SizeOf, .Alignment = alignof(void*), .bUseExplictAlignment = true, .bIsFinal = false, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
+		    .UniqueName = "FFieldPath", .Size = MD7::Globals::GInSDKOffsets.FieldPathProperty.SizeOf, .Alignment = alignof(void*), .bUseExplictAlignment = true, .bIsFinal = false, .bIsClass = true, .bIsUnion = false, .Super = nullptr};
 
 		GenerateStruct(&FFieldPath, BasicHpp, BasicCpp, BasicHpp, AssertionsFile);
 
@@ -8611,7 +8611,7 @@ public:
 		PredefinedStruct TFieldPath = PredefinedStruct{
 		    .CustomTemplateText   = "template<class PropertyType>",
 		    .UniqueName           = "TFieldPath",
-		    .Size                 = GInSDKOffsets.FieldPathProperty.SizeOf,
+		    .Size                 = MD7::Globals::GInSDKOffsets.FieldPathProperty.SizeOf,
 		    .Alignment            = alignof(void*),
 		    .bUseExplictAlignment = false,
 		    .bIsFinal             = true,
@@ -8691,7 +8691,7 @@ public:
 )";
 	} /* End 'if (InternalSettings::bUseFProperty)' */
 
-	const auto ScriptDelegateSize = (FWeakObjectPtrSize + GOffsets.FName.SizeOf);
+	const auto ScriptDelegateSize = (FWeakObjectPtrSize + MD7::Globals::GOffsets.FName.SizeOf);
 
 	/* FScriptDelegate */
 	PredefinedStruct FScriptDelegate = PredefinedStruct{
@@ -8716,7 +8716,7 @@ public:
 	            .Type              = "FName",
 	            .Name              = "FunctionName",
 	            .Offset            = FWeakObjectPtrSize,
-	            .Size              = GOffsets.FName.SizeOf,
+	            .Size              = MD7::Globals::GOffsets.FName.SizeOf,
 	            .ArrayDim          = 0x1,
 	            .Alignment         = 0x4,
 	            .bIsStatic         = false,
@@ -8732,7 +8732,7 @@ public:
 	PredefinedStruct TDelegate = PredefinedStruct{
 	    .CustomTemplateText   = "template<typename FunctionSignature>",
 	    .UniqueName           = "TDelegate",
-	    .Size                 = GInSDKOffsets.DelegateProperty.SizeOf,
+	    .Size                 = MD7::Globals::GInSDKOffsets.DelegateProperty.SizeOf,
 	    .Alignment            = 0x4,
 	    .bUseExplictAlignment = false,
 	    .bIsFinal             = false,
@@ -8747,7 +8747,7 @@ public:
 	PredefinedStruct TDelegateSpezialiation = PredefinedStruct{
 	    .CustomTemplateText   = "template<typename Ret, typename... Args>",
 	    .UniqueName           = "TDelegate<Ret(Args...)>",
-	    .Size                 = GInSDKOffsets.DelegateProperty.SizeOf,
+	    .Size                 = MD7::Globals::GInSDKOffsets.DelegateProperty.SizeOf,
 	    .Alignment            = 0x1,
 	    .bUseExplictAlignment = false,
 	    .bIsFinal             = false,
@@ -8776,7 +8776,7 @@ public:
 	PredefinedStruct TMulticastInlineDelegate = PredefinedStruct{
 	    .CustomTemplateText   = "template<typename FunctionSignature>",
 	    .UniqueName           = "TMulticastInlineDelegate",
-	    .Size                 = GInSDKOffsets.MulticastInlineDelegateProperty.SizeOf,
+	    .Size                 = MD7::Globals::GInSDKOffsets.MulticastInlineDelegateProperty.SizeOf,
 	    .Alignment            = alignof(TArray<int>),
 	    .bUseExplictAlignment = false,
 	    .bIsFinal             = false,
@@ -8804,7 +8804,7 @@ public:
 	            .Comment           = "NOT AUTO-GENERATED PROPERTY",
 	            .Type              = "TArray<FScriptDelegate>",
 	            .Name              = "InvocationList",
-	            .Offset            = static_cast<int32>(GInSDKOffsets.MulticastInlineDelegateProperty.SizeOf - sizeof(TArray<int>)),
+	            .Offset            = static_cast<int32>(MD7::Globals::GInSDKOffsets.MulticastInlineDelegateProperty.SizeOf - sizeof(TArray<int>)),
 	            .Size              = sizeof(TArray<int>),
 	            .ArrayDim          = 0x1,
 	            .Alignment         = alignof(TArray<int>),

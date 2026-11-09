@@ -209,7 +209,7 @@ void StructManager::InitAlignmentsAndNames()
 		const int32 CappedSize    = bHasProvenSafeSize ? std::min(RawStructSize, SafeSizeIt->second) : RawStructSize;
 
 		if (CappedSize < RawStructSize)
-			GLogger.FmtWrite(ELogLevel::Warning, "StructManager: Corrected size of '{}' from 0x{:X} to 0x{:X} (proven unreliable by a real sibling-member overlap)\n", ObjAsStruct.GetCppName(), RawStructSize, CappedSize);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "StructManager: Corrected size of '{}' from 0x{:X} to 0x{:X} (proven unreliable by a real sibling-member overlap)\n", ObjAsStruct.GetCppName(), RawStructSize, CappedSize);
 
 		int32 MinAlignment = ObjAsStruct.GetMinAlignment();
 		if (bHasProvenSafeSize)
@@ -218,7 +218,7 @@ void StructManager::InitAlignmentsAndNames()
 
 			if (CappedAlignment < MinAlignment)
 			{
-				GLogger.FmtWrite(ELogLevel::Warning, "StructManager: Corrected alignment of '{}' from 0x{:X} to 0x{:X} (implied by its corrected size)\n", ObjAsStruct.GetCppName(), MinAlignment, CappedAlignment);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "StructManager: Corrected alignment of '{}' from 0x{:X} to 0x{:X} (implied by its corrected size)\n", ObjAsStruct.GetCppName(), MinAlignment, CappedAlignment);
 				MinAlignment = CappedAlignment;
 			}
 		}
@@ -285,7 +285,7 @@ void StructManager::InitAlignmentsAndNames()
 		// Get a top to bottom list of a struct and all of its supers. Bounded by StructStack's
 		// capacity: a cyclic/corrupted SuperStruct-chain would otherwise write past the array
 		// and never terminate.
-		for (UEStruct S = ObjAsStruct; GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(S.GetAddress())) && NumElementsInStructStack < MaxNumSuperClasses; S = S.GetSuper())
+		for (UEStruct S = ObjAsStruct; MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(S.GetAddress())) && NumElementsInStructStack < MaxNumSuperClasses; S = S.GetSuper())
 		{
 			StructStack[NumElementsInStructStack] = S;
 			NumElementsInStructStack++;
@@ -377,13 +377,13 @@ void StructManager::InitSizesAndIsFinal()
 		 *
 		 * breaks out of the loop after encountering a super-struct which is not empty (aka. has member-variables)
 		 */
-		for (UEStruct S = Super; GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(S.GetAddress())); S = S.GetSuper())
+		for (UEStruct S = Super; MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(S.GetAddress())); S = S.GetSuper())
 		{
 			auto It = StructInfoOverrides.find(S.GetIndex());
 
 			if (It == StructInfoOverrides.end())
 			{
-				GLogger.FmtWrite(ELogLevel::Error, "StructManager::InitSizesAndIsFinal: Error, struct wasn't found in 'StructInfoOverrides'! Exiting...\n\n");
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "StructManager::InitSizesAndIsFinal: Error, struct wasn't found in 'StructInfoOverrides'! Exiting...\n\n");
 				exit(1);
 			}
 
@@ -455,7 +455,7 @@ void StructManager::InitSizesAndIsFinal()
 		if (S.HasType(InterfaceClass) || S.IsA(EClassCastFlags::Function))
 			continue;
 
-		for (UEStruct Super = S.GetSuper(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Super.GetAddress())); Super = Super.GetSuper())
+		for (UEStruct Super = S.GetSuper(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Super.GetAddress())); Super = Super.GetSuper())
 		{
 			auto It = StructInfoOverrides.find(Super.GetIndex());
 			if (It == StructInfoOverrides.end())
@@ -546,7 +546,7 @@ StructInfoHandle StructManager::GetInfo(const UEStruct Struct)
 	auto It = StructInfoOverrides.find(Struct.GetIndex());
 	if (It == StructInfoOverrides.end())
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "StructManager::GetInfo: Struct not in map [ Index={}, Name='{}' ]\n", Struct.GetIndex(), Struct.GetFullName());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "StructManager::GetInfo: Struct not in map [ Index={}, Name='{}' ]\n", Struct.GetIndex(), Struct.GetFullName());
 		return Invalid;
 	}
 
@@ -572,7 +572,7 @@ void StructManager::PackageManagerSetCycleForStruct(int32 StructIndex, int32 Pac
 	auto It = StructInfoOverrides.find(StructIndex);
 	if (It == StructInfoOverrides.end())
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "StructManager::PackageManagerSetCycleForStruct: Struct not in map [ Index={} ]\n", StructIndex);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "StructManager::PackageManagerSetCycleForStruct: Struct not in map [ Index={} ]\n", StructIndex);
 		return;
 	}
 

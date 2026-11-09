@@ -131,7 +131,7 @@ namespace UEAnalyzerKitty
 
 		/// Resolves a table that the anchored function allocates and stores.
 		///
-		/// UE <= 4.22 builds GNames in FName::StaticInit rather than receiving it:
+		/// UE <= 4.22 builds MD7::Globals::GNames in FName::StaticInit rather than receiving it:
 		/// the function allocates N bytes, stores the pointer into the global, then
 		/// reads its counts back at N-8 and N-4 - TNameEntryArray being
 		/// `FNameEntry** Chunks[]; int32 NumElements; int32 NumChunks`. That

@@ -6,6 +6,8 @@
 
 #include "../../IProfile.h"
 
+// Thanks sunnysharma4002 https://github.com/MJx0/MobileDumper-7/pull/14
+
 class PUBGProfile : public IProfile
 {
 public:
@@ -29,10 +31,9 @@ public:
 
 	void OverrideSettings(FSettings& Settings) const override
 	{
-		if (!bFoundViaNestedManager)
-			return;
-
-		Settings.CppGenerator.InSDKUtils.GetGNamesFuncBody = fmt::format(R"({{
+		if (bFoundViaNestedManager)
+		{
+			Settings.CppGenerator.InSDKUtils.GetGNamesFuncBody = fmt::format(R"({{
     const uintptr_t Base = GetImageBase();
 
     if (!Base)
@@ -52,7 +53,8 @@ public:
 
     return *reinterpret_cast<uintptr_t*>(NameArray);
 }})",
-		                                                                 kNestedGNamesOffset);
+			                                                                 kNestedGNamesOffset);
+		}
 	}
 
 	void OverrideDecryptCallbacks(FDecryptCallbacks& Callbacks) const override
@@ -75,11 +77,11 @@ private:
 
 	static uintptr_t DecryptGNames(uintptr_t NamesPtr)
 	{
-		const uintptr_t Manager = GMemory->Read<uintptr_t>(NamesPtr);
-		if (GMemory->IsAddressReadable(Manager + kNestedGNamesOffset))
+		const uintptr_t Manager = MD7::Globals::GMemory->Read<uintptr_t>(NamesPtr);
+		if (MD7::Globals::GMemory->IsAddressReadable(Manager + kNestedGNamesOffset))
 		{
-			const uintptr_t NameArray = GMemory->Read<uintptr_t>(Manager + kNestedGNamesOffset);
-			if (GMemory->IsAddressReadable(NameArray))
+			const uintptr_t NameArray = MD7::Globals::GMemory->Read<uintptr_t>(Manager + kNestedGNamesOffset);
+			if (MD7::Globals::GMemory->IsAddressReadable(NameArray))
 				return NameArray;
 		}
 
@@ -95,7 +97,7 @@ private:
 
 		auto IsReadWritePointer = [](uintptr_t Ptr) -> bool
 		{
-			return Utils::Memory::IsAligned(Ptr, sizeof(uintptr_t)) && GMemory->IsAddressReadable(Ptr) && GMemory->IsAddressWriteable(Ptr);
+			return Utils::Memory::IsAligned(Ptr, sizeof(uintptr_t)) && MD7::Globals::GMemory->IsAddressReadable(Ptr) && MD7::Globals::GMemory->IsAddressWriteable(Ptr);
 		};
 
 		auto LooksLikeEntry0 = [](uintptr_t Entry0) -> bool
@@ -105,14 +107,14 @@ private:
 			for (uintptr_t IndexOffset : {uintptr_t(0), uintptr_t(4), uintptr_t(8)})
 			{
 				uint32_t Index = 0;
-				if (GMemory->ReadBytes(Entry0 + IndexOffset, &Index, sizeof(Index)) != sizeof(Index))
+				if (MD7::Globals::GMemory->ReadBytes(Entry0 + IndexOffset, &Index, sizeof(Index)) != sizeof(Index))
 					continue;
 
 				if ((Index >> 1) != 0)
 					continue;
 
 				uint8_t Text[10]{};
-				if (GMemory->ReadBytes(Entry0 + IndexOffset + sizeof(uint32_t), Text, sizeof(Text)) != sizeof(Text))
+				if (MD7::Globals::GMemory->ReadBytes(Entry0 + IndexOffset + sizeof(uint32_t), Text, sizeof(Text)) != sizeof(Text))
 					continue;
 
 				if (std::memcmp(Text, AnsiNone, sizeof(AnsiNone)) == 0)
@@ -124,11 +126,11 @@ private:
 
 		auto LooksLikeNameArrayDirect = [&IsReadWritePointer, &LooksLikeEntry0](uintptr_t Ptr) -> bool
 		{
-			const uintptr_t Chunk0 = GMemory->Read<uintptr_t>(Ptr);
+			const uintptr_t Chunk0 = MD7::Globals::GMemory->Read<uintptr_t>(Ptr);
 			if (!IsReadWritePointer(Chunk0))
 				return false;
 
-			const uintptr_t Entry0 = GMemory->Read<uintptr_t>(Chunk0);
+			const uintptr_t Entry0 = MD7::Globals::GMemory->Read<uintptr_t>(Chunk0);
 			if (!IsReadWritePointer(Entry0))
 				return false;
 
@@ -137,22 +139,22 @@ private:
 
 		auto LooksLikeNameArrayNested = [&IsReadWritePointer, &LooksLikeEntry0](uintptr_t Ptr) -> bool
 		{
-			const uintptr_t Chunks = GMemory->Read<uintptr_t>(Ptr);
+			const uintptr_t Chunks = MD7::Globals::GMemory->Read<uintptr_t>(Ptr);
 			if (!IsReadWritePointer(Chunks))
 				return false;
 
-			const uintptr_t Chunk0 = GMemory->Read<uintptr_t>(Chunks);
+			const uintptr_t Chunk0 = MD7::Globals::GMemory->Read<uintptr_t>(Chunks);
 			if (!IsReadWritePointer(Chunk0))
 				return false;
 
-			const uintptr_t Entry0 = GMemory->Read<uintptr_t>(Chunk0);
+			const uintptr_t Entry0 = MD7::Globals::GMemory->Read<uintptr_t>(Chunk0);
 			if (!IsReadWritePointer(Entry0))
 				return false;
 
 			return LooksLikeEntry0(Entry0);
 		};
 
-		for (const auto& Segment : GMemory->GetUnrealModule().GetSegments())
+		for (const auto& Segment : MD7::Globals::GMemory->GetUnrealModule().GetSegments())
 		{
 			if (!Segment.IsValid() || !Segment.IsReadable() || !Segment.IsWriteable() || Segment.IsExecutable())
 				continue;
@@ -165,7 +167,7 @@ private:
 				if (BlockSize != Block.size())
 					Block.resize(BlockSize);
 
-				if (GMemory->ReadBytes(Segment.GetStart() + Offset, Block.data(), BlockSize) != BlockSize)
+				if (MD7::Globals::GMemory->ReadBytes(Segment.GetStart() + Offset, Block.data(), BlockSize) != BlockSize)
 					continue;
 
 				for (size_t InBlock = 0; InBlock + sizeof(uintptr_t) <= BlockSize; InBlock += sizeof(uintptr_t))
@@ -184,11 +186,11 @@ private:
 					if (LooksLikeNameArrayDirect(Value))
 					{
 						bFoundViaNestedManager = false;
-						GLogger.FmtWrite(ELogLevel::Info, "GetGNames: Structural scan found GNames global at 0x{:X} -> 0x{:X}\n", GMemory->GetUnrealModule().AddressToOffset(Global), Global);
+						MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GetGNames: Structural scan found GNames global at 0x{:X} -> 0x{:X}\n", MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(Global), Global);
 						return Global;
 					}
 
-					const uintptr_t Nested = GMemory->Read<uintptr_t>(Value + kNestedGNamesOffset);
+					const uintptr_t Nested = MD7::Globals::GMemory->Read<uintptr_t>(Value + kNestedGNamesOffset);
 					if (!IsReadWritePointer(Nested))
 						continue;
 
@@ -196,13 +198,13 @@ private:
 						continue;
 
 					bFoundViaNestedManager = true;
-					GLogger.FmtWrite(ELogLevel::Info, "GetGNames: Structural scan found nested GNames global at 0x{:X} -> 0x{:X}\n", GMemory->GetUnrealModule().AddressToOffset(Global), Global);
+					MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GetGNames: Structural scan found nested GNames global at 0x{:X} -> 0x{:X}\n", MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(Global), Global);
 					return Global;
 				}
 			}
 		}
 
-		GLogger.FmtWrite(ELogLevel::Warning, "GetGNames: Structural scan couldn't find GNames global!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "GetGNames: Structural scan couldn't find GNames global!\n");
 		return 0;
 	}
 };

@@ -588,7 +588,7 @@ void PackageManager::HandleCycles()
 		auto Dependencies = CurrentPackageInfo.GetPackageDependencies().ClassesDependencies.find(Cycle.PreviousPacakge);
 		if (Dependencies == CurrentPackageInfo.GetPackageDependencies().ClassesDependencies.end())
 		{
-			GLogger.FmtWrite(ELogLevel::Warning, "Warning PackageManager::HandleCycles(): Pacakge({}) not in ClassesDependencies!", Cycle.PreviousPacakge);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Warning PackageManager::HandleCycles(): Pacakge({}) not in ClassesDependencies!", Cycle.PreviousPacakge);
 			continue;
 		}
 

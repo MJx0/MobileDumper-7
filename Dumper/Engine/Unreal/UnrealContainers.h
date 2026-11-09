@@ -338,11 +338,11 @@ namespace UC
 		}
 
 	public:
-		/* Reads element from remote (game-process) memory via GMemory */
+		/* Reads element from remote (game-process) memory via MD7::Globals::GMemory */
 		inline ArrayElementType operator[](int32 Index) const
 		{
 			VerifyIndex(Index);
-			return GMemory->Read<ArrayElementType>(GetElementAddress(Index));
+			return MD7::Globals::GMemory->Read<ArrayElementType>(GetElementAddress(Index));
 		}
 
 		/* Direct pointer write — only valid when Data is local (Add/Remove/Clear paths) */
@@ -553,7 +553,7 @@ namespace UC
 		const ContainerImpl::FBitArray& GetAllocationFlags() const { return AllocationFlags; }
 
 	public:
-		/* Reads element from remote (game-process) memory via GMemory; returns by value */
+		/* Reads element from remote (game-process) memory via MD7::Globals::GMemory; returns by value */
 		inline SparseArrayElementType operator[](int32 Index) const
 		{
 			VerifyIndex(Index);
@@ -634,7 +634,7 @@ namespace UC
 		const ContainerImpl::FBitArray& GetAllocationFlags() const { return Elements.GetAllocationFlags(); }
 
 	public:
-		/* Reads element from remote (game-process) memory via GMemory; returns by value */
+		/* Reads element from remote (game-process) memory via MD7::Globals::GMemory; returns by value */
 		inline SetElementType operator[](int32 Index) const
 		{
 			VerifyIndex(Index);
@@ -706,7 +706,7 @@ namespace UC
 		}
 
 	public:
-		/* Reads element from remote (game-process) memory via GMemory; returns by value */
+		/* Reads element from remote (game-process) memory via MD7::Globals::GMemory; returns by value */
 		inline ElementType operator[](int32 Index) const
 		{
 			VerifyIndex(Index);
@@ -851,7 +851,7 @@ namespace UC
 				return *this;
 			}
 
-			/* Reads element via GMemory (const operator[]) */
+			/* Reads element via MD7::Globals::GMemory (const operator[]) */
 			inline ArrayType operator*() const { return const_cast<const TArray<ArrayType>&>(IteratedArray)[GetIndex()]; }
 
 			struct ArrowProxy
@@ -894,7 +894,7 @@ namespace UC
 				return *this;
 			}
 
-			/* Reads element from remote memory via GMemory; returns by value */
+			/* Reads element from remote memory via MD7::Globals::GMemory; returns by value */
 			inline ElementType operator*() { return IteratedContainer[GetIndex()]; }
 			inline ElementType operator*() const { return IteratedContainer[GetIndex()]; }
 

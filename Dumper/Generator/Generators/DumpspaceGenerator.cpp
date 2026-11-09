@@ -220,7 +220,7 @@ std::string DumpspaceGenerator::GetMemberTypeStr(UEProperty Property, std::strin
 
 		return "UObject";
 	}
-	else if (GSettings.EngineCore.bEnableEncryptedObjectPropertySupport && Flags & EClassCastFlags::ObjectPropertyBase && Member.GetSize() == 0x10)
+	else if (MD7::Globals::GSettings.EngineCore.bEnableEncryptedObjectPropertySupport && Flags & EClassCastFlags::ObjectPropertyBase && Member.GetSize() == 0x10)
 	{
 		if (UEClass PropertyClass = Member.Cast<UEObjectProperty>().GetPropertyClass())
 			return fmt::format("TEncryptedObjPtr<class {}>", CppGeneratorAccessor::GetStructPrefixedName(PropertyClass));
@@ -448,11 +448,11 @@ void DumpspaceGenerator::GeneratedStaticOffsets()
 {
 	DSGen::addOffset("MobileDumper", 7);
 
-	DSGen::addOffset("OFFSET_GOBJECTS", GInSDKOffsets.Statics.GObjects);
-	DSGen::addOffset("OFFSET_GNAMES", GInSDKOffsets.Statics.GNames);
-	DSGen::addOffset("OFFSET_GWORLD", GInSDKOffsets.Statics.GWorld);
-	DSGen::addOffset("OFFSET_ProcessEvent", GInSDKOffsets.Statics.PEOffset);
-	DSGen::addOffset("INDEX_ProcessEvent", GInSDKOffsets.Statics.PEIndex);
+	DSGen::addOffset("OFFSET_GOBJECTS", MD7::Globals::GInSDKOffsets.Statics.GObjects);
+	DSGen::addOffset("OFFSET_GNAMES", MD7::Globals::GInSDKOffsets.Statics.GNames);
+	DSGen::addOffset("OFFSET_GWORLD", MD7::Globals::GInSDKOffsets.Statics.GWorld);
+	DSGen::addOffset("OFFSET_ProcessEvent", MD7::Globals::GInSDKOffsets.Statics.PEOffset);
+	DSGen::addOffset("INDEX_ProcessEvent", MD7::Globals::GInSDKOffsets.Statics.PEIndex);
 }
 
 void DumpspaceGenerator::Generate()
@@ -460,7 +460,7 @@ void DumpspaceGenerator::Generate()
 	/* Set the output directory of DSGen to "...GenerationPath/Dumespace" */
 	DSGen::setDirectory(MainFolder);
 
-	/* Add offsets for GObjects, GNames, GWorld, AppendString, PrcessEvent and ProcessEventIndex*/
+	/* Add offsets for MD7::Globals::GObjects, MD7::Globals::GNames, GWorld, AppendString, PrcessEvent and ProcessEventIndex*/
 	GeneratedStaticOffsets();
 
 	// Generates all packages and writes them to files

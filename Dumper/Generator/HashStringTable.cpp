@@ -169,7 +169,7 @@ inline std::pair<HashStringTableIndex, bool> HashStringTable::FindOrAdd(const Ch
 
 	if (!Str || Length <= 0 || Length > StringEntry::MaxStringLength)
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "HashStringTable: Error on line {{{:d}}}: {}\n", __LINE__, !Str ? "!Str" : Length <= 0 ? "Length <= 0"
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "HashStringTable: Error on line {{{:d}}}: {}\n", __LINE__, !Str ? "!Str" : Length <= 0 ? "Length <= 0"
 		                                                                                                                            : "Length > MaxStringLength");
 		return {HashStringTableIndex::FromInt(-1), false};
 	}
@@ -228,11 +228,11 @@ void HashStringTable::DebugPrintStats() const
 		TotalMemoryUsed      += Bucket.Size;
 		TotalMemoryAllocated += Bucket.SizeMax;
 
-		GLogger.FmtWrite(ELogLevel::Debug, "Bucket[{:02d}] = {{ Data = {:p}, Size = {:05X}, SizeMax = {:05X} }}\n", i, static_cast<void*>(Bucket.Data), Bucket.Size, Bucket.SizeMax);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "Bucket[{:02d}] = {{ Data = {:p}, Size = {:05X}, SizeMax = {:05X} }}\n", i, static_cast<void*>(Bucket.Data), Bucket.Size, Bucket.SizeMax);
 	}
 
-	GLogger.FmtWrite(ELogLevel::Debug, "TotalMemoryUsed: {:X}\n", TotalMemoryUsed);
-	GLogger.FmtWrite(ELogLevel::Debug, "TotalMemoryAllocated: {:X}\n", TotalMemoryAllocated);
-	GLogger.FmtWrite(ELogLevel::Debug, "Percentage of allocation in use: {:.3f}\n", static_cast<double>(TotalMemoryUsed) / TotalMemoryAllocated);
-	GLogger.FmtWrite(ELogLevel::Debug, "==============\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "TotalMemoryUsed: {:X}\n", TotalMemoryUsed);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "TotalMemoryAllocated: {:X}\n", TotalMemoryAllocated);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "Percentage of allocation in use: {:.3f}\n", static_cast<double>(TotalMemoryUsed) / TotalMemoryAllocated);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "==============\n");
 }

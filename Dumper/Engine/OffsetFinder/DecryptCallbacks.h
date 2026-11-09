@@ -76,7 +76,7 @@ inline void DecryptBufferIdentity(CharT* Data, int32 Len)
 /**
  * @brief Per-offset value decryption hooks.
  *
- * No hook is handed a container base, so one that needs @ref GObjects or @ref GNames reads the
+ * No hook is handed a container base, so one that needs @ref MD7::Globals::GObjects or @ref MD7::Globals::GNames reads the
  * global when it is called: both are rewritten per candidate during detection, so a captured copy
  * would go stale.
  */
@@ -93,7 +93,7 @@ struct FDecryptCallbacks
 	{
 		/// @brief Decrypts the GUObjectArray pointer.
 		FDecryptFn<uintptr_t> GObjects = DecryptIdentity<uintptr_t>;
-		/// @brief Decrypts the GNames pointer.
+		/// @brief Decrypts the MD7::Globals::GNames pointer.
 		FDecryptFn<uintptr_t> GNames = DecryptIdentity<uintptr_t>;
 	} Statics;
 
@@ -214,5 +214,8 @@ struct FDecryptCallbacks
 	} ChunkedObjects;
 };
 
-/// @brief Active value decryption hooks.
-extern FDecryptCallbacks GDecryptCallbacks;
+namespace MD7::Globals
+{
+	/// @brief Active value decryption hooks.
+	extern FDecryptCallbacks GDecryptCallbacks;
+}

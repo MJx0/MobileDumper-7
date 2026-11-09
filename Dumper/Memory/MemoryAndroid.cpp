@@ -231,7 +231,7 @@ bool FMemoryAndroid::ReadRelocationSlot(uintptr_t Slot, uintptr_t& Out) const
 
 // ── Module operations ──────────────────────────────────────────────────────────
 
-std::pair<ElfScanner, ModuleInfo>* FMemoryAndroid::GetOrInsertModuleCache(const std::string& ModuleName)
+std::pair<ElfScanner, ModuleInfo>* FMemoryAndroid::GetOrInsertModuleCache(const std::string& ModuleName) const
 {
 	if (ModuleCache.contains(ModuleName))
 		return &ModuleCache[ModuleName];
@@ -282,13 +282,13 @@ std::pair<ElfScanner, ModuleInfo>* FMemoryAndroid::GetOrInsertModuleCache(const 
 	return nullptr;
 }
 
-ModuleInfo FMemoryAndroid::GetModuleInfo(const std::string& ModuleName)
+ModuleInfo FMemoryAndroid::GetModuleInfo(const std::string& ModuleName) const
 {
 	auto Module = GetOrInsertModuleCache(ModuleName);
 	return Module ? Module->second : ModuleInfo{};
 }
 
-uintptr_t FMemoryAndroid::FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName)
+uintptr_t FMemoryAndroid::FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName) const
 {
 	if (ModuleName.empty() || SymbolName.empty())
 		return 0;
@@ -309,14 +309,14 @@ uintptr_t FMemoryAndroid::FindModuleSymbol(const std::string& ModuleName, const 
 	return 0;
 }
 
-ModuleInfo FMemoryAndroid::GetUnrealModule()
+ModuleInfo FMemoryAndroid::GetUnrealModule() const
 {
 	if (CachedUnrealModule.first.isValid() && CachedUnrealModule.second.IsValid())
 		return CachedUnrealModule.second;
 
-	if (!GSettings.General.UnrealModuleName.empty())
+	if (!MD7::Globals::GSettings.General.UnrealModuleName.empty())
 	{
-		auto Module = GetOrInsertModuleCache(GSettings.General.UnrealModuleName);
+		auto Module = GetOrInsertModuleCache(MD7::Globals::GSettings.General.UnrealModuleName);
 		if (Module)
 		{
 			CachedUnrealModule = *Module;
@@ -324,7 +324,7 @@ ModuleInfo FMemoryAndroid::GetUnrealModule()
 		}
 	}
 
-	for (const std::string& Name : GSettings.General.AndroidUnrealDefaultNames)
+	for (const std::string& Name : MD7::Globals::GSettings.General.AndroidUnrealDefaultNames)
 	{
 		auto Module = GetOrInsertModuleCache(Name);
 		if (Module)
@@ -344,7 +344,7 @@ ModuleInfo FMemoryAndroid::GetUnrealModule()
  * becomes meaningful once the loader has bound it, and it points wherever the provider happened
  * to land. The relocation table gives the address directly and is valid either way.
  */
-uintptr_t FMemoryAndroid::FindUnrealImportSlot(const std::string& SymbolName)
+uintptr_t FMemoryAndroid::FindUnrealImportSlot(const std::string& SymbolName) const
 {
 	if (SymbolName.empty())
 		return 0;
@@ -431,7 +431,7 @@ uintptr_t FMemoryAndroid::FindUnrealImportSlot(const std::string& SymbolName)
 	return 0;
 }
 
-uintptr_t FMemoryAndroid::FindUnrealSymbol(const std::string& SymbolName)
+uintptr_t FMemoryAndroid::FindUnrealSymbol(const std::string& SymbolName) const
 {
 	if (!CachedUnrealModule.first.isValid())
 		((void)GetUnrealModule());
@@ -448,7 +448,7 @@ uintptr_t FMemoryAndroid::FindUnrealSymbol(const std::string& SymbolName)
 	return 0;
 }
 
-bool FMemoryAndroid::DumpUnrealModule(const std::string& DestinationPath)
+bool FMemoryAndroid::DumpUnrealModule(const std::string& DestinationPath) const
 {
 	if (!CachedUnrealModule.first.isValid())
 		((void)GetUnrealModule());

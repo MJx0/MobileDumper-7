@@ -11,14 +11,14 @@ void InternalSettings::InitWeakObjectPtrSettings()
 
 	if (!LoadAsset)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitWeakObjectPtrSettings: 'LoadAsset' wasn't found, could not determine value for 'bIsWeakObjectPtrWithoutTag'!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitWeakObjectPtrSettings: 'LoadAsset' wasn't found, could not determine value for 'bIsWeakObjectPtrWithoutTag'!\n");
 		return;
 	}
 
 	const UEProperty Asset = LoadAsset.FindMember("Asset", EClassCastFlags::SoftObjectProperty);
 	if (!Asset)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitWeakObjectPtrSettings: 'Asset' wasn't found, could not determine value for 'bIsWeakObjectPtrWithoutTag'!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitWeakObjectPtrSettings: 'Asset' wasn't found, could not determine value for 'bIsWeakObjectPtrWithoutTag'!\n");
 		return;
 	}
 
@@ -37,7 +37,7 @@ void InternalSettings::InitLargeWorldCoordinateSettings()
 
 	if (!FVectorStruct) [[unlikely]]
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Something went horribly wrong, FVector wasn't even found!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Something went horribly wrong, FVector wasn't even found!\n");
 		return;
 	}
 
@@ -45,7 +45,7 @@ void InternalSettings::InitLargeWorldCoordinateSettings()
 
 	if (!XProperty) [[unlikely]]
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Something went horribly wrong, FVector::X wasn't even found!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Something went horribly wrong, FVector::X wasn't even found!\n");
 		return;
 	}
 
