@@ -260,10 +260,10 @@ private:
 		if (!Data || Len <= 0)
 			return;
 
-		uint64_t Key = kFNameKey;
-
 		if (GetGameVariant() == NewStateProfile::GameVariant::Default)
 		{
+			uint64_t Key = kFNameKey;
+		
 			for (int32_t i = 0; i < Len; ++i)
 			{
 				uint16_t Char   = static_cast<uint16_t>(Data[i]);
