@@ -1,4 +1,19 @@
 @echo off
+:: Re-launches itself so every exit path pauses before the window closes; MD7_NO_PAUSE skips this when another of our scripts calls it.
+IF "%~1"=="--md7-inner" (
+    SHIFT /1
+    GOTO :main
+)
+
+cmd /c ""%~f0" --md7-inner %*"
+SET "_MD7_EC=%ERRORLEVEL%"
+IF NOT DEFINED MD7_NO_PAUSE (
+    echo.
+    pause
+)
+EXIT /B %_MD7_EC%
+
+:main
 setlocal enabledelayedexpansion
 
 ::
@@ -11,7 +26,12 @@ setlocal enabledelayedexpansion
 ::
 :: deploy.cmd
 
-:: ── ANSI color setup (Windows 10 / 11) ───────────────────────────────────────
+:: The dumper's own interactive menus (process picker, memory-access-type picker) write
+:: UTF-8 box-drawing characters; without this the console's OEM codepage misdecodes them
+:: into mojibake.
+chcp 65001 >NUL
+
+:: -- ANSI color setup (Windows 10 / 11) ---------------------------------------
 FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
 SET "_CYAN=%ESC%[36;1m"
 SET "_GREEN=%ESC%[32;1m"
@@ -26,7 +46,7 @@ IF /I "%~1"=="-h" ( CALL :usage & EXIT /B 0 )
 IF /I "%~1"=="--help" ( CALL :usage & EXIT /B 0 )
 IF NOT "%~1"=="" ( CALL :err "Unknown option: %~1" & CALL :usage & EXIT /B 1 )
 
-:: ── Deployment target ─────────────────────────────────────────────────────────
+:: -- Deployment target ---------------------------------------------------------
 
 CALL :section "Deployment target"
 CALL :info "1) Android Executable (ADB)"
@@ -42,7 +62,7 @@ IF NOT "!TARGET_CHOICE!"=="1" (
 	EXIT /B 1
 )
 
-:: ── Architecture ──────────────────────────────────────────────────────────────
+:: -- Architecture --------------------------------------------------------------
 
 CALL :section "Architecture"
 CALL :info "1) arm32   - a 32-bit game on mobile"
@@ -59,7 +79,7 @@ IF "!_ARCH_CHOICE!"=="3" SET "ARCH=x86"
 IF "!_ARCH_CHOICE!"=="4" SET "ARCH=x86_64"
 IF "!ARCH!"=="" ( CALL :err "Invalid selection" & EXIT /B 1 )
 
-:: ── Suspend while dumping ────────────────────────────────────────────────────
+:: -- Suspend while dumping ----------------------------------------------------
 
 CALL :section "Suspend while dumping"
 CALL :info "A running game keeps creating objects while it's being dumped, which can cause issues."
@@ -67,7 +87,7 @@ CALL :confirm "Suspend the game while dumping?" Y
 SET "SUSPEND="
 IF "!CONFIRM_RESULT!"=="1" SET "SUSPEND=--suspend"
 
-:: ── Dumper build: prompt to build it if missing or on request ────────────────
+:: -- Dumper build: prompt to build it if missing or on request ----------------
 
 CALL :section "Dumper build"
 
@@ -78,8 +98,10 @@ SET "NEED_BUILD=0"
 IF EXIST "%LOCAL_EXE%" (
 	CALL :info "Existing build: %LOCAL_EXE%"
 
+	REM %%~tT is batch-native, no PowerShell needed - avoids a console-font reset some setups
+	REM trigger the first time a PowerShell child process attaches to a legacy conhost window.
 	SET "_BUILT_AT="
-	FOR /F "delims=" %%T IN ('powershell -NoProfile -Command "(Get-Item -LiteralPath '%LOCAL_EXE%').LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')" 2^>NUL') DO SET "_BUILT_AT=%%T"
+	FOR %%T IN ("%LOCAL_EXE%") DO SET "_BUILT_AT=%%~tT"
 	IF "!_BUILT_AT!"=="" SET "_BUILT_AT=unknown"
 	CALL :info "Built: !_BUILT_AT!"
 
@@ -92,6 +114,7 @@ IF EXIST "%LOCAL_EXE%" (
 
 IF "!NEED_BUILD!"=="1" (
 	CALL :info "Building (%ARCH%, %BUILD_TYPE%)..."
+	SET "MD7_NO_PAUSE=1"
 	CALL "%HERE%\build.cmd" --platform android --target exe --build %BUILD_TYPE% --arch %ARCH%
 	IF NOT EXIST "%LOCAL_EXE%" (
 		CALL :err "Build finished but %LOCAL_EXE% still isn't there"
@@ -101,7 +124,7 @@ IF "!NEED_BUILD!"=="1" (
 
 CALL :ok "Using: %LOCAL_EXE%"
 
-:: ── Root access: prefer `adb root`, fall back to `su -c` ─────────────────────
+:: -- Root access: prefer `adb root`, fall back to `su -c` ---------------------
 
 CALL :section "Root access"
 
@@ -115,17 +138,7 @@ IF "!_UID!"=="0" (
 	adb root >NUL 2>&1
 	adb wait-for-device
 
-	SET "_TRY=0"
-	:root_wait_loop
-	SET "_UID="
-	FOR /F "delims=" %%U IN ('adb shell -n "id -u" 2^>NUL') DO SET "_UID=%%U"
-	IF "!_UID!"=="0" GOTO :root_wait_done
-	SET /A _TRY+=1
-	IF !_TRY! LSS 5 (
-		timeout /T 1 /NOBREAK >NUL
-		GOTO :root_wait_loop
-	)
-	:root_wait_done
+	CALL :wait_for_root
 
 	IF "!_UID!"=="0" (
 		SET "ROOT_MODE=direct"
@@ -143,18 +156,16 @@ IF "!_UID!"=="0" (
 
 IF "!ROOT_MODE!"=="direct" ( CALL :info "Root access: adb root" ) ELSE ( CALL :info "Root access: su -c" )
 
-:: ── Push & run ───────────────────────────────────────────────────────────────
+:: -- Push & run ---------------------------------------------------------------
 
 SET "REMOTE_EXE=/data/local/tmp/MobileDumper-7-%ARCH%"
 SET "REMOTE_OUTPUT=/data/local/tmp/md7_dumps"
-SET "LOG_FILE=%TEMP%\md7_deploy.log"
-IF EXIST "%LOG_FILE%" DEL /F /Q "%LOG_FILE%"
 
 CALL :run_root "rm -rf %REMOTE_OUTPUT%" >NUL 2>&1
 
-CALL :section "Push & run"
+CALL :section "Push and run"
 CALL :info "Installing: %LOCAL_EXE%"
-CALL :info "       -^>   %REMOTE_EXE%"
+CALL :info "       to    %REMOTE_EXE%"
 adb push "%LOCAL_EXE%" "%REMOTE_EXE%"
 IF !ERRORLEVEL! NEQ 0 EXIT /B 1
 
@@ -167,19 +178,13 @@ SET "DUMP_COMMAND=%REMOTE_EXE% --output %REMOTE_OUTPUT% --dump %SUSPEND%"
 CALL :info "Running the dumper - answer its prompts below:"
 ECHO.
 
+:: Piping this through anything (even just to tee a log) buffers by line, so the dumper's
+:: final prompt - which has no trailing newline on purpose - wouldn't appear until an extra
+:: Enter forced a newline through. Run it straight to the console instead.
 IF "!ROOT_MODE!"=="direct" (
-	adb shell -t "!DUMP_COMMAND!" | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG_FILE%'"
+	adb shell -t "!DUMP_COMMAND!"
 ) ELSE (
-	adb shell -t "su -c '!DUMP_COMMAND!'" | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%LOG_FILE%'"
-)
-
-SET "PACKAGE="
-REM Not anchored to column 0: the dumper's own log lines are prefixed with a color escape code.
-FOR /F "delims=" %%P IN ('powershell -NoProfile -Command "(Select-String -Path '%LOG_FILE%' -Pattern 'Process Name: (.*)$' | Select-Object -Last 1).Matches[0].Groups[1].Value" 2^>NUL') DO SET "PACKAGE=%%P"
-
-IF "!PACKAGE!"=="" (
-	CALL :err "Couldn't find the dumped package name in the dumper's own output"
-	EXIT /B 1
+	adb shell -t "su -c '!DUMP_COMMAND!'"
 )
 
 SET "REMOTE_ZIP="
@@ -194,14 +199,26 @@ IF "!REMOTE_ZIP!"=="" (
 	EXIT /B 1
 )
 
+:: The dumper names the zip <package>_v<version>_<timestamp>.zip (Generator::SetupDumperFolder) -
+:: package names don't contain underscores, so the first underscore-delimited token is the package.
+SET "ZIP_BASENAME="
+FOR %%F IN ("!REMOTE_ZIP!") DO SET "ZIP_BASENAME=%%~nF"
+SET "PACKAGE="
+FOR /F "tokens=1 delims=_" %%P IN ("!ZIP_BASENAME!") DO SET "PACKAGE=%%P"
+
+IF "!PACKAGE!"=="" (
+	CALL :err "Couldn't parse the package name from !REMOTE_ZIP!"
+	EXIT /B 1
+)
+
 SET "LOCAL_ZIP=%TEMP%\md7_dump_%PACKAGE%.zip"
 IF EXIST "%LOCAL_ZIP%" DEL /F /Q "%LOCAL_ZIP%"
 
-:: ── Pull dump ────────────────────────────────────────────────────────────────
+:: -- Pull dump ----------------------------------------------------------------
 
 CALL :section "Pull dump"
 CALL :info "Pulling !REMOTE_ZIP!"
-CALL :run_root "chmod 644 \"!REMOTE_ZIP!\""
+CALL :run_root "chmod 644 !REMOTE_ZIP!"
 adb pull "!REMOTE_ZIP!" "%LOCAL_ZIP%"
 IF !ERRORLEVEL! NEQ 0 EXIT /B 1
 
@@ -215,22 +232,56 @@ IF EXIST "%DEST_DIR%" (
 	rmdir /s /q "%DEST_DIR%"
 )
 
-mkdir "%DEST_DIR%"
+:: rmdir can leave NTFS in a brief "pending delete" state - retry mkdir past it.
+SET "_MKDIR_TRY=0"
+:mkdir_retry
+mkdir "%DEST_DIR%" 2>NUL
+IF EXIST "%DEST_DIR%" GOTO :mkdir_done
+SET /A _MKDIR_TRY+=1
+IF !_MKDIR_TRY! LSS 5 (
+	CALL :sleep_sec 1
+	GOTO :mkdir_retry
+)
+:mkdir_done
 
 CALL :info "Unpacking into %DEST_DIR%"
-powershell -NoProfile -Command "Expand-Archive -Path '%LOCAL_ZIP%' -DestinationPath '%DEST_DIR%' -Force"
+:: tar avoids Expand-Archive's 260-char MAX_PATH failures on deep SDK paths.
+tar -xf "%LOCAL_ZIP%" -C "%DEST_DIR%"
 IF !ERRORLEVEL! NEQ 0 EXIT /B 1
 
 DEL /F /Q "%LOCAL_ZIP%"
-DEL /F /Q "%LOG_FILE%"
 
 CALL :ok "Dump ready: %DEST_DIR%"
 CALL :ok "Build TestSuit: %DEST_DIR%\CppSDK\TestSuit\build.cmd"
 EXIT /B 0
 
-:: ═════════════════════════════════════════════════════════════════════════════
+:: =============================================================================
 :: SUBROUTINES
-:: ═════════════════════════════════════════════════════════════════════════════
+:: =============================================================================
+
+:: timeout.exe needs a real console, and PowerShell's Start-Sleep can reset a legacy
+:: conhost window's font the first time it attaches - ping sidesteps both. The first
+:: reply goes out immediately, so N+1 pings covers N seconds.
+:sleep_sec
+SET /A "_SLEEP_N=%~1+1"
+ping -n !_SLEEP_N! 127.0.0.1 >NUL
+GOTO :EOF
+
+:: A GOTO loop inside a parenthesized IF/ELSE block corrupts cmd.exe's parsing
+:: of later ^-escapes in that same block, so this loop lives in its own
+:: subroutine rather than inline where the root-access block calls it.
+:wait_for_root
+SET "_TRY=0"
+:wait_for_root_loop
+SET "_UID="
+FOR /F "delims=" %%U IN ('adb shell -n "id -u" 2^>NUL') DO SET "_UID=%%U"
+IF "!_UID!"=="0" GOTO :EOF
+SET /A _TRY+=1
+IF !_TRY! LSS 5 (
+	CALL :sleep_sec 1
+	GOTO :wait_for_root_loop
+)
+GOTO :EOF
 
 :usage
 echo Usage: %~n0
@@ -264,11 +315,11 @@ GOTO :EOF
 
 :section
 echo.
-echo !_CYAN!┌── %~1!_RESET!
+echo !_CYAN!+-- %~1!_RESET!
 GOTO :EOF
 
 :info
-echo !_CYAN!│!_RESET!   %~1
+echo !_CYAN!^|!_RESET!   %~1
 GOTO :EOF
 
 :ok

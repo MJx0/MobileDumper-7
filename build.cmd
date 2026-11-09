@@ -1,7 +1,22 @@
 @echo off
+:: Re-launches itself so every exit path pauses before the window closes; MD7_NO_PAUSE skips this when another of our scripts calls it.
+IF "%~1"=="--md7-inner" (
+    SHIFT /1
+    GOTO :main
+)
+
+cmd /c ""%~f0" --md7-inner %*"
+SET "_MD7_EC=%ERRORLEVEL%"
+IF NOT DEFINED MD7_NO_PAUSE (
+    echo.
+    pause
+)
+EXIT /B %_MD7_EC%
+
+:main
 setlocal enabledelayedexpansion
 
-:: ── ANSI color setup (Windows 10 / 11) ───────────────────────────────────────
+:: -- ANSI color setup (Windows 10 / 11) ---------------------------------------
 FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
 SET "_CYAN=%ESC%[36;1m"
 SET "_GREEN=%ESC%[32;1m"
@@ -9,11 +24,11 @@ SET "_YELLOW=%ESC%[33;1m"
 SET "_RED=%ESC%[31;1m"
 SET "_RESET=%ESC%[0m"
 
-:: ── Script directory ──────────────────────────────────────────────────────────
+:: -- Script directory ----------------------------------------------------------
 SET "SCRIPT_DIR=%~dp0"
 IF "%SCRIPT_DIR:~-1%"=="\" SET "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
-:: ── Project name from CMakeLists.txt ─────────────────────────────────────────
+:: -- Project name from CMakeLists.txt -----------------------------------------
 SET "TARGET_NAME="
 FOR /F "tokens=2 delims=()" %%P IN ('findstr /B /I "project(" "%SCRIPT_DIR%\CMakeLists.txt" 2^>NUL') DO (
     FOR /F "tokens=1" %%Q IN ("%%P") DO SET "TARGET_NAME=%%Q"
@@ -23,10 +38,10 @@ IF "!TARGET_NAME!"=="" (
     EXIT /B 1
 )
 
-:: ── Config defaults ───────────────────────────────────────────────────────────
+:: -- Config defaults -----------------------------------------------------------
 SET "NDK_HOST_TAG=windows-x86_64"
 
-:: ── Argument parsing ──────────────────────────────────────────────────────────
+:: -- Argument parsing ----------------------------------------------------------
 SET "ARG_PLATFORM="
 SET "ARG_TARGET="
 SET "ARG_BUILD="
@@ -36,30 +51,30 @@ SET "ARG_ARCH="
 IF "%~1"=="" GOTO :end_parse
 IF /I "%~1"=="--platform" (
     SET "ARG_PLATFORM=%~2"
-    SHIFT
-    SHIFT
+    SHIFT /1
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--target" (
     SET "ARG_TARGET=%~2"
-    SHIFT
-    SHIFT
+    SHIFT /1
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--arch" (
     SET "ARG_ARCH=%~2"
-    SHIFT
-    SHIFT
+    SHIFT /1
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--type" (
-    CALL :err "--type was renamed to --target (exe^|lib)"
+    CALL :err "--type was renamed to --target (exe or lib)"
     EXIT /B 1
 )
 IF /I "%~1"=="--build" (
     SET "ARG_BUILD=%~2"
-    SHIFT
-    SHIFT
+    SHIFT /1
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--help" (
@@ -76,7 +91,7 @@ CALL :usage
 EXIT /B 1
 :end_parse
 
-:: ── Validate --platform ───────────────────────────────────────────────────────
+:: -- Validate --platform -------------------------------------------------------
 SET "PLATFORM="
 IF NOT "!ARG_PLATFORM!"=="" (
     IF /I "!ARG_PLATFORM!"=="android" (
@@ -87,7 +102,7 @@ IF NOT "!ARG_PLATFORM!"=="" (
     )
 )
 
-:: ── Validate --build ──────────────────────────────────────────────────────────
+:: -- Validate --build ----------------------------------------------------------
 SET "BTYPE="
 IF NOT "!ARG_BUILD!"=="" (
     IF /I "!ARG_BUILD!"=="debug"   SET "BTYPE=Debug"
@@ -98,9 +113,9 @@ IF NOT "!ARG_BUILD!"=="" (
     )
 )
 
-:: ── Main ─────────────────────────────────────────────────────────────────────
+:: -- Main ---------------------------------------------------------------------
 echo.
-echo   !TARGET_NAME! Build  (Windows ^— Android only)
+echo   !TARGET_NAME! Build  (Windows ^- Android only)
 
 :: Platform
 IF "!PLATFORM!"=="" (
@@ -187,9 +202,9 @@ IF !ERRORLEVEL! NEQ 0 EXIT /B 1
 CALL :ok "Done."
 EXIT /B 0
 
-:: ═════════════════════════════════════════════════════════════════════════════
+:: =============================================================================
 :: SUBROUTINES
-:: ═════════════════════════════════════════════════════════════════════════════
+:: =============================================================================
 
 :usage
 echo Usage: %~n0 [OPTIONS]
@@ -210,16 +225,16 @@ echo   %~n0
 GOTO :EOF
 
 :log
-echo !_CYAN!==> %~1!_RESET!
+echo !_CYAN!==^> %~1!_RESET!
 GOTO :EOF
 
 :section
 echo.
-echo !_CYAN!┌── %~1!_RESET!
+echo !_CYAN!+-- %~1!_RESET!
 GOTO :EOF
 
 :info
-echo !_CYAN!│!_RESET!   %~1
+echo !_CYAN!^|!_RESET!   %~1
 GOTO :EOF
 
 :ok
@@ -245,7 +260,7 @@ IF "!_CREPLY!"=="" SET "_CREPLY=!_CDEFAULT!"
 IF /I "!_CREPLY:~0,1!"=="Y" ( SET "CONFIRM_RESULT=1" ) ELSE ( SET "CONFIRM_RESULT=0" )
 GOTO :EOF
 
-:: ── NDK detection ─────────────────────────────────────────────────────────────
+:: -- NDK detection -------------------------------------------------------------
 :: Mirrors .vscode/clangd-selector.cmd. Sets FOUND_NDK to the NDK root, or empty.
 :find_ndk
 SET "FOUND_NDK="
@@ -289,7 +304,7 @@ IF NOT DEFINED _NDK_LATEST (
 IF DEFINED _NDK_LATEST SET "_NDK_TMP=!_SDK_TMP!\ndk\!_NDK_LATEST!"
 GOTO :EOF
 
-:: ── Preset-driven Android build ───────────────────────────────────────────────
+:: -- Preset-driven Android build -----------------------------------------------
 :: %1 = arch (arm64|arm32|x86|x86_64)   %2 = target (lib|exe)
 :build_android_one
 SETLOCAL
@@ -307,7 +322,7 @@ IF /I "!BUILD_TYPE!"=="Debug" SET "_PRESET=!_PRESET!-debug"
 IF /I "!BUILD_TYPE!"=="Debug" ( SET "_CFG=debug" ) ELSE ( SET "_CFG=release" )
 SET "_BDIR=!SCRIPT_DIR!\builds\android\!_TARGET!\!_CFG!\!_ARCH!"
 
-CALL :section "Android !_TARGET! — arch=!_ARCH!, type=!BUILD_TYPE!"
+CALL :section "Android !_TARGET! - arch=!_ARCH!, type=!BUILD_TYPE!"
 CALL :info "Preset: !_PRESET!"
 
 cmake --preset "!_PRESET!"
@@ -339,17 +354,17 @@ IF EXIST "!_OBJCOPY!" (
     "!_OBJCOPY!" --only-keep-debug "!_ARTIFACT!" "!_ARTIFACT!.debug"
     CALL :ok "Android symbols: !_ARTIFACT!.debug"
 ) ELSE (
-    CALL :warn "llvm-objcopy not found — symbols not extracted"
+    CALL :warn "llvm-objcopy not found - symbols not extracted"
 )
 
 ENDLOCAL & EXIT /B 0
 
-:: ── Android build driver ──────────────────────────────────────────────────────
+:: -- Android build driver ------------------------------------------------------
 :: %1 = target (lib|exe)
 :build_android
 where ninja >NUL 2>&1
 IF !ERRORLEVEL! NEQ 0 (
-    CALL :err "Ninja is required — the CMake presets pin the Ninja generator."
+    CALL :err "Ninja is required - the CMake presets pin the Ninja generator."
     CALL :err "  winget install Ninja-build.Ninja"
     EXIT /B 1
 )

@@ -2686,7 +2686,22 @@ ok "Android: $SO ($(du -h "$SO" | cut -f1))"
 	/* build.cmd */
 	{
 		StreamType BuildCmd(TestSuitFolder / "build.cmd");
-		BuildCmd << fmt::format(R"BUILDCMD(@echo off
+		BuildCmd << Utils::String::ToCRLF(fmt::format(R"BUILDCMD(@echo off
+:: Re-launches itself so every exit path pauses before the window closes; MD7_NO_PAUSE skips this when another of our scripts calls it.
+IF "%~1"=="--md7-inner" (
+	SHIFT /1
+	GOTO :main
+)
+
+cmd /c ""%~f0" --md7-inner %*"
+SET "_MD7_EC=%ERRORLEVEL%"
+IF NOT DEFINED MD7_NO_PAUSE (
+	echo.
+	pause
+)
+EXIT /B %_MD7_EC%
+
+:main
 setlocal enabledelayedexpansion
 
 FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
@@ -2705,8 +2720,8 @@ SET "BUILD_TYPE=release"
 IF "%~1"=="" GOTO :end_parse
 IF /I "%~1"=="--build" (
 	SET "BUILD_TYPE=%~2"
-	SHIFT
-	SHIFT
+	SHIFT /1
+	SHIFT /1
 	GOTO :parse_args
 )
 CALL :err "Unknown option: %~1"
@@ -2757,11 +2772,11 @@ GOTO :EOF
 
 :section
 echo.
-echo !_CYAN!┌── %~1!_RESET!
+echo !_CYAN!+-- %~1!_RESET!
 GOTO :EOF
 
 :info
-echo !_CYAN!│!_RESET!   %~1
+echo !_CYAN!^|!_RESET!   %~1
 GOTO :EOF
 
 :ok
@@ -2776,7 +2791,7 @@ GOTO :EOF
 echo !_RED![error] %~1!_RESET! 1>&2
 GOTO :EOF
 )BUILDCMD",
-		                         Utils::Memory::Is32Bit() ? "armeabi-v7a" : "arm64-v8a");
+		                         Utils::Memory::Is32Bit() ? "armeabi-v7a" : "arm64-v8a"));
 	}
 #elif defined(__APPLE__)
 	/* build.sh */
@@ -3058,7 +3073,22 @@ ok "Clean complete (${REMOVED} removed)."
 	/* clean.cmd */
 	{
 		StreamType CleanCmd(TestSuitFolder / "clean.cmd");
-		CleanCmd << R"CLEANCMD(@echo off
+		CleanCmd << Utils::String::ToCRLF(R"CLEANCMD(@echo off
+:: Re-launches itself so every exit path pauses before the window closes; MD7_NO_PAUSE skips this when another of our scripts calls it.
+IF "%~1"=="--md7-inner" (
+	SHIFT /1
+	GOTO :main
+)
+
+cmd /c ""%~f0" --md7-inner %*"
+SET "_MD7_EC=%ERRORLEVEL%"
+IF NOT DEFINED MD7_NO_PAUSE (
+	echo.
+	pause
+)
+EXIT /B %_MD7_EC%
+
+:main
 setlocal enabledelayedexpansion
 
 FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
@@ -3076,15 +3106,25 @@ SET "AUTO_YES=0"
 
 :parse_args
 IF "%~1"=="" GOTO :end_parse
-IF /I "%~1"=="--build" ( SET "BUILD_TYPE=%~2" & SHIFT & SHIFT & GOTO :parse_args )
-IF /I "%~1"=="-y" ( SET "AUTO_YES=1" & SHIFT & GOTO :parse_args )
-IF /I "%~1"=="--yes" ( SET "AUTO_YES=1" & SHIFT & GOTO :parse_args )
+IF /I "%~1"=="--build" ( SET "BUILD_TYPE=%~2" & SHIFT /1 & SHIFT /1 & GOTO :parse_args )
+IF /I "%~1"=="-y" ( SET "AUTO_YES=1" & SHIFT /1 & GOTO :parse_args )
+IF /I "%~1"=="--yes" ( SET "AUTO_YES=1" & SHIFT /1 & GOTO :parse_args )
 CALL :err "Unknown option: %~1"
 EXIT /B 1
 :end_parse
 
 SET "_CONFIGS=debug release"
 IF NOT "%BUILD_TYPE%"=="" SET "_CONFIGS=%BUILD_TYPE%"
+
+SET /A _COUNT=0
+FOR %%C IN (%_CONFIGS%) DO (
+	IF EXIST "%HERE%\build\android\%%C" SET /A _COUNT+=1
+)
+
+IF !_COUNT! EQU 0 (
+	CALL :ok "Nothing to clean."
+	EXIT /B 0
+)
 
 CALL :section "Will remove"
 
@@ -3094,11 +3134,6 @@ FOR %%C IN (%_CONFIGS%) DO (
 		CALL :info "build\android\%%C"
 		SET /A _FOUND+=1
 	)
-)
-
-IF !_FOUND! EQU 0 (
-	CALL :ok "Nothing to clean."
-	EXIT /B 0
 )
 
 CALL :confirm "Remove the above?" Y
@@ -3122,11 +3157,11 @@ EXIT /B 0
 
 :section
 echo.
-echo !_CYAN!┌── %~1!_RESET!
+echo !_CYAN!+-- %~1!_RESET!
 GOTO :EOF
 
 :info
-echo !_CYAN!│!_RESET!   %~1
+echo !_CYAN!^|!_RESET!   %~1
 GOTO :EOF
 
 :ok
@@ -3153,7 +3188,7 @@ SET /P "_CREPLY=  %~1 [!_CHINT!] "
 IF "!_CREPLY!"=="" SET "_CREPLY=!_CDEFAULT!"
 IF /I "!_CREPLY:~0,1!"=="Y" ( SET "CONFIRM_RESULT=1" ) ELSE ( SET "CONFIRM_RESULT=0" )
 GOTO :EOF
-)CLEANCMD";
+)CLEANCMD");
 	}
 #endif
 
@@ -3389,7 +3424,7 @@ adb logcat -v time -s MD7TestSuit:V
 
 	{
 		StreamType LogcatCmd(TestSuitFolder / "logcat.cmd");
-		LogcatCmd << R"LOGCATCMD(@echo off
+		LogcatCmd << Utils::String::ToCRLF(R"LOGCATCMD(@echo off
 setlocal enabledelayedexpansion
 
 :: Tails the TestSuit's log tag.
@@ -3401,7 +3436,10 @@ IF /I "%~1"=="--clear" (
 )
 
 adb logcat -v time -s MD7TestSuit:V
-)LOGCATCMD";
+
+echo.
+pause
+)LOGCATCMD");
 	}
 #elif defined(__APPLE__)
 	/* Host.mm - iOS */
