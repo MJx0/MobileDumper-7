@@ -326,8 +326,11 @@ namespace PropertyBaseTypes
 	};
 }
 
-extern uintptr_t GObjects;
-extern uintptr_t GNames;
-extern FLayouts GLayouts;
-extern FInGenOffsets GOffsets;
-extern FInSDKOffsets GInSDKOffsets;
+namespace MD7::Globals
+{
+	extern uintptr_t GObjects;
+	extern uintptr_t GNames;
+	extern FLayouts GLayouts;
+	extern FInGenOffsets GOffsets;
+	extern FInSDKOffsets GInSDKOffsets;
+}

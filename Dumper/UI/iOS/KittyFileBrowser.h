@@ -7,7 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// Lightweight browser for the dumper's output directory.
 ///
 /// Presented as a centred card over the game window. Navigation is sandboxed to
-/// @c GSettings.Generator.SDKGenerationPath — the browser can descend into dump
+/// @c MD7::Globals::GSettings.Generator.SDKGenerationPath — the browser can descend into dump
 /// folders but never above the root. Entries may be shared or deleted; there is
 /// deliberately no preview, rename or move.
 @interface KittyFileBrowser : UIView

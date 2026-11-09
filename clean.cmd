@@ -1,7 +1,22 @@
 @echo off
+:: Re-launches itself so every exit path pauses before the window closes; MD7_NO_PAUSE skips this when another of our scripts calls it.
+IF "%~1"=="--md7-inner" (
+    SHIFT /1
+    GOTO :main
+)
+
+cmd /c ""%~f0" --md7-inner %*"
+SET "_MD7_EC=%ERRORLEVEL%"
+IF NOT DEFINED MD7_NO_PAUSE (
+    echo.
+    pause
+)
+EXIT /B %_MD7_EC%
+
+:main
 setlocal enabledelayedexpansion
 
-:: ── ANSI color setup (Windows 10 / 11) ───────────────────────────────────────
+:: -- ANSI color setup (Windows 10 / 11) ---------------------------------------
 FOR /F "delims=" %%E IN ('echo prompt $E^| cmd') DO SET "ESC=%%E"
 SET "_CYAN=%ESC%[36;1m"
 SET "_GREEN=%ESC%[32;1m"
@@ -9,11 +24,11 @@ SET "_YELLOW=%ESC%[33;1m"
 SET "_RED=%ESC%[31;1m"
 SET "_RESET=%ESC%[0m"
 
-:: ── Script directory ──────────────────────────────────────────────────────────
+:: -- Script directory ----------------------------------------------------------
 SET "SCRIPT_DIR=%~dp0"
 IF "%SCRIPT_DIR:~-1%"=="\" SET "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
-:: ── Argument parsing ──────────────────────────────────────────────────────────
+:: -- Argument parsing ----------------------------------------------------------
 SET "ARG_TARGET="
 SET "ARG_BUILD="
 SET "ARG_ARCH="
@@ -26,36 +41,36 @@ IF /I "%~1"=="--platform" (
         CALL :err "Invalid --platform '%~2' (only android is supported on Windows)"
         EXIT /B 1
     )
-    SHIFT
-    SHIFT
+    SHIFT /1
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--target" (
     SET "ARG_TARGET=%~2"
-    SHIFT
-    SHIFT
+    SHIFT /1
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--build" (
     SET "ARG_BUILD=%~2"
-    SHIFT
-    SHIFT
+    SHIFT /1
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--arch" (
     SET "ARG_ARCH=%~2"
-    SHIFT
-    SHIFT
+    SHIFT /1
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="-y" (
     SET "AUTO_YES=1"
-    SHIFT
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--yes" (
     SET "AUTO_YES=1"
-    SHIFT
+    SHIFT /1
     GOTO :parse_args
 )
 IF /I "%~1"=="--help" (
@@ -72,7 +87,7 @@ CALL :usage
 EXIT /B 1
 :end_parse
 
-:: ── Validate ──────────────────────────────────────────────────────────────────
+:: -- Validate ------------------------------------------------------------------
 IF NOT "!ARG_TARGET!"=="" (
     SET "_OK="
     IF /I "!ARG_TARGET!"=="exe"    SET "_OK=1"
@@ -114,7 +129,22 @@ IF NOT "!ARG_BUILD!"=="" SET "_CONFIGS=!ARG_BUILD!"
 SET "_ARCHES=arm64 arm32 x86 x86_64"
 IF NOT "!ARG_ARCH!"=="" IF /I NOT "!ARG_ARCH!"=="all" SET "_ARCHES=!ARG_ARCH!"
 
-:: ── builds\android\<target>\<config>\<arch> ──────────────────────────────────
+:: -- builds\android\<target>\<config>\<arch> ----------------------------------
+SET /A _COUNT=0
+
+FOR %%T IN (!_TARGETS!) DO (
+    FOR %%C IN (!_CONFIGS!) DO (
+        FOR %%A IN (!_ARCHES!) DO (
+            IF EXIST "!SCRIPT_DIR!\builds\android\%%T\%%C\%%A" SET /A _COUNT+=1
+        )
+    )
+)
+
+IF !_COUNT! EQU 0 (
+    CALL :ok "Nothing to clean."
+    EXIT /B 0
+)
+
 SET /A _FOUND=0
 
 CALL :section "Will remove"
@@ -125,11 +155,6 @@ FOR %%T IN (!_TARGETS!) DO (
             CALL :plan_dir "!SCRIPT_DIR!\builds\android\%%T\%%C\%%A" "builds\android\%%T\%%C\%%A"
         )
     )
-)
-
-IF !_FOUND! EQU 0 (
-    CALL :ok "Nothing to clean."
-    EXIT /B 0
 )
 
 CALL :confirm "Remove the above?" Y
@@ -153,14 +178,14 @@ FOR %%T IN (!_TARGETS!) DO (
 CALL :ok "Clean complete (!_REMOVED! removed)."
 EXIT /B 0
 
-:: ═════════════════════════════════════════════════════════════════════════════
+:: =============================================================================
 :: SUBROUTINES
-:: ═════════════════════════════════════════════════════════════════════════════
+:: =============================================================================
 
 :usage
 echo Usage: %~n0 [OPTIONS]
 echo.
-echo Selectors mirror build.cmd ^— omit them all to clean everything.
+echo Selectors mirror build.cmd ^- omit them all to clean everything.
 echo.
 echo Options:
 echo   --platform android        Target platform (Android only on Windows)
@@ -199,11 +224,11 @@ GOTO :EOF
 
 :section
 echo.
-echo !_CYAN!┌── %~1!_RESET!
+echo !_CYAN!+-- %~1!_RESET!
 GOTO :EOF
 
 :info
-echo !_CYAN!│!_RESET!   %~1
+echo !_CYAN!^|!_RESET!   %~1
 GOTO :EOF
 
 :ok

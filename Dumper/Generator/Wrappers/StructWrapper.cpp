@@ -73,7 +73,7 @@ std::pair<std::string, bool> StructWrapper::GetUniqueName() const
 
 			if (Reported.insert(Key).second)
 			{
-				GLogger.FmtWrite(ELogLevel::Warning,
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning,
 				                 "StructWrapper::GetUniqueName: unregistered struct {} (0x{:X})\n",
 				                 Struct ? Struct.GetValidName() : std::string("<null>"),
 				                 reinterpret_cast<uintptr_t>(Key));

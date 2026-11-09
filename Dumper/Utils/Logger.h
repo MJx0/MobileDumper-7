@@ -73,4 +73,7 @@ public:
 	void CloseFileStream();
 };
 
-inline FLogger GLogger{};
+namespace MD7::Globals
+{
+	inline FLogger GLogger{};
+}

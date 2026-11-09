@@ -232,7 +232,7 @@ bool FMemoryiOS::ReadRelocationSlot(uintptr_t Slot, uintptr_t& Out) const
 	return true;
 }
 
-std::pair<KittyScanner::MachOImage, ModuleInfo>* FMemoryiOS::GetOrInsertModuleCache(const std::string& ModuleName)
+std::pair<KittyScanner::MachOImage, ModuleInfo>* FMemoryiOS::GetOrInsertModuleCache(const std::string& ModuleName) const
 {
 	if (ModuleCache.contains(ModuleName))
 		return &ModuleCache[ModuleName];
@@ -263,13 +263,13 @@ std::pair<KittyScanner::MachOImage, ModuleInfo>* FMemoryiOS::GetOrInsertModuleCa
 	return nullptr;
 }
 
-ModuleInfo FMemoryiOS::GetModuleInfo(const std::string& ModuleName)
+ModuleInfo FMemoryiOS::GetModuleInfo(const std::string& ModuleName) const
 {
 	auto Module = GetOrInsertModuleCache(ModuleName);
 	return Module ? Module->second : ModuleInfo{};
 }
 
-uintptr_t FMemoryiOS::FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName)
+uintptr_t FMemoryiOS::FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName) const
 {
 	if (ModuleName.empty() || SymbolName.empty())
 		return 0;
@@ -291,12 +291,12 @@ uintptr_t FMemoryiOS::FindModuleSymbol(const std::string& ModuleName, const std:
 	return 0;
 }
 
-ModuleInfo FMemoryiOS::GetUnrealModule()
+ModuleInfo FMemoryiOS::GetUnrealModule() const
 {
 	if (CachedUnrealModule.first.isValid() && CachedUnrealModule.second.IsValid())
 		return CachedUnrealModule.second;
 
-	std::string ModuleName = GSettings.General.UnrealModuleName;
+	std::string ModuleName = MD7::Globals::GSettings.General.UnrealModuleName;
 	if (ModuleName.empty())
 		ModuleName = KittyScanner::MachOImage::getMainImage().name();
 
@@ -310,13 +310,23 @@ ModuleInfo FMemoryiOS::GetUnrealModule()
 	return ModuleInfo{};
 }
 
-uintptr_t FMemoryiOS::FindUnrealSymbol(const std::string& SymbolName)
+uintptr_t FMemoryiOS::FindUnrealSymbol(const std::string& SymbolName) const
 {
 	if (!CachedUnrealModule.first.isValid())
 		((void)GetUnrealModule());
 
 	if (CachedUnrealModule.first.isValid())
-		return CachedUnrealModule.first.findSymbol(SymbolName);
+	{
+		uintptr_t Address = CachedUnrealModule.first.findSymbol(SymbolName);
+
+		if (Address == 0 && SymbolName[0] != '_')
+		{
+			std::string PrefixedSymbolName = "_" + SymbolName;
+			return CachedUnrealModule.first.findSymbol(PrefixedSymbolName);
+		}
+
+		return Address;
+	}
 
 	return 0;
 }
@@ -328,7 +338,7 @@ uintptr_t FMemoryiOS::FindUnrealSymbol(const std::string& SymbolName)
  * reserved1 field indexes the indirect symbol table, which maps each slot in order onto a
  * symbol table entry. Walking that gives the slot address without decoding any stub.
  */
-uintptr_t FMemoryiOS::FindUnrealImportSlot(const std::string& SymbolName)
+uintptr_t FMemoryiOS::FindUnrealImportSlot(const std::string& SymbolName) const
 {
 	if (SymbolName.empty())
 		return 0;

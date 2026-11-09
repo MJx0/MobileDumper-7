@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -208,6 +209,22 @@ namespace Utils
 		{
 			const auto Pos = Value.rfind(Delimiter);
 			return Pos == std::string::npos ? Value : Value.substr(Pos + Delimiter.length());
+		}
+
+		/// @brief Inserts \\r before every \\n, for text written as a Windows batch (.cmd) file.
+		inline std::string ToCRLF(std::string_view Text)
+		{
+			std::string Result;
+			Result.reserve(Text.size());
+
+			for (const char C : Text)
+			{
+				if (C == '\n')
+					Result += '\r';
+				Result += C;
+			}
+
+			return Result;
 		}
 
 	}

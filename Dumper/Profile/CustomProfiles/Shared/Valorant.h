@@ -57,12 +57,12 @@ private:
 	static uintptr_t DecryptGNames(uintptr_t NamesPtr)
 	{
 		uint32_t Offsets[8];
-		GMemory->ReadBytes(NamesPtr + 128, Offsets, sizeof(Offsets));
+		MD7::Globals::GMemory->ReadBytes(NamesPtr + 128, Offsets, sizeof(Offsets));
 
 		uint64_t DecNames = 0;
 
 		for (int i = 0; i < 8; ++i)
-			DecNames |= uint64_t(GMemory->Read<uint8_t>(NamesPtr + Offsets[i])) << (i * 8);
+			DecNames |= uint64_t(MD7::Globals::GMemory->Read<uint8_t>(NamesPtr + Offsets[i])) << (i * 8);
 
 		return DecNames;
 	}
@@ -81,12 +81,12 @@ private:
 		{
 			bOnce = true;
 
-			for (const auto& Segment : GMemory->GetUnrealModule().GetSegments())
+			for (const auto& Segment : MD7::Globals::GMemory->GetUnrealModule().GetSegments())
 			{
 				if (!Segment.IsValid() || !Segment.IsReadable() || !Segment.IsExecutable())
 					continue;
 
-				const uintptr_t Hit = GMemory->FindPatternInRange(
+				const uintptr_t Hit = MD7::Globals::GMemory->FindPatternInRange(
 				    Segment.GetStart(), Segment.GetSize(), "?? ?? 00 34 ?? 0C ?? 8B ?? ?? 90 52 ?? 00 A0 72", 4);
 
 				if (!Hit)
@@ -96,7 +96,7 @@ private:
 				uintptr_t AdrpAddr = 0;
 				for (uintptr_t Addr = Hit - 4; Addr >= Segment.GetStart() && Addr > Hit - 128; Addr -= 4)
 				{
-					const KittyInsnArm64 Insn = Utils::Arm64::DecodeInsn(GMemory->Read<uint32_t>(Addr), Addr);
+					const KittyInsnArm64 Insn = Utils::Arm64::DecodeInsn(MD7::Globals::GMemory->Read<uint32_t>(Addr), Addr);
 					if (Insn.isValid() && Insn.type == EKittyInsnTypeArm64::ADRP)
 					{
 						AdrpAddr = Addr;
@@ -109,30 +109,28 @@ private:
 
 				// Read forward from the ADRP so Find_ADRP_Final_Address can pick up ADRP+ADD/LDR.
 				std::vector<uint32_t> Insns(10, 0);
-				GMemory->ReadBytes(AdrpAddr, Insns.data(), Insns.size() * sizeof(uint32_t));
+				MD7::Globals::GMemory->ReadBytes(AdrpAddr, Insns.data(), Insns.size() * sizeof(uint32_t));
 
 				const uintptr_t Target = Utils::Arm64::Find_ADRP_Final_Address(Insns, AdrpAddr);
 				if (!Target)
 					break;
 
-				const uintptr_t PtrVal = GMemory->Read<uintptr_t>(Target);
-				EncFlagAddr            = GMemory->IsAddressReadable(PtrVal) ? PtrVal : Target;
+				const uintptr_t PtrVal = MD7::Globals::GMemory->Read<uintptr_t>(Target);
+				EncFlagAddr            = MD7::Globals::GMemory->IsAddressReadable(PtrVal) ? PtrVal : Target;
 				break;
 			}
 		}
 
-		// GNames is read here rather than taken as a parameter so the hook follows whichever
-		// candidate detection is currently probing.
-		const uintptr_t EncBase = GNames + 0x10000 + Blocks;
+		const uintptr_t EncBase = MD7::Globals::GNames + 0x10000 + Blocks;
 
-		if (EncFlagAddr && GMemory->Read<uint32_t>(EncFlagAddr) &&
-		    GMemory->Read<uint32_t>(EncBase + 0x18 + ChunkIdx * 4))
+		if (EncFlagAddr && MD7::Globals::GMemory->Read<uint32_t>(EncFlagAddr) &&
+		    MD7::Globals::GMemory->Read<uint32_t>(EncBase + 0x18 + ChunkIdx * 4))
 		{
-			ChunkAddr = GMemory->Read<uint64_t>(EncBase + 0x8018 + ChunkIdx * 8);
+			ChunkAddr = MD7::Globals::GMemory->Read<uint64_t>(EncBase + 0x8018 + ChunkIdx * 8);
 		}
 		else if (ChunkIdx == 0)
 		{
-			ChunkAddr = (GMemory->Read<uint64_t>(EncBase) ^ ChunkAddr);
+			ChunkAddr = (MD7::Globals::GMemory->Read<uint64_t>(EncBase) ^ ChunkAddr);
 		}
 
 		return ChunkAddr;

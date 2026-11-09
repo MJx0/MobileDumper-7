@@ -284,7 +284,7 @@ namespace UEAnalyzerKitty
 		//
 		// The two shipped forms are not read the same way, and both are accepted:
 		//
-		//   TNameEntryArray  GNames is a *pointer* to the chunk table, so the header
+		//   TNameEntryArray  MD7::Globals::GNames is a *pointer* to the chunk table, so the header
 		//                    is read at pointer width.
 		//   FNamePool        NamePoolData is the pool itself, an inline struct. Code
 		//                    takes its address and passes it around; the header is

@@ -89,7 +89,7 @@ __attribute__((constructor)) static void onLoad()
 	if (!IsUnrealGame())
 		return;
 
-	GLogger.FmtWrite(ELogLevel::Info, "======= GENERIC UE GAME DETECTED ========\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "======= GENERIC UE GAME DETECTED ========\n");
 
 	__block id Token = [[NSNotificationCenter defaultCenter]
 	    addObserverForName:UIApplicationDidFinishLaunchingNotification
@@ -161,7 +161,7 @@ bool IsUnrealGame()
 		return false;
 
 	NSFileManager* Fm = [NSFileManager defaultManager];
-	for (const auto& F : GSettings.General.iOSUnrealMarkFiles)
+	for (const auto& F : MD7::Globals::GSettings.General.iOSUnrealMarkFiles)
 	{
 		NSString* BundleEntryPath = [BundlePath stringByAppendingPathComponent:[NSString stringWithUTF8String:F.c_str()]];
 		if ([Fm fileExistsAtPath:BundleEntryPath])
@@ -175,18 +175,18 @@ bool IsUnrealGame()
 
 void EnsureSDKGenerationPath()
 {
-	if (!GSettings.Generator.SDKGenerationPath.empty())
+	if (!MD7::Globals::GSettings.Generator.SDKGenerationPath.empty())
 		return;
 
 	NSString* AppDocDir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
 	NSString* DumpPath  = [NSString stringWithFormat:@"%@/MobileDumper-7", AppDocDir];
 
-	GSettings.Generator.SDKGenerationPath = DumpPath.UTF8String;
+	MD7::Globals::GSettings.Generator.SDKGenerationPath = DumpPath.UTF8String;
 }
 
 void InstallLogBridge()
 {
-	GLogger.SetOnDidLogMessage([](ELogLevel LogLevel, const std::string& Msg)
+	MD7::Globals::GLogger.SetOnDidLogMessage([](ELogLevel LogLevel, const std::string& Msg)
 	{
 		std::string CleanMsg = Utils::String::Trim(Utils::String::Trim(Msg, '\n'), '\t');
 		if (CleanMsg.empty())
@@ -260,10 +260,10 @@ void ShowMainMenu()
 		                action:^{
 			              KittyFileBrowser* Browser = [KittyFileBrowser sharedBrowser];
 
-			              [Browser setZipCompressionLevel:GSettings.Generator.ZipCompressionLevel];
+			              [Browser setZipCompressionLevel:MD7::Globals::GSettings.Generator.ZipCompressionLevel];
 
 			              [Browser showInView:UIUtils::GetMainKeyWindow()
-			                          forPath:[NSString stringWithUTF8String:GSettings.Generator.SDKGenerationPath.c_str()]];
+			                          forPath:[NSString stringWithUTF8String:MD7::Globals::GSettings.Generator.SDKGenerationPath.c_str()]];
 		                }];
 
 	  [Menu showWithTitle:@"MobileDumper-7"
@@ -296,7 +296,7 @@ void ShowDumpAlert()
 		                     values:ModPaths
 		              selectedIndex:0
 		                     action:^(NSString*, NSString* Value, NSUInteger Idx) {
-			                   GSettings.General.UnrealModuleName = (Idx == 0) ? "" : Value.UTF8String;
+			                   MD7::Globals::GSettings.General.UnrealModuleName = (Idx == 0) ? "" : Value.UTF8String;
 		                     }];
 
 	  auto AddToggle = [alertView](NSString* Title, bool* Setting)
@@ -307,13 +307,13 @@ void ShowDumpAlert()
 	  };
 
 	  AddToggle(@"Suspend Threads", &bSuspendThreads);
-	  AddToggle(@"GObjects", &GSettings.Generator.bGenerateGObjects);
-	  AddToggle(@"GObjectsWithProps", &GSettings.Generator.bGenerateGObjectsWithProps);
-	  AddToggle(@"EditorOnlyMetadata", &GSettings.Generator.bGenerateEditorOnlyMetadata);
-	  AddToggle(@"CppSDK", &GSettings.Generator.bGenerateCppSDK);
-	  AddToggle(@"Mappings", &GSettings.Generator.bGenerateMapping);
-	  AddToggle(@"IDAMappings", &GSettings.Generator.bGenerateIDAMapping);
-	  AddToggle(@"Dumpspace", &GSettings.Generator.bGenerateDumpspace);
+	  AddToggle(@"GObjects", &MD7::Globals::GSettings.Generator.bGenerateGObjects);
+	  AddToggle(@"GObjectsWithProps", &MD7::Globals::GSettings.Generator.bGenerateGObjectsWithProps);
+	  AddToggle(@"EditorOnlyMetadata", &MD7::Globals::GSettings.Generator.bGenerateEditorOnlyMetadata);
+	  AddToggle(@"CppSDK", &MD7::Globals::GSettings.Generator.bGenerateCppSDK);
+	  AddToggle(@"Mappings", &MD7::Globals::GSettings.Generator.bGenerateMapping);
+	  AddToggle(@"IDAMappings", &MD7::Globals::GSettings.Generator.bGenerateIDAMapping);
+	  AddToggle(@"Dumpspace", &MD7::Globals::GSettings.Generator.bGenerateDumpspace);
 
 	  [alertView setCancelButtonTitle:@"Cancel" action:^{}];
 	  [alertView setConfirmButtonTitle:@"Confirm"
@@ -364,7 +364,7 @@ public:
 
 		if (task_threads(mach_task_self(), &ThreadList, &ThreadCount) != KERN_SUCCESS)
 		{
-			GLogger.FmtWrite(ELogLevel::Warning, "FThreadSuspension: task_threads failed.\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "FThreadSuspension: task_threads failed.\n");
 			mach_port_deallocate(mach_task_self(), SelfThread);
 			return;
 		}
@@ -386,7 +386,7 @@ public:
 		vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(ThreadList), ThreadCount * sizeof(thread_act_t));
 		mach_port_deallocate(mach_task_self(), SelfThread);
 
-		GLogger.FmtWrite(ELogLevel::Info, "Suspended {} game thread(s).\n", SuspendedThreads.size());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Suspended {} game thread(s).\n", SuspendedThreads.size());
 	}
 
 	~FThreadSuspension()
@@ -397,7 +397,7 @@ public:
 			mach_port_deallocate(mach_task_self(), T);
 		}
 		if (!SuspendedThreads.empty())
-			GLogger.FmtWrite(ELogLevel::Info, "Resumed {} game thread(s).\n", SuspendedThreads.size());
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Resumed {} game thread(s).\n", SuspendedThreads.size());
 	}
 };
 
@@ -409,37 +409,37 @@ void RunDump(KittyAlertView* WaitingAlert, bool bSuspend)
 
 	{
 		std::error_code Ec;
-		std::filesystem::create_directories(GSettings.Generator.SDKGenerationPath, Ec);
+		std::filesystem::create_directories(MD7::Globals::GSettings.Generator.SDKGenerationPath, Ec);
 		if (Ec)
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "Failed to create output dir at \"{}\"\n", GSettings.Generator.SDKGenerationPath, Ec.message());
-			GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", Ec.message());
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failed to create output dir at \"{}\"\n", MD7::Globals::GSettings.Generator.SDKGenerationPath, Ec.message());
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", Ec.message());
 			Alert::dismiss(WaitingAlert);
 			Alert::showError(kDumperAlertTitle, @"Failed to create output directory.", nil);
 			FDumperMain::SetOnProgressCallback(nullptr);
-			GLogger.CloseFileStream();
+			MD7::Globals::GLogger.CloseFileStream();
 			return;
 		}
 	}
 
-	GMemory      = std::make_unique<FMemoryiOS>(mach_task_self());
-	GArchDecoder = CreateArchDecoder(EArch::Arm64);
+	MD7::Globals::GMemory      = std::make_unique<FMemoryiOS>(mach_task_self());
+	MD7::Globals::GArchDecoder = CreateArchDecoder(EArch::Arm64);
 
 	for (const auto& it : GetUECustomProfiles())
 	{
 		for (const auto& Identifier : it->GetSupportedGames())
 		{
-			if (Identifier == std::string(GMemory->GetProcessName()))
+			if (Identifier == std::string(MD7::Globals::GMemory->GetProcessName()))
 			{
-				GLogger.FmtWrite(ELogLevel::Info, "Using Custom UE Profile Override ({}).\n", Identifier);
-				GProfile = it;
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Using Custom UE Profile Override ({}).\n", Identifier);
+				MD7::Globals::GProfile = it;
 				goto DumpLabel;
 			}
 		}
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "Using Generic UE Profile.\n");
-	GProfile = std::make_shared<IProfile>();
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Using Generic UE Profile.\n");
+	MD7::Globals::GProfile = std::make_shared<IProfile>();
 
 DumpLabel:
 	std::string OutDumpZip, OutErr;
@@ -464,29 +464,29 @@ DumpLabel:
 	auto Elapsed           = std::chrono::high_resolution_clock::now() - StartTime;
 	std::string ElapsedStr = Utils::ChronoDurationToString(Elapsed);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Duration: {}\n", ElapsedStr);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Duration: {}\n", ElapsedStr);
 
 	if (bSuccess)
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "Dump succeded.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dump succeded.\n");
 	}
 	else
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Dump failed!\n");
-		GLogger.FmtWrite(ELogLevel::Error, "Failure reason: \"{}\"\n", OutErr);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Dump failed!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failure reason: \"{}\"\n", OutErr);
 	}
 
 	// clean up
 	{
 		FDumperMain::SetOnProgressCallback(nullptr);
 
-		GProfile.reset();
+		MD7::Globals::GProfile.reset();
 		GetUECustomProfiles().clear();
 
-		GArchDecoder.reset();
-		GMemory.reset();
+		MD7::Globals::GArchDecoder.reset();
+		MD7::Globals::GMemory.reset();
 
-		GLogger.CloseFileStream();
+		MD7::Globals::GLogger.CloseFileStream();
 	}
 
 	ShowDumpResult(WaitingAlert, bSuccess, OutDumpZip, OutErr, ElapsedStr);

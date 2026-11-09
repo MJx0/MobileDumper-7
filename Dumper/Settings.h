@@ -17,7 +17,7 @@ struct FSettings
 		/// Android when @c UnrealModuleName is empty.
 		std::vector<std::string> AndroidUnrealDefaultNames = {"libUE4.so", "libUnreal.so"};
 
-		/// Name or full path of the binary that contains UE's GObjects / GNames.
+		/// Name or full path of the binary that contains UE's MD7::Globals::GObjects / MD7::Globals::GNames.
 		/// Leave empty so the platform backend auto-selects the UE module
 		std::string UnrealModuleName;
 
@@ -31,10 +31,10 @@ struct FSettings
 		/// entry point (@c main_ios.mm / @c main_android.cpp) before @c Run().
 		std::string SDKGenerationPath;
 
-		/// Generate the GObjects dump file listing all live UObjects.
+		/// Generate the MD7::Globals::GObjects dump file listing all live UObjects.
 		bool bGenerateGObjects = true;
 
-		/// Generate the GObjects dump with all property values for each object.
+		/// Generate the MD7::Globals::GObjects dump with all property values for each object.
 		bool bGenerateGObjectsWithProps = true;
 
 		/// Include editor-only metadata (names, tooltips, categories) in the SDK.
@@ -181,7 +181,7 @@ struct FSettings
 		/// forces callers to obtain the world via a @c UEngine instance instead.
 		bool bForceNoGWorldInSDK = false;
 
-		/// Emit helper functions that let callers override GObjects, GNames, and
+		/// Emit helper functions that let callers override MD7::Globals::GObjects, MD7::Globals::GNames, and
 		/// AppendString addresses at runtime without recompiling the SDK.
 		bool bAddManualOverrideOptions = true;
 
@@ -239,7 +239,10 @@ struct FSettings
 	} Debug;
 };
 
-inline FSettings GSettings;
+namespace MD7::Globals
+{
+	inline FSettings GSettings;
+}
 
 //* * * * * * * * * * * * * * * * * * * * *//
 // Do **NOT** change any of these settings //
@@ -282,7 +285,7 @@ namespace InternalSettings
 
 	/// Whether @c UObject::Name precedes @c UObject::Class in memory.  Affects
 	/// the @c FName size calculation in fixup code; unused after
-	/// @c GOffsets.Init().
+	/// @c MD7::Globals::GOffsets.Init().
 	inline bool bIsObjectNameBeforeClass = false;
 
 	/// Whether FNames are case-preserving, adding a @c int32 DisplayIndex field

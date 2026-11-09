@@ -163,7 +163,7 @@ EMappingsTypeFlags MappingGenerator::GetMappingType(UEProperty Property)
 
 int32 MappingGenerator::AddNameToData(std::stringstream& NameTable, const std::string& Name)
 {
-	if (GSettings.MappingGenerator.bShouldCheckForDuplicatedNames)
+	if (MD7::Globals::GSettings.MappingGenerator.bShouldCheckForDuplicatedNames)
 	{
 		auto [It, bInserted] = GNameMap.insert({Name, static_cast<int32>(NameCounter)});
 
@@ -244,7 +244,7 @@ void MappingGenerator::GeneratePropertyInfo(const PropertyWrapper& Property, std
 {
 	if (!Property.IsUnrealProperty())
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Invalid non-Unreal property!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Invalid non-Unreal property!\n");
 		return;
 	}
 
@@ -284,7 +284,7 @@ void MappingGenerator::GenerateStruct(const StructWrapper& Struct, std::stringst
 
 	uint16 PropertyCount              = 0x0;
 	uint16 SerializablePropertyCount  = 0x0;
-	const auto ExcludeEditorOnlyProps = GSettings.MappingGenerator.bExcludeEditorOnlyProperties;
+	const auto ExcludeEditorOnlyProps = MD7::Globals::GSettings.MappingGenerator.bExcludeEditorOnlyProperties;
 
 	for (const PropertyWrapper& Member : Members.IterateMembers())
 	{
@@ -388,22 +388,22 @@ std::stringstream MappingGenerator::GenerateFileData()
 	WriteToStream(ReturnBuffer, static_cast<uint32>(NameCounter));
 	WriteToStream(ReturnBuffer, NameData);
 
-	if (GSettings.Debug.bShouldPrintMappingDebugData)
-		GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: NameCounter = 0x{0:X} (Dec: {0})\n", static_cast<uint32>(NameCounter));
+	if (MD7::Globals::GSettings.Debug.bShouldPrintMappingDebugData)
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: NameCounter = 0x{0:X} (Dec: {0})\n", static_cast<uint32>(NameCounter));
 
 	/* Write Enum-count and enums */
 	WriteToStream(ReturnBuffer, static_cast<uint32>(NumEnums));
 	WriteToStream(ReturnBuffer, EnumData);
 
-	if (GSettings.Debug.bShouldPrintMappingDebugData)
-		GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: NumEnums = 0x{0:X} (Dec: {0})\n", static_cast<uint32>(NumEnums));
+	if (MD7::Globals::GSettings.Debug.bShouldPrintMappingDebugData)
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: NumEnums = 0x{0:X} (Dec: {0})\n", static_cast<uint32>(NumEnums));
 
 	/* Write Struct-count and enums */
 	WriteToStream(ReturnBuffer, static_cast<uint32>(NumStructsAndClasse));
 	WriteToStream(ReturnBuffer, StructData);
 
-	if (GSettings.Debug.bShouldPrintMappingDebugData)
-		GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: NumStructsAndClasse = 0x{0:X} (Dec: {0})\n", static_cast<uint32>(NumStructsAndClasse));
+	if (MD7::Globals::GSettings.Debug.bShouldPrintMappingDebugData)
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: NumStructsAndClasse = 0x{0:X} (Dec: {0})\n", static_cast<uint32>(NumStructsAndClasse));
 
 	return ReturnBuffer;
 }
@@ -424,7 +424,7 @@ void MappingGenerator::GenerateFileHeader(StreamType& InUsmap, const std::string
 	std::string_view DataView     = Data.view();
 	const uint32 UncompressedSize = static_cast<uint32>(DataView.length());
 
-	const auto CompressionMethod = GSettings.MappingGenerator.CompressionMethod;
+	const auto CompressionMethod = MD7::Globals::GSettings.MappingGenerator.CompressionMethod;
 
 	/* Write 'CompressionMethod' to the compression byte */
 	WriteToStream(InUsmap, static_cast<uint8>(CompressionMethod));
@@ -445,10 +445,10 @@ void MappingGenerator::GenerateFileHeader(StreamType& InUsmap, const std::string
 		break;
 	}
 
-	if (GSettings.Debug.bShouldPrintMappingDebugData)
+	if (MD7::Globals::GSettings.Debug.bShouldPrintMappingDebugData)
 	{
-		GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: CompressedSize = 0x{0:X} (Dec: {0})\n", CompressedSize);
-		GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: DecompressedSize = 0x{0:X} (Dec: {0})\n", UncompressedSize);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: CompressedSize = 0x{0:X} (Dec: {0})\n", CompressedSize);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "MappingGeneration: DecompressedSize = 0x{0:X} (Dec: {0})\n", UncompressedSize);
 	}
 
 	/* Write compressed size */

@@ -15,21 +15,21 @@ namespace fs = std::filesystem;
 
 int32 ObjectArray::Num()
 {
-	if (!GLayouts.ObjectsLayout)
+	if (!MD7::Globals::GLayouts.ObjectsLayout)
 		return 0;
 
-	if (GLayouts.ObjectsLayout->GetType() == EObjectsType::Array)
+	if (MD7::Globals::GLayouts.ObjectsLayout->GetType() == EObjectsType::Array)
 	{
-		FFixedUObjectArrayLayout* objLayout = reinterpret_cast<FFixedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
+		FFixedUObjectArrayLayout* objLayout = reinterpret_cast<FFixedUObjectArrayLayout*>(MD7::Globals::GLayouts.ObjectsLayout.get());
 
-		const uintptr_t Addr = GObjects + objLayout->NumObjects;
-		return GDecryptCallbacks.FixedObjects.NumObjects({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
+		const uintptr_t Addr = MD7::Globals::GObjects + objLayout->NumObjects;
+		return MD7::Globals::GDecryptCallbacks.FixedObjects.NumObjects({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<int32>(Addr)});
 	}
 
-	FChunkedUObjectArrayLayout* objLayout = reinterpret_cast<FChunkedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
+	FChunkedUObjectArrayLayout* objLayout = reinterpret_cast<FChunkedUObjectArrayLayout*>(MD7::Globals::GLayouts.ObjectsLayout.get());
 
-	const uintptr_t Addr = GObjects + objLayout->NumElements;
-	return GDecryptCallbacks.ChunkedObjects.NumElements({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
+	const uintptr_t Addr = MD7::Globals::GObjects + objLayout->NumElements;
+	return MD7::Globals::GDecryptCallbacks.ChunkedObjects.NumElements({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<int32>(Addr)});
 }
 
 template <typename UEType>
@@ -231,7 +231,7 @@ void AllFFieldIterator::IterateToNextStructWithMembers()
 
 		std::unordered_set<uintptr_t> VisitedFields;
 
-		for (UEFField Field = GetCurrentStruct().GetChildProperties(); GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
+		for (UEFField Field = GetCurrentStruct().GetChildProperties(); MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Field.GetAddress())); Field = Field.GetNext())
 		{
 			if (!VisitedFields.insert(reinterpret_cast<uintptr_t>(Field.GetAddress())).second)
 				break;

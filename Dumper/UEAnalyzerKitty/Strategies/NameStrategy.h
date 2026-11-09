@@ -8,7 +8,7 @@ namespace UEAnalyzerKitty
 {
 
 	/**
-	 * @brief The name table - FNamePool / NamePoolData, or legacy GNames.
+	 * @brief The name table - FNamePool / NamePoolData, or legacy MD7::Globals::GNames.
 	 *
 	 * One strategy covers both structures. They score the same candidates, and the
 	 * only thing that would separate them is an engine-version prior - a claim

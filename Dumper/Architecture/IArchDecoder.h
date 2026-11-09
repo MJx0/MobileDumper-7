@@ -136,7 +136,10 @@ public:
  */
 std::unique_ptr<IArchDecoder> CreateArchDecoder(EArch Arch);
 
-/**
- * @brief Global active arch decoder backend.
- */
-inline std::unique_ptr<IArchDecoder> GArchDecoder;
+namespace MD7::Globals
+{
+	/**
+	 * @brief Global active arch decoder backend.
+	 */
+	inline std::unique_ptr<IArchDecoder> GArchDecoder;
+}

@@ -12,7 +12,7 @@ public:
 
 	std::vector<std::string> GetSupportedGames() const override
 	{
-		return {"com.pubg.newstate"};
+		return {"com.pubg.newstate", "com.pubg.newstate.samsung"};
 	}
 
 	/*void OverrideSettings(FSettings &Settings) const override
@@ -22,27 +22,27 @@ public:
 
 	void OverrideDecryptCallbacks(FDecryptCallbacks& Callbacks) const override
 	{
-		Callbacks.UObject.Index = [](const FDecryptContext<int32>& Context)
+		Callbacks.UObject.Index = [this](const FDecryptContext<int32>& Context)
 		{
 			return DecryptXignIntProperty(Context.Address);
 		};
 
-		Callbacks.UObject.Class = [](const FDecryptContext<uintptr_t>& Context)
+		Callbacks.UObject.Class = [this](const FDecryptContext<uintptr_t>& Context)
 		{
 			return DecryptXignPtrProperty(Context.Address);
 		};
 
-		Callbacks.UObject.Outer = [](const FDecryptContext<uintptr_t>& Context)
+		Callbacks.UObject.Outer = [this](const FDecryptContext<uintptr_t>& Context)
 		{
 			return DecryptXignPtrProperty(Context.Address);
 		};
 
-		Callbacks.String.UTF8 = [](char* Data, int32 Len)
+		Callbacks.String.UTF8 = [this](char* Data, int32 Len)
 		{
 			DecryptFNameUTF8(Data, Len);
 		};
 
-		Callbacks.String.UTF16 = [](char16_t* Data, int32 Len)
+		Callbacks.String.UTF16 = [this](char16_t* Data, int32 Len)
 		{
 			DecryptFNameUTF16(Data, Len);
 		};
@@ -50,7 +50,9 @@ public:
 
 	void OverrideSettings(FSettings& Settings) const override
 	{
-		Settings.CppGenerator.DecryptionUtils.DecryptFNameUTF8FuncBody = fmt::format(R"({{
+		if (GetGameVariant() == NewStateProfile::GameVariant::Default)
+		{
+			Settings.CppGenerator.DecryptionUtils.DecryptFNameUTF8FuncBody = fmt::format(R"({{
 	if (!Data || Len <= 0)
 		return;
 
@@ -79,9 +81,9 @@ public:
 		Key = (Key >> 56) | (Key << 8);
 	}}
 }})",
-		                                                                            kFNameKey);
+			                                                                             kFNameKey);
 
-		Settings.CppGenerator.DecryptionUtils.DecryptFNameUTF16FuncBody = fmt::format(R"({{
+			Settings.CppGenerator.DecryptionUtils.DecryptFNameUTF16FuncBody = fmt::format(R"({{
 	if (!Data || Len <= 0)
 		return;
 
@@ -111,7 +113,49 @@ public:
 		Key = (Key >> 56) | (Key << 8);
 	}}
 }})",
-		                                                                             kFNameKey);
+			                                                                              kFNameKey);
+		}
+		else if (GetGameVariant() == NewStateProfile::GameVariant::Samsung)
+		{
+			Settings.CppGenerator.DecryptionUtils.DecryptFNameUTF8FuncBody =
+			    fmt::format(R"({{
+    if (!Data || Len <= 0)
+        return;
+
+    uint64_t Key = {};
+
+    for (int32_t i = 0; i < Len; ++i)
+    {{
+        Data[i] = static_cast<char>(
+            static_cast<uint8_t>(Data[i]) -
+            static_cast<uint8_t>(Key & 0xFF));
+
+        Key += 199;
+        Key = (Key >> 56) | (Key << 8);
+    }}
+}})",
+			                kFNameKeySamsung);
+
+			Settings.CppGenerator.DecryptionUtils.DecryptFNameUTF16FuncBody =
+			    fmt::format(R"({{
+    if (!Data || Len <= 0)
+        return;
+
+    uint64_t Key = {};
+
+    uint8_t* ByteBuffer = reinterpret_cast<uint8_t*>(Data);
+
+    for (int32_t i = 0; i < Len; ++i)
+    {{
+        ByteBuffer[i] = static_cast<uint8_t>(
+            ByteBuffer[i] - static_cast<uint8_t>(Key & 0xFF));
+
+        Key += 199;
+        Key = (Key >> 56) | (Key << 8);
+    }}
+}})",
+			                kFNameKeySamsung);
+		}
 	}
 
 private:
@@ -119,11 +163,26 @@ private:
 	static constexpr uint32 kXignPropertyKey32 = 0xB5C76D21;
 	static constexpr uint64 kXignPropertyKey64 = 0xD2CA397CEA681802;
 	static constexpr uint64 kFNameKey          = 354233679;
+	static constexpr uint64 kFNameKeySamsung   = 739036228;
 
-	static int DecryptXignIntProperty(uintptr_t Address)
+	enum class GameVariant : uint
+	{
+		Default,
+		Samsung
+	};
+
+	GameVariant GetGameVariant() const
+	{
+		if (GetGameIdentifier().ends_with(".samsung"))
+			return GameVariant::Samsung;
+
+		return GameVariant::Default;
+	}
+
+	int DecryptXignIntProperty(uintptr_t Address) const
 	{
 		uint32 Values[3]{};
-		GMemory->ReadBytes(Address, Values, sizeof(Values));
+		MD7::Globals::GMemory->ReadBytes(Address, Values, sizeof(Values));
 
 		if (!Values[0] || !Values[1] || !Values[2])
 			return 0;
@@ -136,10 +195,10 @@ private:
 		return DecryptedIndex;
 	}
 
-	static uint64 DecryptXignPtrProperty(uintptr_t Address)
+	uint64 DecryptXignPtrProperty(uintptr_t Address) const
 	{
 		uint64 Values[3]{};
-		GMemory->ReadBytes(Address, Values, sizeof(Values));
+		MD7::Globals::GMemory->ReadBytes(Address, Values, sizeof(Values));
 
 		if (!Values[0] || !Values[1] || !Values[2])
 			return 0;
@@ -152,66 +211,93 @@ private:
 		return DecryptedPointer;
 	}
 
-	static void DecryptFNameUTF8(char* Data, int32_t Len)
+	void DecryptFNameUTF8(char* Data, int32_t Len) const
 	{
 		if (!Data || Len <= 0)
 			return;
 
-		uint64_t Key = kFNameKey;
-
-		for (int32_t i = 0; i < Len; ++i)
+		if (GetGameVariant() == NewStateProfile::GameVariant::Default)
 		{
-			uint8_t Char = static_cast<uint8_t>(Data[i]);
+			uint64_t Key = kFNameKey;
 
-			Char = static_cast<uint8_t>(
-			    (((Char >> 1) & 7) |
-			     ((Char & 1) << 3) |
-			     (((Char >> 1) & 8) << 4) |
-			     ((Char >> 5) << 4)) -
-			    static_cast<uint8_t>(Key));
+			for (int32_t i = 0; i < Len; ++i)
+			{
+				uint8_t Char = static_cast<uint8_t>(Data[i]);
 
-			Data[i] = static_cast<char>(Char);
+				Char = static_cast<uint8_t>(
+				    (((Char >> 1) & 7) |
+				     ((Char & 1) << 3) |
+				     (((Char >> 1) & 8) << 4) |
+				     ((Char >> 5) << 4)) -
+				    static_cast<uint8_t>(Key));
 
-			uint32_t Key32 = static_cast<uint32_t>(Key);
+				Data[i] = static_cast<char>(Char);
 
-			Key += ((((Key32 >> 13) | (static_cast<uint8_t>(Key >> 8))) & 3) |
-			        (((Key32 >> 22) & 0x1C) << 3) |
-			        (((Key32 >> 27) & 0x1F) << 3)) ^
-			       0x91;
+				uint32_t Key32 = static_cast<uint32_t>(Key);
 
-			Key = Utils::Memory::Ror(uint64_t(Key), 56);
+				Key += ((((Key32 >> 13) | (static_cast<uint8_t>(Key >> 8))) & 3) |
+				        (((Key32 >> 22) & 0x1C) << 3) |
+				        (((Key32 >> 27) & 0x1F) << 3)) ^
+				       0x91;
+
+				Key = Utils::Memory::Ror(uint64_t(Key), 56);
+			}
+		}
+		else if (GetGameVariant() == NewStateProfile::GameVariant::Samsung)
+		{
+			uint64_t Key = kFNameKeySamsung;
+			for (int i = 0; i < Len; i++)
+			{
+				Data[i]  = static_cast<char>(static_cast<uint8_t>(Data[i]) - static_cast<uint8_t>(Key & 0xFF));
+				Key     += 199;
+				Key      = Utils::Memory::Ror(uint64_t(Key), 56);
+			}
 		}
 	}
 
-	static void DecryptFNameUTF16(char16_t* Data, int32_t Len)
+	void DecryptFNameUTF16(char16_t* Data, int32_t Len) const
 	{
 		if (!Data || Len <= 0)
 			return;
 
 		uint64_t Key = kFNameKey;
 
-		for (int32_t i = 0; i < Len; ++i)
+		if (GetGameVariant() == NewStateProfile::GameVariant::Default)
 		{
-			uint16_t Char   = static_cast<uint16_t>(Data[i]);
-			uint8_t LowByte = static_cast<uint8_t>(Char);
+			for (int32_t i = 0; i < Len; ++i)
+			{
+				uint16_t Char   = static_cast<uint16_t>(Data[i]);
+				uint8_t LowByte = static_cast<uint8_t>(Char);
 
-			LowByte = static_cast<uint8_t>(
-			    (((LowByte >> 1) & 7) |
-			     ((LowByte & 1) << 3) |
-			     (((LowByte >> 1) & 8) << 4) |
-			     ((LowByte >> 5) << 4)) -
-			    static_cast<uint8_t>(Key));
+				LowByte = static_cast<uint8_t>(
+				    (((LowByte >> 1) & 7) |
+				     ((LowByte & 1) << 3) |
+				     (((LowByte >> 1) & 8) << 4) |
+				     ((LowByte >> 5) << 4)) -
+				    static_cast<uint8_t>(Key));
 
-			Data[i] = static_cast<char16_t>((Char & 0xFF00) | LowByte);
+				Data[i] = static_cast<char16_t>((Char & 0xFF00) | LowByte);
 
-			uint32_t Key32 = static_cast<uint32_t>(Key);
+				uint32_t Key32 = static_cast<uint32_t>(Key);
 
-			Key += ((((Key32 >> 13) | (static_cast<uint8_t>(Key >> 8))) & 3) |
-			        (((Key32 >> 22) & 0x1C) << 3) |
-			        (((Key32 >> 27) & 0x1F) << 3)) ^
-			       0x91;
+				Key += ((((Key32 >> 13) | (static_cast<uint8_t>(Key >> 8))) & 3) |
+				        (((Key32 >> 22) & 0x1C) << 3) |
+				        (((Key32 >> 27) & 0x1F) << 3)) ^
+				       0x91;
 
-			Key = Utils::Memory::Ror(uint64_t(Key), 56);
+				Key = Utils::Memory::Ror(uint64_t(Key), 56);
+			}
+		}
+		else if (GetGameVariant() == NewStateProfile::GameVariant::Samsung)
+		{
+			uint64_t Key        = kFNameKeySamsung;
+			uint8_t* ByteBuffer = reinterpret_cast<uint8_t*>(Data);
+			for (int i = 0; i < Len; i++)
+			{
+				ByteBuffer[i]  = ByteBuffer[i] - static_cast<uint8_t>(Key & 0xFF);
+				Key           += 199;
+				Key            = Utils::Memory::Ror(uint64_t(Key), 56);
+			}
 		}
 	}
 };

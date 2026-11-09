@@ -16,11 +16,14 @@
 #include "DecryptCallbacks.h"
 #include "OffsetFinder.h"
 
-uintptr_t GObjects = 0;
-uintptr_t GNames   = 0;
-FLayouts GLayouts{};
-FInGenOffsets GOffsets{};
-FInSDKOffsets GInSDKOffsets{};
+namespace MD7::Globals
+{
+	uintptr_t GObjects = 0;
+	uintptr_t GNames   = 0;
+	FLayouts GLayouts{};
+	FInGenOffsets GOffsets{};
+	FInSDKOffsets GInSDKOffsets{};
+}
 
 bool FInGenOffsets::Init(std::string& OutErrorString)
 {
@@ -29,13 +32,13 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
 		if (this->Off == OffsetFinder::OffsetNotFound)                                     \
 		{                                                                                  \
 			this->Off = Val;                                                               \
-			GLogger.FmtWrite(ELogLevel::Info, "{} = 0x{:X}\n", #Off, uint32_t(this->Off)); \
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "{} = 0x{:X}\n", #Off, uint32_t(this->Off)); \
 		}                                                                                  \
 	}
 
 #define kINIT_UE_OFFSET(Off, Required, Init, OverrideIfInvalidVal)                                                            \
 	{                                                                                                                         \
-		GLogger.FmtWrite(ELogLevel::Info, "Initializing {}...\n", #Off);                                                      \
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Initializing {}...\n", #Off);                                                      \
                                                                                                                               \
 		if (this->Off == OffsetFinder::OffsetNotFound)                                                                        \
 		{                                                                                                                     \
@@ -44,32 +47,32 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
                                                                                                                               \
 		if (this->Off == OffsetFinder::OffsetNotFound && OverrideIfInvalidVal >= 0)                                           \
 		{                                                                                                                     \
-			GLogger.FmtWrite(ELogLevel::Info, "Overriding Invalid ( {} )...\n", #Off);                                        \
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Overriding Invalid ( {} )...\n", #Off);                                        \
 			this->Off = OverrideIfInvalidVal;                                                                                 \
 		}                                                                                                                     \
                                                                                                                               \
 		if (Required && this->Off == OffsetFinder::OffsetNotFound)                                                            \
 		{                                                                                                                     \
 			OutErrorString = fmt::format("Failed to initialize required offset ( {} )", #Off);                                \
-			GLogger.FmtWrite(ELogLevel::Error, "{}\n", OutErrorString);                                                       \
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "{}\n", OutErrorString);                                                       \
 			return false;                                                                                                     \
 		}                                                                                                                     \
                                                                                                                               \
 		if (this->Off == OffsetFinder::OffsetNotFound)                                                                        \
 		{                                                                                                                     \
-			GLogger.FmtWrite(ELogLevel::Warning, "Couldn't find \"{}\" but it's not required.\n", #Off, uint32_t(this->Off)); \
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Couldn't find \"{}\" but it's not required.\n", #Off, uint32_t(this->Off)); \
 		}                                                                                                                     \
 		else                                                                                                                  \
 		{                                                                                                                     \
-			GLogger.FmtWrite(ELogLevel::Info, "{} = 0x{:X}\n", #Off, uint32_t(this->Off));                                    \
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "{} = 0x{:X}\n", #Off, uint32_t(this->Off));                                    \
 		}                                                                                                                     \
 	}
 
 	// Objects validation
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "Finding UObject.Index...\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding UObject.Index...\n");
 		this->Init_UObject_Index();
-		GLogger.FmtWrite(ELogLevel::Info, "UObject.Index = 0x{:X}\n", (uint32_t)this->UObject.Index);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "UObject.Index = 0x{:X}\n", (uint32_t)this->UObject.Index);
 		if (this->UObject.Index == OffsetFinder::OffsetNotFound)
 		{
 			OutErrorString = fmt::format("Failed to find required offset ( UObject.Index )\nMaybe ObjObjects pointer or layout is incorrect!");
@@ -84,23 +87,23 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
 	kINIT_UE_OFFSET(UObject.Name, true, Init_UObject_Name(), OffsetFinder::OffsetNotFound);
 
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "(Early) Initializing FName...\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Early) Initializing FName...\n");
 		this->PreInit_FName();
-		GLogger.FmtWrite(ELogLevel::Info, "(Early) FName.CompIdx = 0x{:X}\n", (uint32_t)GOffsets.FName.CompIdx);
-		GLogger.FmtWrite(ELogLevel::Info, "(Early) FName.Number = 0x{:X}\n", (uint32_t)GOffsets.FName.Number);
-		GLogger.FmtWrite(ELogLevel::Info, "(Early) FName.SizeOf = 0x{:X}\n", (uint32_t)GOffsets.FName.SizeOf);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Early) FName.CompIdx = 0x{:X}\n", (uint32_t)MD7::Globals::GOffsets.FName.CompIdx);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Early) FName.Number = 0x{:X}\n", (uint32_t)MD7::Globals::GOffsets.FName.Number);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Early) FName.SizeOf = 0x{:X}\n", (uint32_t)MD7::Globals::GOffsets.FName.SizeOf);
 	}
 
 	/* CastFlags is needed by Init_UStruct_Children(); find early, then re-find authoritatively after FProperty detection. */
 	const int32 ProfileCastFlags = this->UClass.CastFlags;
 
-	GLogger.FmtWrite(ELogLevel::Info, "(Early) Initializing UClass.CastFlags for UStruct.Children...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Early) Initializing UClass.CastFlags for UStruct.Children...\n");
 	if (this->UClass.CastFlags == OffsetFinder::OffsetNotFound)
 	{
 		Init_UClass_CastFlags();
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "(Early) UClass.CastFlags = 0x{:X}\n", uint32_t(this->UClass.CastFlags));
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Early) UClass.CastFlags = 0x{:X}\n", uint32_t(this->UClass.CastFlags));
 
 	kINIT_UE_OFFSET(UStruct.Children, true, Init_UStruct_Children(), OffsetFinder::OffsetNotFound);
 
@@ -120,7 +123,7 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
 
 	if (InternalSettings::bUseFProperty)
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "Game uses FProperty system\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Game uses FProperty system\n");
 		kINIT_UE_OFFSET(UStruct.ChildProperties, true, Init_UStruct_ChildProperties(), OffsetFinder::OffsetNotFound);
 
 		kSET_UE_OFFSET(FField.Vft, 0);
@@ -172,7 +175,7 @@ bool FInGenOffsets::Init(std::string& OutErrorString)
 	kINIT_UE_OFFSET(MapProperty.Base, true, Init_MapProperty_Base(), Property.SizeOf);
 
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "(Late) Initializing FName...\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Late) Initializing FName...\n");
 		this->PostInit_FName();
 	}
 
@@ -212,7 +215,7 @@ bool FInGenOffsets::Init_UObject_Flags()
 
 			// Look for 0x43 in this object, as it is a really common value for UObject::Flags
 			Offset = OffsetFinder::FindOffset(std::vector{std::pair{Ptr, EnumFlagValueToSearch}}, Offset, OffsetFinder::DefaultMaxOffsetScan, FDecryptFn<int32>([](const FDecryptContext<int32>& Context)
-			{ return static_cast<int32>(GDecryptCallbacks.UObject.Flags({.Address = Context.Address, .RawValue = static_cast<EObjectFlags>(Context.RawValue)})); }));
+			{ return static_cast<int32>(MD7::Globals::GDecryptCallbacks.UObject.Flags({.Address = Context.Address, .RawValue = static_cast<EObjectFlags>(Context.RawValue)})); }));
 
 			if (Offset == OffsetFinder::OffsetNotFound)
 				break; // Early exit
@@ -228,7 +231,7 @@ bool FInGenOffsets::Init_UObject_Flags()
 					break;
 
 				const uintptr_t FlagsAddr      = reinterpret_cast<uintptr_t>(Obj.GetAddress()) + Offset;
-				const int32 TypedValueAtOffset = static_cast<int32>(GDecryptCallbacks.UObject.Flags({.Address = FlagsAddr, .RawValue = GMemory->Read<EObjectFlags>(FlagsAddr)}));
+				const int32 TypedValueAtOffset = static_cast<int32>(MD7::Globals::GDecryptCallbacks.UObject.Flags({.Address = FlagsAddr, .RawValue = MD7::Globals::GMemory->Read<EObjectFlags>(FlagsAddr)}));
 
 				if (TypedValueAtOffset == EnumFlagValueToSearch)
 					NumObjectsWithFlagAtOffset++;
@@ -254,7 +257,7 @@ bool FInGenOffsets::Init_UObject_Index()
 	Infos.emplace_back(ObjectArray::GetByIndex(0x055).GetAddress(), 0x055);
 	Infos.emplace_back(ObjectArray::GetByIndex(0x123).GetAddress(), 0x123);
 
-	this->UObject.Index = OffsetFinder::FindOffset<4>(Infos, sizeof(void*), OffsetFinder::DefaultMaxOffsetScan, GDecryptCallbacks.UObject.Index); // Skip VTable
+	this->UObject.Index = OffsetFinder::FindOffset<4>(Infos, sizeof(void*), OffsetFinder::DefaultMaxOffsetScan, MD7::Globals::GDecryptCallbacks.UObject.Index); // Skip VTable
 	return this->UObject.Index != OffsetFinder::OffsetNotFound;
 }
 
@@ -277,11 +280,11 @@ bool FInGenOffsets::Init_UObject_Class()
 			const uintptr_t ClassAddrA = reinterpret_cast<uintptr_t>(NextClassA) + ClassPtrOffset;
 			const uintptr_t ClassAddrB = reinterpret_cast<uintptr_t>(NextClassB) + ClassPtrOffset;
 
-			NextClassA = reinterpret_cast<const uint8_t*>(GDecryptCallbacks.UObject.Class({.Address = ClassAddrA, .RawValue = GMemory->Read<uintptr_t>(ClassAddrA)}));
-			NextClassB = reinterpret_cast<const uint8_t*>(GDecryptCallbacks.UObject.Class({.Address = ClassAddrB, .RawValue = GMemory->Read<uintptr_t>(ClassAddrB)}));
+			NextClassA = reinterpret_cast<const uint8_t*>(MD7::Globals::GDecryptCallbacks.UObject.Class({.Address = ClassAddrA, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(ClassAddrA)}));
+			NextClassB = reinterpret_cast<const uint8_t*>(MD7::Globals::GDecryptCallbacks.UObject.Class({.Address = ClassAddrB, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(ClassAddrB)}));
 
 			/* If this was UObject::Class it would never be invalid. The pointer would simply point to itself.*/
-			if (!NextClassA || !NextClassB || !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NextClassA)) || !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NextClassB)))
+			if (!NextClassA || !NextClassB || !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NextClassA)) || !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(NextClassB)))
 				return false;
 
 			if (CurrentClassA == NextClassA && CurrentClassB == NextClassB)
@@ -297,7 +300,7 @@ bool FInGenOffsets::Init_UObject_Class()
 	int32_t Offset = 0;
 	while (Offset != OffsetFinder::OffsetNotFound)
 	{
-		Offset = OffsetFinder::GetValidPointerOffset<true>(ObjA, ObjB, Offset + sizeof(void*), 0x50, false, GDecryptCallbacks.UObject.Class);
+		Offset = OffsetFinder::GetValidPointerOffset<true>(ObjA, ObjB, Offset + sizeof(void*), 0x50, false, MD7::Globals::GDecryptCallbacks.UObject.Class);
 
 		if (IsValidCyclicUClassPtrOffset(ObjA, ObjB, Offset))
 		{
@@ -315,7 +318,7 @@ bool FInGenOffsets::Init_UObject_Name()
 
 	if (this->UObject.Class == OffsetFinder::OffsetNotFound || this->UObject.Index == OffsetFinder::OffsetNotFound || this->UObject.Outer == OffsetFinder::OffsetNotFound || this->UObject.Flags == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_UObject_Name: One or more required offsets are not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_UObject_Name: One or more required offsets are not set.\n");
 		return false;
 	}
 
@@ -338,7 +341,7 @@ bool FInGenOffsets::Init_UObject_Outer()
 
 	if (this->UObject.Class == OffsetFinder::OffsetNotFound || this->UObject.Index == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_UObject_Outer: One or more required offsets are not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_UObject_Outer: One or more required offsets are not set.\n");
 		return false;
 	}
 
@@ -367,7 +370,7 @@ bool FInGenOffsets::Init_UObject_Outer()
 
 		while (Offset != OffsetFinder::OffsetNotFound)
 		{
-			Offset = OffsetFinder::GetValidPointerOffset(ObjA, ObjB, Offset + sizeof(void*), 0x50, false, GDecryptCallbacks.UObject.Outer);
+			Offset = OffsetFinder::GetValidPointerOffset(ObjA, ObjB, Offset + sizeof(void*), 0x50, false, MD7::Globals::GDecryptCallbacks.UObject.Outer);
 
 			// Make sure we didn't re-find the Class offset or Index (if the Index filed is a valid pionter for some reason).
 			if (Offset != this->UObject.Class && Offset != this->UObject.Index)
@@ -416,9 +419,9 @@ void FInGenOffsets::PreInit_FName()
 
 		const uintptr_t NameAddr = reinterpret_cast<uintptr_t>(Obj.GetFName().GetAddress());
 
-		const int32 V0 = GDecryptCallbacks.FName.CompIdx({.Address = NameAddr, .RawValue = GMemory->Read<int32>(NameAddr)});
-		const int32 V4 = GMemory->Read<int32>(NameAddr + 0x4);
-		const int32 V8 = GMemory->Read<int32>(NameAddr + 0x8);
+		const int32 V0 = MD7::Globals::GDecryptCallbacks.FName.CompIdx({.Address = NameAddr, .RawValue = MD7::Globals::GMemory->Read<int32>(NameAddr)});
+		const int32 V4 = MD7::Globals::GMemory->Read<int32>(NameAddr + 0x4);
+		const int32 V8 = MD7::Globals::GMemory->Read<int32>(NameAddr + 0x8);
 
 		if (V0 <= 0)
 			continue;
@@ -486,14 +489,14 @@ void FInGenOffsets::PostInit_FName()
 	/* Nothing to do for us, everything is fine! */
 	if (this->FName.SizeOf == FNameSize)
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "PostInit_FName: FName.SizeOf is already correct, nothing to do.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "PostInit_FName: FName.SizeOf is already correct, nothing to do.\n");
 		return;
 	}
 
 	const uint8* NameAddress = static_cast<const uint8*>(PlayerStart.GetFName().GetAddress());
 
-	const int32 FNameFirstInt /* ComparisonIndex */        = GDecryptCallbacks.FName.CompIdx({.Address = reinterpret_cast<uintptr_t>(NameAddress), .RawValue = GMemory->Read<int32>(reinterpret_cast<uintptr_t>(NameAddress))});
-	const int32 FNameSecondInt /* [Number/DisplayIndex] */ = GMemory->Read<int32>(reinterpret_cast<uintptr_t>(NameAddress) + 0x4);
+	const int32 FNameFirstInt /* ComparisonIndex */        = MD7::Globals::GDecryptCallbacks.FName.CompIdx({.Address = reinterpret_cast<uintptr_t>(NameAddress), .RawValue = MD7::Globals::GMemory->Read<int32>(reinterpret_cast<uintptr_t>(NameAddress))});
+	const int32 FNameSecondInt /* [Number/DisplayIndex] */ = MD7::Globals::GMemory->Read<int32>(reinterpret_cast<uintptr_t>(NameAddress) + 0x4);
 
 	if (FNameSize == 0x8 && FNameFirstInt == FNameSecondInt) /* WITH_CASE_PRESERVING_NAME + FNAME_OUTLINE_NUMBER */
 	{
@@ -528,9 +531,9 @@ void FInGenOffsets::PostInit_FName()
 		this->FName.SizeOf = 0x8;
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "(Late) FName.CompIdx = 0x{:X}\n", (uint32_t)GOffsets.FName.CompIdx);
-	GLogger.FmtWrite(ELogLevel::Info, "(Late) FName.Number = 0x{:X}\n", (uint32_t)GOffsets.FName.Number);
-	GLogger.FmtWrite(ELogLevel::Info, "(Late) FName.SizeOf = 0x{:X}\n", (uint32_t)GOffsets.FName.SizeOf);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Late) FName.CompIdx = 0x{:X}\n", (uint32_t)MD7::Globals::GOffsets.FName.CompIdx);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Late) FName.Number = 0x{:X}\n", (uint32_t)MD7::Globals::GOffsets.FName.Number);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "(Late) FName.SizeOf = 0x{:X}\n", (uint32_t)MD7::Globals::GOffsets.FName.SizeOf);
 }
 
 bool FInGenOffsets::Init_UField_Next()
@@ -541,7 +544,7 @@ bool FInGenOffsets::Init_UField_Next()
 	    this->UObject.Flags == OffsetFinder::OffsetNotFound || this->UObject.Outer == OffsetFinder::OffsetNotFound ||
 	    this->UObject.Class == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_UField_Next: One or more required offsets are not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_UField_Next: One or more required offsets are not set.\n");
 		return false;
 	}
 
@@ -570,7 +573,7 @@ bool FInGenOffsets::Init_UField_Next()
 
 	if (!ChildA || !ChildB)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_UField_Next: Could not resolve two classes that own a child.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_UField_Next: Could not resolve two classes that own a child.\n");
 		return false;
 	}
 
@@ -631,7 +634,7 @@ bool FInGenOffsets::Init_FField_Owner()
 
 	if (this->FField.Class == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_FField_Owner: One or more required offsets are not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_FField_Owner: One or more required offsets are not set.\n");
 		return false;
 	}
 
@@ -657,9 +660,9 @@ bool FInGenOffsets::Init_FField_Owner()
 		if (Off == this->FField.Class)
 			continue;
 
-		const uintptr_t ValA = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GuidChild.GetAddress()) + Off);
-		const uintptr_t ValB = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(VectorChild.GetAddress()) + Off);
-		const uintptr_t ValC = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(ColorChild.GetAddress()) + Off);
+		const uintptr_t ValA = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GuidChild.GetAddress()) + Off);
+		const uintptr_t ValB = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(VectorChild.GetAddress()) + Off);
+		const uintptr_t ValC = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(ColorChild.GetAddress()) + Off);
 
 		// Old FFieldVariant { void* Container; bool bIsUObject; }: Container holds the raw UObject pointer.
 		if (ValA == GuidAddr && ValB == VectorAddr && ValC == ColorAddr)
@@ -689,7 +692,7 @@ bool FInGenOffsets::Init_FField_Next()
 
 	if (this->FField.Class == OffsetFinder::OffsetNotFound || this->FField.Owner == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_FField_Next: One or more required offsets are not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_FField_Next: One or more required offsets are not set.\n");
 		return false;
 	}
 
@@ -702,11 +705,11 @@ bool FInGenOffsets::Init_FField_Next()
 		if (Off == this->FField.Class || Off == this->FField.Owner)
 			continue;
 
-		const uintptr_t ValA = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GuidChildren) + Off);
-		const uintptr_t ValB = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(VectorChildren) + Off);
+		const uintptr_t ValA = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GuidChildren) + Off);
+		const uintptr_t ValB = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(VectorChildren) + Off);
 
-		const bool bAValid = GMemory->IsAddressReadable(ValA) && GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(ValA));
-		const bool bBValid = GMemory->IsAddressReadable(ValB) && GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(ValB));
+		const bool bAValid = MD7::Globals::GMemory->IsAddressReadable(ValA) && MD7::Globals::GMemory->IsAddressReadable(MD7::Globals::GMemory->Read<uintptr_t>(ValA));
+		const bool bBValid = MD7::Globals::GMemory->IsAddressReadable(ValB) && MD7::Globals::GMemory->IsAddressReadable(MD7::Globals::GMemory->Read<uintptr_t>(ValB));
 
 		if (bAValid && bBValid)
 		{
@@ -745,8 +748,8 @@ bool FInGenOffsets::Init_FField_EditorOnlyMetaData()
 
 	static auto AreValidMetadataMaps = []<typename NameType>(uintptr_t Addr1, uintptr_t Addr2) -> bool
 	{
-		TMap<NameType, FString> Map1 = GMemory->Read<TMap<NameType, FString>>(Addr1);
-		TMap<NameType, FString> Map2 = GMemory->Read<TMap<NameType, FString>>(Addr2);
+		TMap<NameType, FString> Map1 = MD7::Globals::GMemory->Read<TMap<NameType, FString>>(Addr1);
+		TMap<NameType, FString> Map2 = MD7::Globals::GMemory->Read<TMap<NameType, FString>>(Addr2);
 
 		if (!Map1.IsValid() || !Map2.IsValid())
 			return false;
@@ -757,7 +760,7 @@ bool FInGenOffsets::Init_FField_EditorOnlyMetaData()
 			{
 				if (!Map.GetAllocationFlags()[i])
 					continue;
-				return GMemory->Read<FString>(Map.GetElementAddress(i) + sizeof(NameType));
+				return MD7::Globals::GMemory->Read<FString>(Map.GetElementAddress(i) + sizeof(NameType));
 			}
 			return {};
 		};
@@ -782,15 +785,15 @@ bool FInGenOffsets::Init_FField_EditorOnlyMetaData()
 		if (!IsPotentiallyValidOffset(Offset))
 			continue;
 
-		const uintptr_t RemoteAddr1 = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GuidChild1.GetAddress()) + Offset);
-		const uintptr_t RemoteAddr2 = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GuidChild2.GetAddress()) + Offset);
+		const uintptr_t RemoteAddr1 = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GuidChild1.GetAddress()) + Offset);
+		const uintptr_t RemoteAddr2 = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(GuidChild2.GetAddress()) + Offset);
 
-		if (!RemoteAddr1 || !RemoteAddr2 || !GMemory->IsAddressReadable(RemoteAddr1) || !GMemory->IsAddressReadable(RemoteAddr2))
+		if (!RemoteAddr1 || !RemoteAddr2 || !MD7::Globals::GMemory->IsAddressReadable(RemoteAddr1) || !MD7::Globals::GMemory->IsAddressReadable(RemoteAddr2))
 			continue;
 
 		// Read as Name08Byte for structural validity checks (TMap header layout is NameType-independent)
-		TMap<Name08Byte, FString> LocalMap1 = GMemory->Read<TMap<Name08Byte, FString>>(RemoteAddr1);
-		TMap<Name08Byte, FString> LocalMap2 = GMemory->Read<TMap<Name08Byte, FString>>(RemoteAddr2);
+		TMap<Name08Byte, FString> LocalMap1 = MD7::Globals::GMemory->Read<TMap<Name08Byte, FString>>(RemoteAddr1);
+		TMap<Name08Byte, FString> LocalMap2 = MD7::Globals::GMemory->Read<TMap<Name08Byte, FString>>(RemoteAddr2);
 
 		if (!LocalMap1.IsValid() || !LocalMap2.IsValid())
 			continue;
@@ -808,7 +811,7 @@ bool FInGenOffsets::Init_FField_EditorOnlyMetaData()
 			return *reinterpret_cast<const void* const*>(&Map);
 		};
 
-		if (!GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(GetDataPtrOfArrayInMap(LocalMap1))) || !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(GetDataPtrOfArrayInMap(LocalMap2))))
+		if (!MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(GetDataPtrOfArrayInMap(LocalMap1))) || !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(GetDataPtrOfArrayInMap(LocalMap2))))
 			continue;
 
 		if (this->FName.SizeOf <= 0x8)
@@ -859,7 +862,7 @@ bool FInGenOffsets::Init_FFieldClass_Name()
 		if (!Child)
 			return;
 		const void* Addr = Child.GetClass().GetAddress();
-		if (Addr && GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Addr)))
+		if (Addr && MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Addr)))
 			Classes.push_back(reinterpret_cast<uintptr_t>(Addr));
 	};
 
@@ -904,7 +907,7 @@ bool FInGenOffsets::Init_FFieldClass_Name()
 
 			for (const uintptr_t& Entry : Classes)
 			{
-				const int32 CmpIdx = GMemory->Read<int32>(Entry + Off);
+				const int32 CmpIdx = MD7::Globals::GMemory->Read<int32>(Entry + Off);
 				if (CmpIdx <= 0)
 					break;
 
@@ -940,7 +943,7 @@ bool FInGenOffsets::Init_FFieldClass_Name()
 		this->FFieldClass.Name = FindNameOffset(false);
 
 		if (this->FFieldClass.Name != OffsetFinder::OffsetNotFound)
-			GLogger.FmtWrite(ELogLevel::Warning, "Init_FFieldClass_Name: no offset passed validation; falling back to 0x{:X} on a loose name match. Property class names may be wrong.\n", (uint32_t)this->FFieldClass.Name);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Init_FFieldClass_Name: no offset passed validation; falling back to 0x{:X} on a loose name match. Property class names may be wrong.\n", (uint32_t)this->FFieldClass.Name);
 	}
 
 	return this->FFieldClass.Name != OffsetFinder::OffsetNotFound;
@@ -954,12 +957,12 @@ void InializeUEnumSettings(const void* EnumObj, const uint32_t UEnumNumValuesOff
 
 	{
 		// On UE5.6+ there are two arrays, one for just the FName*/UTF8Char* and one for just int64* values. Check if the array before NumValues contains just Values or TPair<Name, Value>.
-		const uintptr_t PossibleValueArrayTaggedPtr = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(EnumObj) + UEnumNumValuesOffset - sizeof(void*));
+		const uintptr_t PossibleValueArrayTaggedPtr = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(EnumObj) + UEnumNumValuesOffset - sizeof(void*));
 		const uintptr_t PossibleValueArrayAddr      = PossibleValueArrayTaggedPtr & ~UE5EnumDynamicAllocationTag;
 
-		if (GMemory->IsAddressReadable(PossibleValueArrayAddr) && GMemory->IsAddressReadable(PossibleValueArrayAddr + sizeof(int64)) && GMemory->IsAddressReadable(PossibleValueArrayAddr + 2 * sizeof(int64)))
+		if (MD7::Globals::GMemory->IsAddressReadable(PossibleValueArrayAddr) && MD7::Globals::GMemory->IsAddressReadable(PossibleValueArrayAddr + sizeof(int64)) && MD7::Globals::GMemory->IsAddressReadable(PossibleValueArrayAddr + 2 * sizeof(int64)))
 		{
-			if (GMemory->Read<int64>(PossibleValueArrayAddr) == 0 && GMemory->Read<int64>(PossibleValueArrayAddr + sizeof(int64)) == 1 && GMemory->Read<int64>(PossibleValueArrayAddr + 2 * sizeof(int64)) == 2)
+			if (MD7::Globals::GMemory->Read<int64>(PossibleValueArrayAddr) == 0 && MD7::Globals::GMemory->Read<int64>(PossibleValueArrayAddr + sizeof(int64)) == 1 && MD7::Globals::GMemory->Read<int64>(PossibleValueArrayAddr + 2 * sizeof(int64)) == 2)
 			{
 				InternalSettings::bIsNewUE5EnumNamesContainer = true;
 				return;
@@ -998,11 +1001,11 @@ void InializeUEnumSettings(const void* EnumObj, const uint32_t UEnumNumValuesOff
 
 	if (InternalSettings::bUseCasePreservingName)
 	{
-		InitEnumSettings(GMemory->Read<TArray<TPair<Name16Byte, ValueType>>>(reinterpret_cast<uintptr_t>(ArrayAddress)));
+		InitEnumSettings(MD7::Globals::GMemory->Read<TArray<TPair<Name16Byte, ValueType>>>(reinterpret_cast<uintptr_t>(ArrayAddress)));
 	}
 	else
 	{
-		InitEnumSettings(GMemory->Read<TArray<TPair<Name08Byte, ValueType>>>(reinterpret_cast<uintptr_t>(ArrayAddress)));
+		InitEnumSettings(MD7::Globals::GMemory->Read<TArray<TPair<Name08Byte, ValueType>>>(reinterpret_cast<uintptr_t>(ArrayAddress)));
 	}
 }
 
@@ -1113,7 +1116,7 @@ bool FInGenOffsets::Init_UStruct_ChildProperties()
 	auto IsUObject = [this](uintptr_t Val) -> bool
 	{
 		const uintptr_t IdxAddr = Val + this->UObject.Index;
-		const int32 Idx         = GDecryptCallbacks.UObject.Index({.Address = IdxAddr, .RawValue = GMemory->Read<int32>(IdxAddr)});
+		const int32 Idx         = MD7::Globals::GDecryptCallbacks.UObject.Index({.Address = IdxAddr, .RawValue = MD7::Globals::GMemory->Read<int32>(IdxAddr)});
 		if (Idx < 0 || Idx >= ObjectArray::Num())
 			return false;
 		return ObjectArray::GetByIndex(Idx).GetAddress() == reinterpret_cast<void*>(Val);
@@ -1127,7 +1130,7 @@ bool FInGenOffsets::Init_UStruct_ChildProperties()
 	const auto HighestBaseOffset = std::max({this->UObject.Index, this->UObject.Name, this->UObject.Flags, this->UObject.Outer, this->UObject.Class, this->UField.Next});
 	if (HighestBaseOffset == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_UStruct_ChildProperties: UObject/UField offsets are not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_UStruct_ChildProperties: UObject/UField offsets are not set.\n");
 		return false;
 	}
 
@@ -1135,25 +1138,25 @@ bool FInGenOffsets::Init_UStruct_ChildProperties()
 
 	for (int32 Off = MinOffset; Off <= 0x80; Off += PtrSize)
 	{
-		const uintptr_t ValA = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(ObjA) + Off);
-		const uintptr_t ValB = GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(ObjB) + Off);
+		const uintptr_t ValA = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(ObjA) + Off);
+		const uintptr_t ValB = MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(ObjB) + Off);
 
-		if (!GMemory->IsAddressReadable(ValA) || !GMemory->IsAddressReadable(ValB))
+		if (!MD7::Globals::GMemory->IsAddressReadable(ValA) || !MD7::Globals::GMemory->IsAddressReadable(ValB))
 			continue;
 
 		if (IsUObject(ValA) || IsUObject(ValB))
 			continue;
 
-		const uintptr_t DerefA = GMemory->Read<uintptr_t>(ValA);
-		const uintptr_t DerefB = GMemory->Read<uintptr_t>(ValB);
+		const uintptr_t DerefA = MD7::Globals::GMemory->Read<uintptr_t>(ValA);
+		const uintptr_t DerefB = MD7::Globals::GMemory->Read<uintptr_t>(ValB);
 
-		if (!GMemory->IsAddressReadable(DerefA) || !GMemory->IsAddressReadable(DerefB))
+		if (!MD7::Globals::GMemory->IsAddressReadable(DerefA) || !MD7::Globals::GMemory->IsAddressReadable(DerefB))
 			continue;
 
 		// FStructBaseChain::StructBaseChainArray is self-referential:
 		// StructBaseChainArray[0]->StructBaseChainArray == StructBaseChainArray.
 		// An FField* has a vtable at offset 0 whose first entry is a function pointer, not the FField itself.
-		if (GMemory->Read<uintptr_t>(DerefA) == ValA || GMemory->Read<uintptr_t>(DerefB) == ValB)
+		if (MD7::Globals::GMemory->Read<uintptr_t>(DerefA) == ValA || MD7::Globals::GMemory->Read<uintptr_t>(DerefB) == ValB)
 			continue;
 
 		this->UStruct.ChildProperties = Off;
@@ -1204,7 +1207,7 @@ bool FInGenOffsets::Init_UStruct_MinAlignment()
 	this->UStruct.MinAlignment = OffsetFinder::FindOffsetByScore(Infos, UStructStart, UStructEnd, &Score, &TotalConsidered, {this->UStruct.Size});
 
 	if (this->UStruct.MinAlignment != OffsetFinder::OffsetNotFound && Score < TotalConsidered)
-		GLogger.FmtWrite(ELogLevel::Warning, "Init_UStruct_MinAlignment: Only {}/{} reference entries agreed at 0x{:X}\n", Score, TotalConsidered, this->UStruct.MinAlignment);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Init_UStruct_MinAlignment: Only {}/{} reference entries agreed at 0x{:X}\n", Score, TotalConsidered, this->UStruct.MinAlignment);
 
 	return this->UStruct.MinAlignment != OffsetFinder::OffsetNotFound;
 }
@@ -1349,12 +1352,12 @@ bool FInGenOffsets::Init_UFunction_ExecFunction()
 
 	const int32 UFunctionStart = Struct.GetStructSize();
 
-	const ModuleInfo ModInfo = GMemory->GetUnrealModule();
+	const ModuleInfo ModInfo = MD7::Globals::GMemory->GetUnrealModule();
 	for (int i = UFunctionStart; i < 0x140; i += sizeof(void*))
 	{
-		uintptr_t A = GMemory->Read<uintptr_t>(WasInputKeyJustPressed + i);
-		uintptr_t B = GMemory->Read<uintptr_t>(ToggleSpeaking + i);
-		uintptr_t C = GMemory->Read<uintptr_t>(SwitchLevel_Or_FOV + i);
+		uintptr_t A = MD7::Globals::GMemory->Read<uintptr_t>(WasInputKeyJustPressed + i);
+		uintptr_t B = MD7::Globals::GMemory->Read<uintptr_t>(ToggleSpeaking + i);
+		uintptr_t C = MD7::Globals::GMemory->Read<uintptr_t>(SwitchLevel_Or_FOV + i);
 
 		if (ModInfo.Contains(A) && ModInfo.Contains(B) && ModInfo.Contains(C))
 		{
@@ -1404,7 +1407,7 @@ bool FInGenOffsets::Init_UClass_InitImplementedInterfaces()
 
 	if (this->UClass.ClassDefaultObject == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "FindImplementedInterfacesOffset: UClass.ClassDefaultObject is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "FindImplementedInterfacesOffset: UClass.ClassDefaultObject is not set.\n");
 		return false;
 	}
 
@@ -1412,14 +1415,14 @@ bool FInGenOffsets::Init_UClass_InitImplementedInterfaces()
 	const void* ClassClass = ObjectArray::FindClassFast("Class").GetAddress();
 	if (!ClassClass)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_UClass_InitImplementedInterfaces: Could not resolve the class of a UClass.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_UClass_InitImplementedInterfaces: Could not resolve the class of a UClass.\n");
 		return false;
 	}
 
-	constexpr size_t kMaxSampledClasses   = 0x80;
+	constexpr size_t kMaxSampledClasses   = 0x400;
 	constexpr int32 kMaxPlausibleEntries  = 0x20;
 	constexpr int32 kMaxVerifiedEntries   = 0x4;
-	constexpr int32 kMinClassesWithIfaces = 0x3;
+	constexpr int32 kMinClassesWithIfaces = 0x2;
 
 	std::vector<const uint8*> SampledClasses;
 	for (const UEObject Obj : ObjectArray())
@@ -1442,14 +1445,14 @@ bool FInGenOffsets::Init_UClass_InitImplementedInterfaces()
 
 		for (const uint8* ClassPtr : SampledClasses)
 		{
-			const auto Interfaces = GMemory->Read<TArray<FImplementedInterface>>(reinterpret_cast<uintptr_t>(ClassPtr) + Offset);
+			const auto Interfaces = MD7::Globals::GMemory->Read<TArray<FImplementedInterface>>(reinterpret_cast<uintptr_t>(ClassPtr) + Offset);
 
 			// Most classes implement nothing, so an empty array is the common case and says nothing
 			// either way.
 			if (Interfaces.Num() == 0 && !Interfaces.GetDataPtr())
 				continue;
 
-			if (!Interfaces.IsValid() || Interfaces.Num() > kMaxPlausibleEntries || !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Interfaces.GetDataPtr())))
+			if (!Interfaces.IsValid() || Interfaces.Num() > kMaxPlausibleEntries || !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Interfaces.GetDataPtr())))
 			{
 				bFoundGarbage = true;
 				break;
@@ -1512,7 +1515,7 @@ bool FInGenOffsets::Init_Property_ArrayDim()
 
 	if (this->Property.ElementSize == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_Property_ArrayDim: Property.ElementSize is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_Property_ArrayDim: Property.ElementSize is not set.\n");
 		return false;
 	}
 
@@ -1606,7 +1609,7 @@ bool FInGenOffsets::Init_BoolProperty_Base()
 
 	if (this->Property.Offset_Internal == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_BoolProperty_Base: Property.Offset_Internal is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_BoolProperty_Base: Property.Offset_Internal is not set.\n");
 		return false;
 	}
 
@@ -1635,7 +1638,7 @@ bool FInGenOffsets::Init_BoolProperty_Base()
 
 	if (Samples.size() < 0x4)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_BoolProperty_Base: Only found {} bool properties to sample.\n", Samples.size());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_BoolProperty_Base: Only found {} bool properties to sample.\n", Samples.size());
 		return false;
 	}
 
@@ -1684,7 +1687,7 @@ bool FInGenOffsets::Init_BoolProperty_Base()
 			for (const uint8* Sample : Samples)
 			{
 				uint8 Quad[4] = {};
-				if (!GMemory->ReadBytes(reinterpret_cast<uintptr_t>(Sample) + Offset, Quad, sizeof(Quad)) || !bLooksLikeBoolQuad(Quad, bStrict))
+				if (!MD7::Globals::GMemory->ReadBytes(reinterpret_cast<uintptr_t>(Sample) + Offset, Quad, sizeof(Quad)) || !bLooksLikeBoolQuad(Quad, bStrict))
 				{
 					bAllMatch = false;
 					break;
@@ -1703,7 +1706,7 @@ bool FInGenOffsets::Init_BoolProperty_Base()
 	this->BoolProperty.Base = Scan(true);
 	if (this->BoolProperty.Base == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "Init_BoolProperty_Base: No offset matched SetBoolSize()'s mask relationship - the fields may be reordered. Falling back to a looser shape check.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Init_BoolProperty_Base: No offset matched SetBoolSize()'s mask relationship - the fields may be reordered. Falling back to a looser shape check.\n");
 		this->BoolProperty.Base = Scan(false);
 	}
 
@@ -1716,7 +1719,7 @@ bool FInGenOffsets::Init_EnumProperty_Base()
 
 	if (this->BoolProperty.Base == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_EnumProperty_Base: BoolProperty.Base is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_EnumProperty_Base: BoolProperty.Base is not set.\n");
 		return false;
 	}
 
@@ -1761,7 +1764,7 @@ bool FInGenOffsets::Init_Property_SizeOf()
 
 	if (this->EnumProperty.Base == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_Property_SizeOf: One or more required offsets are not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_Property_SizeOf: One or more required offsets are not set.\n");
 		return false;
 	}
 
@@ -1775,7 +1778,7 @@ bool FInGenOffsets::Init_ObjectProperty_PropertyClass()
 
 	if (this->Property.SizeOf == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_ObjectProperty_PropertyClass: Property.SizeOf is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_ObjectProperty_PropertyClass: Property.SizeOf is not set.\n");
 		return false;
 	}
 
@@ -1802,7 +1805,7 @@ bool FInGenOffsets::Init_ByteProperty_Enum()
 
 	if (this->Property.SizeOf == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_ByteProperty_Enum: Property.SizeOf is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_ByteProperty_Enum: Property.SizeOf is not set.\n");
 		return false;
 	}
 
@@ -1840,7 +1843,7 @@ bool FInGenOffsets::Init_StructProperty_Struct()
 
 	if (this->Property.SizeOf == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_StructProperty_Struct: Property.SizeOf is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_StructProperty_Struct: Property.SizeOf is not set.\n");
 		return false;
 	}
 
@@ -1881,7 +1884,7 @@ bool FInGenOffsets::Init_DelegateProperty_SignatureFunction()
 
 	if (this->Property.SizeOf == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_DelegateProperty_SignatureFunction: Property.SizeOf is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_DelegateProperty_SignatureFunction: Property.SizeOf is not set.\n");
 		return false;
 	}
 
@@ -1919,7 +1922,7 @@ bool FInGenOffsets::Init_ArrayProperty_Inner()
 
 	if (this->Property.SizeOf == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_ArrayProperty_Inner: Property.SizeOf is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_ArrayProperty_Inner: Property.SizeOf is not set.\n");
 		return false;
 	}
 
@@ -1929,9 +1932,9 @@ bool FInGenOffsets::Init_ArrayProperty_Inner()
 	{
 		if (const UEProperty Property = ObjectArray::FindClassFast("GameViewportClient").FindMember("DebugProperties", EClassCastFlags::ArrayProperty))
 		{
-			void* AddressToCheck = reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Property.GetAddress()) + this->Property.SizeOf));
+			void* AddressToCheck = reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Property.GetAddress()) + this->Property.SizeOf));
 
-			if (!GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(AddressToCheck)))
+			if (!MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(AddressToCheck)))
 			{
 				this->ArrayProperty.Inner = this->Property.SizeOf + sizeof(void*);
 			}
@@ -1947,7 +1950,7 @@ bool FInGenOffsets::Init_SetProperty_ElementProp()
 
 	if (this->Property.SizeOf == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_SetProperty_ElementProp: Property.SizeOf is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_SetProperty_ElementProp: Property.SizeOf is not set.\n");
 		return false;
 	}
 
@@ -1957,9 +1960,9 @@ bool FInGenOffsets::Init_SetProperty_ElementProp()
 	{
 		if (const auto Object = ObjectArray::FindStructFast("LevelCollection").FindMember("Levels", EClassCastFlags::SetProperty))
 		{
-			const void* AddressToCheck = reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object.GetAddress()) + Property.SizeOf));
+			const void* AddressToCheck = reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object.GetAddress()) + Property.SizeOf));
 
-			if (!GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(AddressToCheck)))
+			if (!MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(AddressToCheck)))
 			{
 				this->SetProperty.ElementProp = this->Property.SizeOf + sizeof(void*);
 			}
@@ -1975,7 +1978,7 @@ bool FInGenOffsets::Init_MapProperty_Base()
 
 	if (this->Property.SizeOf == OffsetFinder::OffsetNotFound)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Init_MapProperty_Base: Property.SizeOf is not set.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Init_MapProperty_Base: Property.SizeOf is not set.\n");
 		return false;
 	}
 
@@ -1985,9 +1988,9 @@ bool FInGenOffsets::Init_MapProperty_Base()
 	{
 		if (const auto Object = ObjectArray::FindClassFast("UserDefinedEnum").FindMember("DisplayNameMap", EClassCastFlags::MapProperty))
 		{
-			const void* AddressToCheck = reinterpret_cast<void*>(GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object.GetAddress()) + Property.SizeOf));
+			const void* AddressToCheck = reinterpret_cast<void*>(MD7::Globals::GMemory->Read<uintptr_t>(reinterpret_cast<uintptr_t>(Object.GetAddress()) + Property.SizeOf));
 
-			if (!GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(AddressToCheck)))
+			if (!MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(AddressToCheck)))
 			{
 				this->MapProperty.Base = this->Property.SizeOf + sizeof(void*);
 			}
@@ -2051,9 +2054,9 @@ void FInSDKOffsets::InitLevelActorsOffset()
 
 	for (int i = SearchStart; i <= (SearchEnd - int(sizeof(TArray<void*>))); i += sizeof(void*))
 	{
-		const auto ActorArray = GMemory->Read<TArray<void*>>(Lvl + i);
+		const auto ActorArray = MD7::Globals::GMemory->Read<TArray<void*>>(Lvl + i);
 
-		if (ActorArray.IsValid() && GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(ActorArray.GetDataPtr())))
+		if (ActorArray.IsValid() && MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(ActorArray.GetDataPtr())))
 		{
 			this->ULevel.Actors = i;
 			return;
@@ -2072,8 +2075,8 @@ void FInSDKOffsets::InitDatatableRowMapOffset()
 
 	if (!DataTable)
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "InitDatatableRowMapOffset: [DataTable] Couldn't find \"DataTable\" class, assuming default layout.\n");
-		this->UDataTable.RowMap = (GOffsets.UObject.Outer + UObjectOuterSize + RowStructSize);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "InitDatatableRowMapOffset: [DataTable] Couldn't find \"DataTable\" class, assuming default layout.\n");
+		this->UDataTable.RowMap = (MD7::Globals::GOffsets.UObject.Outer + UObjectOuterSize + RowStructSize);
 		return;
 	}
 
@@ -2081,8 +2084,8 @@ void FInSDKOffsets::InitDatatableRowMapOffset()
 
 	if (!RowStructProp)
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "InitDatatableRowMapOffset: [DataTable] Couldn't find \"RowStruct\" property, assuming default layout.\n");
-		this->UDataTable.RowMap = (GOffsets.UObject.Outer + UObjectOuterSize + RowStructSize);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "InitDatatableRowMapOffset: [DataTable] Couldn't find \"RowStruct\" property, assuming default layout.\n");
+		this->UDataTable.RowMap = (MD7::Globals::GOffsets.UObject.Outer + UObjectOuterSize + RowStructSize);
 		return;
 	}
 
@@ -2156,7 +2159,7 @@ void FInSDKOffsets::InitFText()
 
 	if (!FTextSize)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitFText: FText size could not be determined!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitFText: FText size could not be determined!\n");
 		return;
 	}
 
@@ -2186,7 +2189,7 @@ void FInSDKOffsets::InitFText()
 
 	if (TextPropOffsetsByClass.empty())
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitFText: No class declares a TextProperty!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitFText: No class declares a TextProperty!\n");
 		return;
 	}
 
@@ -2243,12 +2246,12 @@ void FInSDKOffsets::InitFText()
 
 					bool bPopulated = false;
 					for (int32 Slot = 0; Slot + kPtrSize <= FTextSize && !bPopulated; Slot += kPtrSize)
-						bPopulated = GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(TextAddr + Slot));
+						bPopulated = MD7::Globals::GMemory->IsAddressReadable(MD7::Globals::GMemory->Read<uintptr_t>(TextAddr + Slot));
 
 					if (bPopulated)
 					{
 						RawCandidates.push_back(TextAddr);
-						DistinctTextValues.insert(GMemory->Read<uintptr_t>(TextAddr));
+						DistinctTextValues.insert(MD7::Globals::GMemory->Read<uintptr_t>(TextAddr));
 					}
 				}
 			}
@@ -2268,7 +2271,7 @@ void FInSDKOffsets::InitFText()
 
 	if (RawCandidates.empty())
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitFText: No populated FText instances found!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitFText: No populated FText instances found!\n");
 		return;
 	}
 
@@ -2283,7 +2286,7 @@ void FInSDKOffsets::InitFText()
 	std::unordered_map<uintptr_t, int32> FirstPointerHits;
 	FirstPointerHits.reserve(RawCandidates.size());
 	for (uintptr_t Addr : RawCandidates)
-		FirstPointerHits[GMemory->Read<uintptr_t>(Addr)]++;
+		FirstPointerHits[MD7::Globals::GMemory->Read<uintptr_t>(Addr)]++;
 
 	uintptr_t DominantValue = 0;
 	int32 DominantCount     = 0;
@@ -2306,13 +2309,13 @@ void FInSDKOffsets::InitFText()
 		// Excluded everywhere a genuinely distinct value exists; kept only if every
 		// candidate found turned out to share it, since a shared value is still better
 		// evidence than none.
-		if (GMemory->Read<uintptr_t>(Addr) == DominantValue && DominantCount < static_cast<int32>(RawCandidates.size()))
+		if (MD7::Globals::GMemory->Read<uintptr_t>(Addr) == DominantValue && DominantCount < static_cast<int32>(RawCandidates.size()))
 			continue;
 
 		TextCandidates.push_back(Addr);
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info,
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info,
 	                 "InitFText: {} Populated FText instance(s) from {} objects across {} class(es), {} after excluding the shared empty value (seen {} times)\n",
 	                 RawCandidates.size(),
 	                 ObjectsScanned,
@@ -2322,7 +2325,7 @@ void FInSDKOffsets::InitFText()
 
 	if (TextCandidates.empty())
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitFText: Every populated instance shared the same value; none were distinguishable as real text.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitFText: Every populated instance shared the same value; none were distinguishable as real text.\n");
 		return;
 	}
 
@@ -2355,26 +2358,26 @@ void FInSDKOffsets::InitFText()
 	 */
 	auto TryDecodeText = [&IsPlausibleText](uintptr_t TextAddr, int32 TextDataOffset, int32 StringOffset, bool bTryChar16, std::wstring* OutText) -> bool
 	{
-		const uintptr_t TextData = GMemory->Read<uintptr_t>(TextAddr + TextDataOffset);
-		if (!GMemory->IsAddressReadable(TextData))
+		const uintptr_t TextData = MD7::Globals::GMemory->Read<uintptr_t>(TextAddr + TextDataOffset);
+		if (!MD7::Globals::GMemory->IsAddressReadable(TextData))
 			return false;
 
 		const uintptr_t StringAddr = TextData + StringOffset;
-		if (!GMemory->IsAddressReadable(StringAddr, sizeof(uintptr_t) + 2 * sizeof(int32)))
+		if (!MD7::Globals::GMemory->IsAddressReadable(StringAddr, sizeof(uintptr_t) + 2 * sizeof(int32)))
 			return false;
 
-		const uintptr_t Data = GMemory->Read<uintptr_t>(StringAddr);
-		const int32 ArrayNum = GMemory->Read<int32>(StringAddr + sizeof(uintptr_t));
-		const int32 ArrayMax = GMemory->Read<int32>(StringAddr + sizeof(uintptr_t) + sizeof(int32));
+		const uintptr_t Data = MD7::Globals::GMemory->Read<uintptr_t>(StringAddr);
+		const int32 ArrayNum = MD7::Globals::GMemory->Read<int32>(StringAddr + sizeof(uintptr_t));
+		const int32 ArrayMax = MD7::Globals::GMemory->Read<int32>(StringAddr + sizeof(uintptr_t) + sizeof(int32));
 
-		if (ArrayNum < 2 || ArrayNum > ArrayMax || ArrayMax > kMaxFStringLen || !GMemory->IsAddressReadable(Data))
+		if (ArrayNum < 2 || ArrayNum > ArrayMax || ArrayMax > kMaxFStringLen || !MD7::Globals::GMemory->IsAddressReadable(Data))
 			return false;
 
 		const int32 CharCount = ArrayNum - 1;
 
 		if (bTryChar16)
 		{
-			const std::u16string Str = GMemory->ReadUTF16(Data, ArrayNum);
+			const std::u16string Str = MD7::Globals::GMemory->ReadUTF16(Data, ArrayNum);
 			if (static_cast<int32>(Str.length()) != CharCount || !IsPlausibleText(Str))
 				return false;
 
@@ -2383,7 +2386,7 @@ void FInSDKOffsets::InitFText()
 		}
 		else
 		{
-			const std::u32string Str = GMemory->ReadUTF32(Data, ArrayNum);
+			const std::u32string Str = MD7::Globals::GMemory->ReadUTF32(Data, ArrayNum);
 			if (static_cast<int32>(Str.length()) != CharCount || !IsPlausibleText(Str))
 				return false;
 
@@ -2448,7 +2451,7 @@ void FInSDKOffsets::InitFText()
 
 	if (Best.TotalHits() == 0)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitFText: No (TextData, InTextDataString) pair decoded a string - dumping sample candidates for diagnosis.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitFText: No (TextData, InTextDataString) pair decoded a string - dumping sample candidates for diagnosis.\n");
 
 		/*
 		 * Every offset combination failed against every candidate, which the blind
@@ -2460,9 +2463,9 @@ void FInSDKOffsets::InitFText()
 		auto DumpMemoryRegion = [](uintptr_t Address, int32 Bytes, const char* Indent) -> void
 		{
 			std::vector<uint8_t> Block(static_cast<size_t>(Bytes), 0);
-			if (!GMemory->IsAddressReadable(Address, static_cast<size_t>(Bytes)) || !GMemory->ReadBytes(Address, Block.data(), Block.size()))
+			if (!MD7::Globals::GMemory->IsAddressReadable(Address, static_cast<size_t>(Bytes)) || !MD7::Globals::GMemory->ReadBytes(Address, Block.data(), Block.size()))
 			{
-				GLogger.FmtWrite(ELogLevel::Info, "{}<unreadable at 0x{:X}>\n", Indent, Address);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "{}<unreadable at 0x{:X}>\n", Indent, Address);
 				return;
 			}
 
@@ -2478,7 +2481,7 @@ void FInSDKOffsets::InitFText()
 					Ascii.push_back((Ch >= 0x20 && Ch <= 0x7E) ? static_cast<char>(Ch) : '.');
 				}
 
-				GLogger.FmtWrite(ELogLevel::Info, "{}+0x{:03X}  0x{:016X}  {}  {}\n", Indent, Offset, Qword, GMemory->IsAddressReadable(Qword) ? "R" : "-", Ascii);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "{}+0x{:03X}  0x{:016X}  {}  {}\n", Indent, Offset, Qword, MD7::Globals::GMemory->IsAddressReadable(Qword) ? "R" : "-", Ascii);
 			}
 		};
 
@@ -2489,21 +2492,21 @@ void FInSDKOffsets::InitFText()
 		for (int32 i = 0; i < std::min(kDumpCandidates, static_cast<int32>(TextCandidates.size())); i++)
 		{
 			const uintptr_t TextAddr = TextCandidates[i];
-			GLogger.FmtWrite(ELogLevel::Info, "[FText] Candidate {} at 0x{:X}\n", i, TextAddr);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "[FText] Candidate {} at 0x{:X}\n", i, TextAddr);
 			DumpMemoryRegion(TextAddr, kDumpTextBytes, "[FText]   ");
 
 			for (int32 Offset = 0; Offset + kPtrSize <= kDumpTextBytes; Offset += kPtrSize)
 			{
-				const uintptr_t Target = GMemory->Read<uintptr_t>(TextAddr + Offset);
-				if (!GMemory->IsAddressReadable(Target))
+				const uintptr_t Target = MD7::Globals::GMemory->Read<uintptr_t>(TextAddr + Offset);
+				if (!MD7::Globals::GMemory->IsAddressReadable(Target))
 					continue;
 
-				GLogger.FmtWrite(ELogLevel::Info, "[FText]   Follow +0x{:02X} -> 0x{:X}\n", Offset, Target);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "[FText]   Follow +0x{:02X} -> 0x{:X}\n", Offset, Target);
 				DumpMemoryRegion(Target, kDumpDataBytes, "[FText]     ");
 			}
 		}
 
-		GLogger.FmtWrite(ELogLevel::Error, "InitFText: Using default offsets.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitFText: Using default offsets.\n");
 		return;
 	}
 
@@ -2512,7 +2515,7 @@ void FInSDKOffsets::InitFText()
 
 	if (Best.bIsChar16() != bPreferChar16)
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "InitFText: FText decoded as UTF{} but names indicated UTF{}, switching.\n", Best.bIsChar16() ? "16" : "32", bPreferChar16 ? "16" : "32");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "InitFText: FText decoded as UTF{} but names indicated UTF{}, switching.\n", Best.bIsChar16() ? "16" : "32", bPreferChar16 ? "16" : "32");
 		InternalSettings::bUseChar16String = Best.bIsChar16();
 	}
 
@@ -2524,15 +2527,15 @@ void FInSDKOffsets::InitFText()
 	}
 
 	const ELogLevel Level = Best.TotalHits() >= kMinAcceptHits ? ELogLevel::Info : ELogLevel::Warning;
-	GLogger.FmtWrite(Level, "InitFText: TextData+0x{:X}, InTextDataString+0x{:X} decoded {}/{} instance(s) as UTF{}.\n", Best.TextDataOffset, Best.StringOffset, Best.TotalHits(), TextCandidates.size(), Best.bIsChar16() ? "16" : "32");
+	MD7::Globals::GLogger.FmtWrite(Level, "InitFText: TextData+0x{:X}, InTextDataString+0x{:X} decoded {}/{} instance(s) as UTF{}.\n", Best.TextDataOffset, Best.StringOffset, Best.TotalHits(), TextCandidates.size(), Best.bIsChar16() ? "16" : "32");
 
 	if (!Sample.empty())
-		GLogger.FmtWrite(ELogLevel::Info, "InitFText: Sample text \"{}\"\n", Utils::String::WStringToString(Sample));
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitFText: Sample text \"{}\"\n", Utils::String::WStringToString(Sample));
 }
 
 void FInSDKOffsets::InitWeakObjectPtrSize()
 {
-	/* If the ParticleSystemComponent class or the AutoAttachParent member weren't found, fallback to looping GObjects and looking for a WeakObjectProperty. */
+	/* If the ParticleSystemComponent class or the AutoAttachParent member weren't found, fallback to looping MD7::Globals::GObjects and looking for a WeakObjectProperty. */
 	auto OnPropertyNotFound = [&]() -> void
 	{
 		const int MaxNumObjectsConsidered = ObjectArray::Num();
@@ -2572,7 +2575,7 @@ void FInSDKOffsets::InitWeakObjectPtrSize()
 
 void FInSDKOffsets::InitTDelegateSize()
 {
-	/* If the AudioComponent class or the OnQueueSubtitles member weren't found, fallback to looping GObjects and looking for a Delegate. */
+	/* If the AudioComponent class or the OnQueueSubtitles member weren't found, fallback to looping MD7::Globals::GObjects and looking for a Delegate. */
 	auto OnPropertyNotFound = [&]() -> void
 	{
 		const int MaxNumObjectsConsidered = ObjectArray::Num();
@@ -2615,7 +2618,7 @@ void FInSDKOffsets::InitFFieldPathSize()
 	if (!InternalSettings::bUseFProperty)
 		return;
 
-	/* If the SetFieldPathPropertyByName function or the Value parameter weren't found, fallback to looping GObjects and looking for a Delegate. */
+	/* If the SetFieldPathPropertyByName function or the Value parameter weren't found, fallback to looping MD7::Globals::GObjects and looking for a Delegate. */
 	auto OnPropertyNotFound = [&]() -> void
 	{
 		const int MaxNumObjectsConsidered = ObjectArray::Num();
@@ -2655,7 +2658,7 @@ void FInSDKOffsets::InitFFieldPathSize()
 
 void FInSDKOffsets::InitTMulticastInlineDelegateSize()
 {
-	/* If the AudioComponent class or the OnQueueSubtitles member weren't found, fallback to looping GObjects and looking for a Delegate. */
+	/* If the AudioComponent class or the OnQueueSubtitles member weren't found, fallback to looping MD7::Globals::GObjects and looking for a Delegate. */
 	auto OnPropertyNotFound = [&]() -> void
 	{
 		const int MaxNumObjectsConsidered = ObjectArray::Num();
@@ -2705,9 +2708,9 @@ void FInSDKOffsets::InitProcessEvent()
 	// embedded within it, so anchors are matched by proximity rather than equality.
 	constexpr uintptr_t kObjectArraySlack = 0x10;
 
-	if (!GArchDecoder)
+	if (!MD7::Globals::GArchDecoder)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: No architecture decoder is active!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: No architecture decoder is active!\n");
 		return;
 	}
 
@@ -2731,11 +2734,11 @@ void FInSDKOffsets::InitProcessEvent()
 			return 0;
 
 		const uintptr_t ObjAddr = reinterpret_cast<uintptr_t>(Cdo.GetAddress());
-		if (!GMemory->IsAddressReadable(ObjAddr))
+		if (!MD7::Globals::GMemory->IsAddressReadable(ObjAddr))
 			return 0;
 
-		const uintptr_t Candidate = GMemory->Read<uintptr_t>(ObjAddr);
-		return GMemory->IsAddressReadable(Candidate, sizeof(void*) * 8) ? Candidate : 0;
+		const uintptr_t Candidate = MD7::Globals::GMemory->Read<uintptr_t>(ObjAddr);
+		return MD7::Globals::GMemory->IsAddressReadable(Candidate, sizeof(void*) * 8) ? Candidate : 0;
 	};
 
 	auto GetClassVTable = [&GetVTableFromClass](const char* ClassName) -> uintptr_t
@@ -2773,7 +2776,7 @@ void FInSDKOffsets::InitProcessEvent()
 			break;
 		}
 
-		GLogger.FmtWrite(ELogLevel::Debug, "InitProcessEvent: U{} is not a usable vtable source, trying the next.\n", ClassName);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "InitProcessEvent: U{} is not a usable vtable source, trying the next.\n", ClassName);
 	}
 
 	/*
@@ -2809,33 +2812,33 @@ void FInSDKOffsets::InitProcessEvent()
 
 	if (VTable == 0)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: Could not read a usable class vtable from any source!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: Could not read a usable class vtable from any source!\n");
 		return;
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: Scanning U{} vtable at 0x{:X}.\n", VTableSource, VTable);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: Scanning U{} vtable at 0x{:X}.\n", VTableSource, VTable);
 
-	const int64_t ExpUObjectIndex  = GOffsets.UObject.Index;
-	const int64_t ExpFunctionFlags = GOffsets.UFunction.FunctionFlags;
-	const int64_t ExpStructSize    = GOffsets.UStruct.Size;
-	const int64_t ExpParamSize     = GOffsets.UFunction.ParamSize;
-	const int64_t ExpChildren      = GOffsets.UStruct.ChildProperties != -1 ? GOffsets.UStruct.ChildProperties : GOffsets.UStruct.Children;
+	const int64_t ExpUObjectIndex  = MD7::Globals::GOffsets.UObject.Index;
+	const int64_t ExpFunctionFlags = MD7::Globals::GOffsets.UFunction.FunctionFlags;
+	const int64_t ExpStructSize    = MD7::Globals::GOffsets.UStruct.Size;
+	const int64_t ExpParamSize     = MD7::Globals::GOffsets.UFunction.ParamSize;
+	const int64_t ExpChildren      = MD7::Globals::GOffsets.UStruct.ChildProperties != -1 ? MD7::Globals::GOffsets.UStruct.ChildProperties : MD7::Globals::GOffsets.UStruct.Children;
 
 	int64_t ExpItemSize       = -1;
 	uintptr_t ExpObjectsField = 0;
-	if (GLayouts.ObjectsLayout)
+	if (MD7::Globals::GLayouts.ObjectsLayout)
 	{
-		if (GLayouts.ObjectsLayout->GetType() == EObjectsType::Chunked)
+		if (MD7::Globals::GLayouts.ObjectsLayout->GetType() == EObjectsType::Chunked)
 		{
-			const FChunkedUObjectArrayLayout* Layout = static_cast<const FChunkedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
+			const FChunkedUObjectArrayLayout* Layout = static_cast<const FChunkedUObjectArrayLayout*>(MD7::Globals::GLayouts.ObjectsLayout.get());
 			ExpItemSize                              = Layout->FUObjectItem.Size;
-			ExpObjectsField                          = GObjects + static_cast<uintptr_t>(Layout->Objects);
+			ExpObjectsField                          = MD7::Globals::GObjects + static_cast<uintptr_t>(Layout->Objects);
 		}
 		else
 		{
-			const FFixedUObjectArrayLayout* Layout = static_cast<const FFixedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
+			const FFixedUObjectArrayLayout* Layout = static_cast<const FFixedUObjectArrayLayout*>(MD7::Globals::GLayouts.ObjectsLayout.get());
 			ExpItemSize                            = Layout->FUObjectItem.Size;
-			ExpObjectsField                        = GObjects + static_cast<uintptr_t>(Layout->Objects);
+			ExpObjectsField                        = MD7::Globals::GObjects + static_cast<uintptr_t>(Layout->Objects);
 		}
 	}
 
@@ -2843,14 +2846,14 @@ void FInSDKOffsets::InitProcessEvent()
 	 * When the object array was reached by dereferencing a static, the code references
 	 * that static rather than the array, so its address is an anchor in its own right.
 	 */
-	const uintptr_t ExpStaticAddr = this->Statics.GObjects != 0 ? GMemory->GetUnrealModule().OffsetToAddress(this->Statics.GObjects) : 0;
+	const uintptr_t ExpStaticAddr = this->Statics.GObjects != 0 ? MD7::Globals::GMemory->GetUnrealModule().OffsetToAddress(this->Statics.GObjects) : 0;
 
 	/* An exported symbol settles the slot outright, so only its index must be found. */
-	const uintptr_t SymbolAddr = GMemory->FindUnrealSymbol("_ZN7UObject12ProcessEventEP9UFunctionPv");
+	const uintptr_t SymbolAddr = MD7::Globals::GMemory->FindUnrealSymbol("_ZN7UObject12ProcessEventEP9UFunctionPv");
 
 	if (SymbolAddr == 0 && ExpUObjectIndex == -1 && ExpFunctionFlags == -1 && ExpStructSize == -1)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: No symbol and no reflected offsets to match against!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: No symbol and no reflected offsets to match against!\n");
 		return;
 	}
 
@@ -2867,7 +2870,7 @@ void FInSDKOffsets::InitProcessEvent()
 			return Address + kObjectArraySlack >= Anchor && Address <= Anchor + kObjectArraySlack;
 		};
 
-		return WithinSlack(GObjects) || WithinSlack(ExpObjectsField) || WithinSlack(ExpStaticAddr);
+		return WithinSlack(MD7::Globals::GObjects) || WithinSlack(ExpObjectsField) || WithinSlack(ExpStaticAddr);
 	};
 
 	auto ReferencesObjectArray = [&IsNearAnchor](uintptr_t Address) -> bool
@@ -2877,10 +2880,10 @@ void FInSDKOffsets::InitProcessEvent()
 
 		// The materialized value is frequently the address *of* the global rather than
 		// the global itself, so one dereference is also accepted.
-		if (!GMemory->IsAddressReadable(Address))
+		if (!MD7::Globals::GMemory->IsAddressReadable(Address))
 			return false;
 
-		return IsNearAnchor(GMemory->Read<uintptr_t>(Address));
+		return IsNearAnchor(MD7::Globals::GMemory->Read<uintptr_t>(Address));
 	};
 
 	// Ten independent signals, matching the upstream reference implementation's `oks[10]`.
@@ -2972,7 +2975,7 @@ void FInSDKOffsets::InitProcessEvent()
 		{
 			for (const char* Name : Names)
 			{
-				const uintptr_t Slot = GMemory->FindUnrealImportSlot(Name);
+				const uintptr_t Slot = MD7::Globals::GMemory->FindUnrealImportSlot(Name);
 				if (Slot != 0)
 					Out.push_back(Slot);
 			}
@@ -2984,7 +2987,7 @@ void FInSDKOffsets::InitProcessEvent()
 		Collect(MemCopySlots,
 		        {"memcpy", "__aeabi_memcpy", "__aeabi_memcpy4", "__aeabi_memcpy8", "_memcpy", "___memcpy_chk"});
 
-		GLogger.FmtWrite(ELogLevel::Debug, "InitProcessEvent: Resolved {} memset and {} memcpy import slot(s).\n", MemSetSlots.size(), MemCopySlots.size());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "InitProcessEvent: Resolved {} memset and {} memcpy import slot(s).\n", MemSetSlots.size(), MemCopySlots.size());
 	}
 
 	/*
@@ -2997,10 +3000,10 @@ void FInSDKOffsets::InitProcessEvent()
 	{
 		auto Insn = [](uintptr_t At) -> uint32_t
 		{
-			return GMemory->IsAddressReadable(At, sizeof(uint32_t)) ? GMemory->Read<uint32_t>(At) : 0;
+			return MD7::Globals::GMemory->IsAddressReadable(At, sizeof(uint32_t)) ? MD7::Globals::GMemory->Read<uint32_t>(At) : 0;
 		};
 
-		if (GArchDecoder->Arch() == EArch::Arm64)
+		if (MD7::Globals::GArchDecoder->Arch() == EArch::Arm64)
 		{
 			// ADRP x16, page ; LDR x16/x17, [x16, #off]
 			const uint32_t Adrp = Insn(Target);
@@ -3055,7 +3058,7 @@ void FInSDKOffsets::InitProcessEvent()
 	};
 
 	/*
-	 * Decoding goes through GArchDecoder, so ARM64 and ARM32 share one walk. On ARM32 an
+	 * Decoding goes through MD7::Globals::GArchDecoder, so ARM64 and ARM32 share one walk. On ARM32 an
 	 * address can arrive as a literal-pool word instead of an immediate, and whether
 	 * that word is the address or a PC-relative displacement is only settled by what
 	 * follows, so both readings are tested.
@@ -3066,7 +3069,7 @@ void FInSDKOffsets::InitProcessEvent()
 		FScanTrace Trace;
 
 		std::vector<uint8_t> Code(kScanBytes, 0);
-		if (!GMemory->IsAddressReadable(FuncAddr, kScanBytes) || !GMemory->ReadBytes(FuncAddr, Code.data(), Code.size()))
+		if (!MD7::Globals::GMemory->IsAddressReadable(FuncAddr, kScanBytes) || !MD7::Globals::GMemory->ReadBytes(FuncAddr, Code.data(), Code.size()))
 		{
 			Trace.bUnreadable = true;
 			if (OutTrace)
@@ -3075,9 +3078,9 @@ void FInSDKOffsets::InitProcessEvent()
 			return Signals;
 		}
 
-		const int32 RegCount  = GArchDecoder->RegisterCount();
-		const uint32_t Stride = GArchDecoder->InstructionStride();
-		const bool bIsArm64   = GArchDecoder->Arch() == EArch::Arm64;
+		const int32 RegCount  = MD7::Globals::GArchDecoder->RegisterCount();
+		const uint32_t Stride = MD7::Globals::GArchDecoder->InstructionStride();
+		const bool bIsArm64   = MD7::Globals::GArchDecoder->Arch() == EArch::Arm64;
 
 		std::vector<uintptr_t> RegValue(static_cast<size_t>(RegCount), 0);
 		std::vector<bool> bRegKnown(static_cast<size_t>(RegCount), false);
@@ -3111,7 +3114,7 @@ void FInSDKOffsets::InitProcessEvent()
 			}
 
 			NormalizedInsn Insn;
-			const bool bDecoded  = GArchDecoder->DecodeLocalBytes(Code.data() + Cursor, Code.size() - Cursor, FuncAddr + Cursor, Insn);
+			const bool bDecoded  = MD7::Globals::GArchDecoder->DecodeLocalBytes(Code.data() + Cursor, Code.size() - Cursor, FuncAddr + Cursor, Insn);
 			const size_t Advance = Insn.Length ? Insn.Length : (Stride ? Stride : 4);
 
 			if (!bDecoded)
@@ -3173,8 +3176,8 @@ void FInSDKOffsets::InitProcessEvent()
 				if (bValidDest)
 				{
 					uintptr_t Word = 0;
-					if (GMemory->IsAddressReadable(static_cast<uintptr_t>(Insn.Value)))
-						Word = GMemory->Read<uintptr_t>(static_cast<uintptr_t>(Insn.Value));
+					if (MD7::Globals::GMemory->IsAddressReadable(static_cast<uintptr_t>(Insn.Value)))
+						Word = MD7::Globals::GMemory->Read<uintptr_t>(static_cast<uintptr_t>(Insn.Value));
 
 					RegValue[Insn.Dest]  = Word;
 					bRegKnown[Insn.Dest] = Word != 0;
@@ -3247,9 +3250,9 @@ void FInSDKOffsets::InitProcessEvent()
 
 					// Carry the loaded word forward so a following ADD that steps to the
 					// embedded sub-struct still resolves.
-					if (bValidDest && Insn.Kind == NormalizedInsn::EKind::Load && GMemory->IsAddressReadable(Accessed))
+					if (bValidDest && Insn.Kind == NormalizedInsn::EKind::Load && MD7::Globals::GMemory->IsAddressReadable(Accessed))
 					{
-						RegValue[Insn.Dest]  = GMemory->Read<uintptr_t>(Accessed);
+						RegValue[Insn.Dest]  = MD7::Globals::GMemory->Read<uintptr_t>(Accessed);
 						bRegKnown[Insn.Dest] = RegValue[Insn.Dest] != 0;
 
 						if (ReferencesObjectArray(RegValue[Insn.Dest]))
@@ -3285,7 +3288,7 @@ void FInSDKOffsets::InitProcessEvent()
 
 				for (int32 Reg = 0; Reg < RegCount; Reg++)
 				{
-					if (GArchDecoder->CallClobbers(Reg))
+					if (MD7::Globals::GArchDecoder->CallClobbers(Reg))
 						bRegKnown[Reg] = false;
 				}
 				break;
@@ -3312,7 +3315,7 @@ void FInSDKOffsets::InitProcessEvent()
 		return Signals;
 	};
 
-	const auto UnrealModule = GMemory->GetUnrealModule();
+	const auto UnrealModule = MD7::Globals::GMemory->GetUnrealModule();
 
 	int32 BestIndex    = -1;
 	int32 BestScore    = 0;
@@ -3335,14 +3338,14 @@ void FInSDKOffsets::InitProcessEvent()
 		// unreadable page) does not necessarily mean the vtable has ended, so a bad
 		// slot is skipped rather than treated as a stopping point - every index up to
 		// kMaxVTableEntries is tried.
-		if (!GMemory->IsAddressReadable(SlotAddr))
+		if (!MD7::Globals::GMemory->IsAddressReadable(SlotAddr))
 		{
 			SlotsUnreadable++;
 			continue;
 		}
 
-		const uintptr_t FuncAddr = GMemory->Read<uintptr_t>(SlotAddr);
-		if (!GMemory->IsAddressReadable(FuncAddr) || !UnrealModule.Contains(FuncAddr))
+		const uintptr_t FuncAddr = MD7::Globals::GMemory->Read<uintptr_t>(SlotAddr);
+		if (!MD7::Globals::GMemory->IsAddressReadable(FuncAddr) || !UnrealModule.Contains(FuncAddr))
 		{
 			SlotsNotCode++;
 			continue;
@@ -3353,13 +3356,13 @@ void FInSDKOffsets::InitProcessEvent()
 			// The symbol already settles the answer. Scoring it anyway costs one walk and
 			// reports what a known-correct ProcessEvent actually looks like, which is the only
 			// way to tell whether the heuristics would have found it unaided.
-			const uintptr_t SymCodeAddr = GArchDecoder->Arch() == EArch::Arm32 ? (FuncAddr & ~static_cast<uintptr_t>(1)) : FuncAddr;
+			const uintptr_t SymCodeAddr = MD7::Globals::GArchDecoder->Arch() == EArch::Arm32 ? (FuncAddr & ~static_cast<uintptr_t>(1)) : FuncAddr;
 
 			FScanTrace SymTrace;
 			BestSignals = ScoreFunction(SymCodeAddr, &SymTrace);
 			BestScore   = BestSignals.Count();
 
-			GLogger.FmtWrite(ELogLevel::Debug,
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug,
 			                 "InitProcessEvent: [{:3}] 0x{:X} score={}{} walk={}/0x{:X} ({}) stp={} ({}) <- exported symbol\n",
 			                 Index,
 			                 SymCodeAddr,
@@ -3377,7 +3380,7 @@ void FInSDKOffsets::InitProcessEvent()
 		}
 
 		/* On ARM32 the low bit selects Thumb state and is not part of the address. */
-		const uintptr_t CodeAddr = GArchDecoder->Arch() == EArch::Arm32 ? (FuncAddr & ~static_cast<uintptr_t>(1)) : FuncAddr;
+		const uintptr_t CodeAddr = MD7::Globals::GArchDecoder->Arch() == EArch::Arm32 ? (FuncAddr & ~static_cast<uintptr_t>(1)) : FuncAddr;
 
 		FScanTrace Trace;
 		const FSignals Signals = ScoreFunction(CodeAddr, &Trace);
@@ -3385,7 +3388,7 @@ void FInSDKOffsets::InitProcessEvent()
 
 		if (Trace.bUnreadable)
 		{
-			GLogger.FmtWrite(ELogLevel::Debug,
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug,
 			                 "InitProcessEvent: [{:3}] 0x{:X} scored 0 - fewer than 0x{:X} readable bytes, not decoded at all\n",
 			                 Index,
 			                 CodeAddr,
@@ -3393,7 +3396,7 @@ void FInSDKOffsets::InitProcessEvent()
 		}
 		else
 		{
-			GLogger.FmtWrite(ELogLevel::Debug,
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug,
 			                 "InitProcessEvent: [{:3}] 0x{:X} score={}{} walk={}/0x{:X} ({}) stp={} ({})\n",
 			                 Index,
 			                 CodeAddr,
@@ -3417,7 +3420,7 @@ void FInSDKOffsets::InitProcessEvent()
 
 		if (bWinsTie)
 		{
-			GLogger.FmtWrite(ELogLevel::Debug,
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug,
 			                 "InitProcessEvent: [{:3}] ties slot {} at {} but has more reflection signals ({} vs {}) - taking it\n",
 			                 Index,
 			                 BestIndex,
@@ -3438,7 +3441,7 @@ void FInSDKOffsets::InitProcessEvent()
 	// Slots are skipped rather than treated as an end marker, so the counts below say how much
 	// of the table was actually code - a table that is mostly "not code" means the vtable itself
 	// is suspect, which would explain a wrong index on its own.
-	GLogger.FmtWrite(ELogLevel::Info,
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info,
 	                 "InitProcessEvent: Scanned {} of {} VTable slots ({} scored, {} unreadable, {} not code), stopped because {}.\n",
 	                 LastIndex + 1,
 	                 kMaxVTableEntries,
@@ -3449,72 +3452,72 @@ void FInSDKOffsets::InitProcessEvent()
 
 	if (BestIndex < 0)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: No VTable slot matched ProcessEvent!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "InitProcessEvent: No VTable slot matched ProcessEvent!\n");
 		return;
 	}
 
 	if (bBySymbol)
-		GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: Resolved by exported symbol at VTable index {}, which scored {} ({}).\n", BestIndex, BestScore, BestSignals.Describe());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: Resolved by exported symbol at VTable index {}, which scored {} ({}).\n", BestIndex, BestScore, BestSignals.Describe());
 	else if (BestScore < kMinScore)
-		GLogger.FmtWrite(ELogLevel::Warning, "InitProcessEvent: Best slot {} scored only {}/{} ({}) - result may be wrong.\n", BestIndex, BestScore, kMinScore, BestSignals.Describe());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "InitProcessEvent: Best slot {} scored only {}/{} ({}) - result may be wrong.\n", BestIndex, BestScore, kMinScore, BestSignals.Describe());
 	else
-		GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: VTable index {} scored {} ({})\n", BestIndex, BestScore, BestSignals.Describe());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitProcessEvent: VTable index {} scored {} ({})\n", BestIndex, BestScore, BestSignals.Describe());
 
 	this->Statics.PEIndex = BestIndex;
 
 	// Consumers emit this into the SDK as a module-relative offset, and the field is an
 	// int32, so an absolute address would both mislead and truncate.
-	this->Statics.PEOffset = GMemory->GetUnrealModule().AddressToOffset(BestAddr & ~static_cast<uintptr_t>(1));
+	this->Statics.PEOffset = MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(BestAddr & ~static_cast<uintptr_t>(1));
 }
 
 void FInSDKOffsets::Init()
 {
-	GLogger.FmtWrite(ELogLevel::Info, "Finding ULevel.Actors...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding ULevel.Actors...\n");
 	this->InitLevelActorsOffset();
-	GLogger.FmtWrite(ELogLevel::Info, "ULevel.Actors = 0x{:X}\n", (uint32_t)ULevel.Actors);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "ULevel.Actors = 0x{:X}\n", (uint32_t)ULevel.Actors);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding UDataTable.RowMap...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding UDataTable.RowMap...\n");
 	this->InitDatatableRowMapOffset();
-	GLogger.FmtWrite(ELogLevel::Info, "UDataTable.RowMap = 0x{:X}\n", (uint32_t)UDataTable.RowMap);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "UDataTable.RowMap = 0x{:X}\n", (uint32_t)UDataTable.RowMap);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding GEngine & GWorld Offsets...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding GEngine & GWorld Offsets...\n");
 	this->InitUEngineAndUWorld();
 	if (Statics.GEngine && Statics.GWorld == 0)
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "GWorld wasn't found, You may get GWorld via GEngine->GameViewport->World\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GWorld wasn't found, You may get GWorld via GEngine->GameViewport->World\n");
 	}
-	GLogger.FmtWrite(ELogLevel::Info, "GEngine Offset: 0x{:X}\n", Statics.GEngine);
-	GLogger.FmtWrite(ELogLevel::Info, "GWorld Offset: 0x{:X}\n", Statics.GWorld);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GEngine Offset: 0x{:X}\n", Statics.GEngine);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GWorld Offset: 0x{:X}\n", Statics.GWorld);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding ProcessEvent...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding ProcessEvent...\n");
 	this->InitProcessEvent();
 
-	GLogger.FmtWrite(ELogLevel::Info, "ProcessEvent Index: {}\n", Statics.PEIndex);
-	GLogger.FmtWrite(ELogLevel::Info, "ProcessEvent Offset: 0x{:X}\n", Statics.PEOffset);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "ProcessEvent Index: {}\n", Statics.PEIndex);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "ProcessEvent Offset: 0x{:X}\n", Statics.PEOffset);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding FText Offsets...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding FText Offsets...\n");
 	this->InitFText();
-	GLogger.FmtWrite(ELogLevel::Info, "FText.SizeOf: 0x{:X}\n", FText.SizeOf);
-	GLogger.FmtWrite(ELogLevel::Info, "FText.TextData: 0x{:X}\n", FText.TextData);
-	GLogger.FmtWrite(ELogLevel::Info, "FText.InTextDataString: 0x{:X}\n", FText.InTextDataString);
-	GLogger.FmtWrite(ELogLevel::Info, "InternalSettings::bUseChar16String: {}\n", InternalSettings::bUseChar16String);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText.SizeOf: 0x{:X}\n", FText.SizeOf);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText.TextData: 0x{:X}\n", FText.TextData);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText.InTextDataString: 0x{:X}\n", FText.InTextDataString);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InternalSettings::bUseChar16String: {}\n", InternalSettings::bUseChar16String);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding size of WeakObjectProperty...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding size of WeakObjectProperty...\n");
 	this->InitWeakObjectPtrSize();
-	GLogger.FmtWrite(ELogLevel::Info, "WeakObjectProperty.SizeOf = 0x{:X}\n", (uint32_t)WeakObjectProperty.SizeOf);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "WeakObjectProperty.SizeOf = 0x{:X}\n", (uint32_t)WeakObjectProperty.SizeOf);
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding size of DelegateProperty...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding size of DelegateProperty...\n");
 	this->InitTDelegateSize();
-	GLogger.FmtWrite(ELogLevel::Info, "DelegateProperty.SizeOf = 0x{:X}\n", (uint32_t)DelegateProperty.SizeOf);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "DelegateProperty.SizeOf = 0x{:X}\n", (uint32_t)DelegateProperty.SizeOf);
 
 	if (InternalSettings::bUseFProperty)
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "Finding size of FieldPathProperty...\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding size of FieldPathProperty...\n");
 		this->InitFFieldPathSize();
-		GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty.SizeOf = 0x{:X}\n", (uint32_t)FieldPathProperty.SizeOf);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FieldPathProperty.SizeOf = 0x{:X}\n", (uint32_t)FieldPathProperty.SizeOf);
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "Finding size of MulticastInlineDelegateProperty...\n");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding size of MulticastInlineDelegateProperty...\n");
 	this->InitTMulticastInlineDelegateSize();
-	GLogger.FmtWrite(ELogLevel::Info, "MulticastInlineDelegateProperty.SizeOf = 0x{:X}\n", (uint32_t)MulticastInlineDelegateProperty.SizeOf);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "MulticastInlineDelegateProperty.SizeOf = 0x{:X}\n", (uint32_t)MulticastInlineDelegateProperty.SizeOf);
 }

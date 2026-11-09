@@ -52,9 +52,9 @@ public:
 	/// @brief Address of GUObjectArray or ObjObjects.
 	inline virtual uintptr_t GetGObjects() const
 	{
-		uintptr_t Sym = GMemory->FindUnrealSymbol("GUObjectArray");
+		uintptr_t Sym = MD7::Globals::GMemory->FindUnrealSymbol("GUObjectArray");
 		if (Sym != 0)
-			GLogger.FmtWrite(ELogLevel::Info, "GetGObjects: GObjects Resolved via exported symbol \"GUObjectArray\"\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GetGObjects: GObjects Resolved via exported symbol \"GUObjectArray\"\n");
 		return Sym;
 	}
 
@@ -83,23 +83,23 @@ public:
 		}
 
 		for (const std::string& Line : Result.Details)
-			GLogger.FmtWrite(ELogLevel::Debug, "ResolveGObjectsLayout: {}\n", Line);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "ResolveGObjectsLayout: {}\n", Line);
 
-		GLogger.FmtWrite(ELogLevel::Info, "ResolveGObjectsLayout: Detected {}\n", Result.Summary);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "ResolveGObjectsLayout: Detected {}\n", Result.Summary);
 		Out = std::move(Result.Layout);
 		return true;
 	}
 
-	/// @brief Address of GNames or NamePoolData.
+	/// @brief Address of MD7::Globals::GNames or NamePoolData.
 	inline virtual uintptr_t GetGNames() const
 	{
-		uintptr_t GNameBlocksDebug = GMemory->FindUnrealSymbol("GNameBlocksDebug");
+		uintptr_t GNameBlocksDebug = MD7::Globals::GMemory->FindUnrealSymbol("GNameBlocksDebug");
 		if (GNameBlocksDebug != 0)
 		{
-			uintptr_t NamePoolBlocks = GMemory->Read<uintptr_t>(GNameBlocksDebug);
+			uintptr_t NamePoolBlocks = MD7::Globals::GMemory->Read<uintptr_t>(GNameBlocksDebug);
 			if (NamePoolBlocks != 0)
 			{
-				GLogger.FmtWrite(ELogLevel::Info, "GetGNames: GNames Resolved via exported symbol \"GNameBlocksDebug\"\n");
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GetGNames: GNames Resolved via exported symbol \"GNameBlocksDebug\"\n");
 
 				// Safe to hardcode offset here.
 #ifdef __APPLE__
@@ -114,29 +114,29 @@ public:
 			}
 		}
 
-		uintptr_t GFNameTable = GMemory->FindUnrealSymbol("GFNameTableForDebuggerVisualizers_MT");
+		uintptr_t GFNameTable = MD7::Globals::GMemory->FindUnrealSymbol("GFNameTableForDebuggerVisualizers_MT");
 		if (GFNameTable != 0)
 		{
-			GLogger.FmtWrite(ELogLevel::Info, "GetGNames: GNames Resolved via exported symbol \"GFNameTableForDebuggerVisualizers_MT\"\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GetGNames: GNames Resolved via exported symbol \"GFNameTableForDebuggerVisualizers_MT\"\n");
 			return GFNameTable;
 		}
 
-		uintptr_t GNamesGetIsInitialized = GMemory->FindUnrealSymbol("_ZN5FName16GetIsInitializedEv");
+		uintptr_t GNamesGetIsInitialized = MD7::Globals::GMemory->FindUnrealSymbol("_ZN5FName16GetIsInitializedEv");
 		if (GNamesGetIsInitialized != 0)
 		{
 			std::vector<uint32_t> Insns(8, 0);
-			GMemory->ReadBytes(GNamesGetIsInitialized, Insns.data(), Insns.size() * sizeof(uint32_t));
+			MD7::Globals::GMemory->ReadBytes(GNamesGetIsInitialized, Insns.data(), Insns.size() * sizeof(uint32_t));
 #if defined(__LP64__)
 			// ADRL X0, addr  →  ADRP X0, page ; ADD X0, X0, #off
 			uintptr_t Address = Utils::Arm64::Find_ADRP_Final_Address(Insns, GNamesGetIsInitialized);
 #else
 			// LDR R0, [PC, #off] ; ADD R0, PC, R0
-			uintptr_t Address = Utils::Arm32::Find_LDR_ADD_PC_Address(Insns, GNamesGetIsInitialized, GMemory.get());
+			uintptr_t Address = Utils::Arm32::Find_LDR_ADD_PC_Address(Insns, GNamesGetIsInitialized, MD7::Globals::GMemory.get());
 #endif
 			if (Address != 0)
 			{
 				Address = Utils::Memory::AlignUp(Address + 1, static_cast<uintptr_t>(sizeof(uintptr_t)));
-				GLogger.FmtWrite(ELogLevel::Info, "GetGNames: GNames Resolved via exported symbol \"_ZN5FName16GetIsInitializedEv\"\n");
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GetGNames: GNames Resolved via exported symbol \"_ZN5FName16GetIsInitializedEv\"\n");
 				return Address;
 			}
 		}
@@ -169,9 +169,9 @@ public:
 		}
 
 		for (const std::string& Line : Result.Details)
-			GLogger.FmtWrite(ELogLevel::Debug, "ResolveGNamesLayout: {}\n", Line);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "ResolveGNamesLayout: {}\n", Line);
 
-		GLogger.FmtWrite(ELogLevel::Info, "ResolveGNamesLayout: Detected {}\n", Result.Summary);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "ResolveGNamesLayout: Detected {}\n", Result.Summary);
 		Out = std::move(Result.Layout);
 		return true;
 	}
@@ -205,8 +205,8 @@ public:
 
 	/**
 	 * @brief Retrieves an FObjectItem by index.
-	 * @param[in] ObjectsPtr GObjects address.
-	 * @param[in] Layout GObjects layout.
+	 * @param[in] ObjectsPtr MD7::Globals::GObjects address.
+	 * @param[in] Layout MD7::Globals::GObjects layout.
 	 * @param[in] Index Object index.
 	 * @return FObjectItem pointer, or nullptr.
 	 */
@@ -219,28 +219,28 @@ public:
 		{
 			const FFixedUObjectArrayLayout* L = static_cast<const FFixedUObjectArrayLayout*>(Layout.get());
 			const uintptr_t ObjectsAddr       = ObjectsPtr + L->Objects;
-			uintptr_t BaseAddr                = GDecryptCallbacks.FixedObjects.Objects({.Address = ObjectsAddr, .RawValue = GMemory->Read<uintptr_t>(ObjectsAddr)});
+			uintptr_t BaseAddr                = MD7::Globals::GDecryptCallbacks.FixedObjects.Objects({.Address = ObjectsAddr, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(ObjectsAddr)});
 			uintptr_t ItemAddr                = BaseAddr + Index * L->FUObjectItem.Size;
 			const uintptr_t ObjectAddr        = ItemAddr + L->FUObjectItem.Object;
-			return GDecryptCallbacks.FixedObjects.FUObjectItem.Object({.Address = ObjectAddr, .RawValue = GMemory->Read<uintptr_t>(ObjectAddr)});
+			return MD7::Globals::GDecryptCallbacks.FixedObjects.FUObjectItem.Object({.Address = ObjectAddr, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(ObjectAddr)});
 		}
 
 		const FChunkedUObjectArrayLayout* L = static_cast<const FChunkedUObjectArrayLayout*>(Layout.get());
 		const int32 ChunkIndex              = Index / L->ElementsPerChunk;
 		const int32 InChunkIdx              = Index % L->ElementsPerChunk;
 		const uintptr_t ObjectsAddr         = ObjectsPtr + L->Objects;
-		uintptr_t ChunksBase                = GDecryptCallbacks.ChunkedObjects.Objects({.Address = ObjectsAddr, .RawValue = GMemory->Read<uintptr_t>(ObjectsAddr)});
-		uintptr_t ChunkAddr                 = GMemory->Read<uintptr_t>(ChunksBase + ChunkIndex * sizeof(void*));
+		uintptr_t ChunksBase                = MD7::Globals::GDecryptCallbacks.ChunkedObjects.Objects({.Address = ObjectsAddr, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(ObjectsAddr)});
+		uintptr_t ChunkAddr                 = MD7::Globals::GMemory->Read<uintptr_t>(ChunksBase + ChunkIndex * sizeof(void*));
 		uintptr_t ItemAddr                  = ChunkAddr + InChunkIdx * L->FUObjectItem.Size;
 
 		const uintptr_t ObjectAddr = ItemAddr + L->FUObjectItem.Object;
-		return GDecryptCallbacks.ChunkedObjects.FUObjectItem.Object({.Address = ObjectAddr, .RawValue = GMemory->Read<uintptr_t>(ObjectAddr)});
+		return MD7::Globals::GDecryptCallbacks.ChunkedObjects.FUObjectItem.Object({.Address = ObjectAddr, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(ObjectAddr)});
 	}
 
 	/**
 	 * @brief Retrieves a FNameEntry by index.
-	 * @param[in] NamesPtr GNames pointer.
-	 * @param[in] NamesLayout GNames layout.
+	 * @param[in] NamesPtr MD7::Globals::GNames pointer.
+	 * @param[in] NamesLayout MD7::Globals::GNames layout.
 	 * @param[in] Idx Name index.
 	 * @return FNameEntry pointer, or nullptr.
 	 */
@@ -259,14 +259,14 @@ public:
 			const int32 InChunk  = Idx % Layout->ElementsPerChunk;
 
 			const uintptr_t ChunkSlot = NamesPtr + Layout->Chunks + ChunkIdx * sizeof(void*);
-			uintptr_t ChunkAddr       = GMemory->Read<uintptr_t>(ChunkSlot);
-			ChunkAddr                 = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
+			uintptr_t ChunkAddr       = MD7::Globals::GMemory->Read<uintptr_t>(ChunkSlot);
+			ChunkAddr                 = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
 			const uintptr_t EntrySlot = ChunkAddr + InChunk * sizeof(void*);
-			uintptr_t NameEntry       = GMemory->Read<uintptr_t>(EntrySlot);
-			NameEntry                 = GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = NameEntry});
+			uintptr_t NameEntry       = MD7::Globals::GMemory->Read<uintptr_t>(EntrySlot);
+			NameEntry                 = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = NameEntry});
 
-			if (GMemory->IsAddressReadable(NameEntry))
+			if (MD7::Globals::GMemory->IsAddressReadable(NameEntry))
 				return NameEntry;
 		}
 		else
@@ -281,13 +281,13 @@ public:
 				return 0;
 
 			const uintptr_t ChunkSlot = NamesPtr + Layout->Blocks + ChunkIdx * sizeof(void*);
-			uintptr_t ChunkAddr       = GMemory->Read<uintptr_t>(ChunkSlot);
-			ChunkAddr                 = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
+			uintptr_t ChunkAddr       = MD7::Globals::GMemory->Read<uintptr_t>(ChunkSlot);
+			ChunkAddr                 = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
-			if (GMemory->IsAddressReadable(ChunkAddr))
+			if (MD7::Globals::GMemory->IsAddressReadable(ChunkAddr))
 			{
 				const uintptr_t NameEntry = ChunkAddr + InChunkOffset;
-				return GDecryptCallbacks.NameStorage.Entry({.Address = NameEntry, .Index = InChunk, .RawValue = NameEntry});
+				return MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = NameEntry, .Index = InChunk, .RawValue = NameEntry});
 			}
 		}
 
@@ -296,14 +296,14 @@ public:
 
 	/**
 	 * @brief Gets string of a FNameEntry.
-	 * @param[in] NamesPtr GNames pointer.
-	 * @param[in] NamesLayout GNames layout.
+	 * @param[in] NamesPtr MD7::Globals::GNames pointer.
+	 * @param[in] NamesLayout MD7::Globals::GNames layout.
 	 * @param[in] NameEntry FNameEntry pointer.
 	 * @return FNameEntry string.
 	 */
 	virtual std::wstring GetNameEntryString(uintptr_t NamesPtr, const std::unique_ptr<INamesLayout>& NamesLayout, uintptr_t NameEntry) const
 	{
-		if (!NamesLayout || !GMemory->IsAddressReadable(NameEntry))
+		if (!NamesLayout || !MD7::Globals::GMemory->IsAddressReadable(NameEntry))
 			return std::wstring();
 
 		bool IsWide       = false;
@@ -316,10 +316,10 @@ public:
 			FNameArrayLayout* Layout = reinterpret_cast<FNameArrayLayout*>(NamesLayout.get());
 
 			const uintptr_t IndexAddr = NameEntry + Layout->FNameEntry.Index;
-			const int32 NameIdx       = static_cast<int32>(GDecryptCallbacks.NameArray.FNameEntry.Index({.Address = IndexAddr, .RawValue = GMemory->Read<uint32>(IndexAddr)}));
+			const int32 NameIdx       = static_cast<int32>(MD7::Globals::GDecryptCallbacks.NameArray.FNameEntry.Index({.Address = IndexAddr, .RawValue = MD7::Globals::GMemory->Read<uint32>(IndexAddr)}));
 
 			IsWide  = Layout->FNameEntry.GetIsWide ? Layout->FNameEntry.GetIsWide(NameIdx) : (NameIdx & 1);
-			StrLen  = GSettings.General.MaxFNameLen;
+			StrLen  = MD7::Globals::GSettings.General.MaxFNameLen;
 			StrAddr = NameEntry + Layout->FNameEntry.String;
 		}
 		else
@@ -329,7 +329,7 @@ public:
 			auto ReadEntryHeader = [&Layout](uintptr_t Entry) -> uint16
 			{
 				const uintptr_t HeaderAddr = Entry + Layout->FNameEntry.Header;
-				return GDecryptCallbacks.NamePool.FNameEntry.Header({.Address = HeaderAddr, .RawValue = GMemory->Read<uint16>(HeaderAddr)});
+				return MD7::Globals::GDecryptCallbacks.NamePool.FNameEntry.Header({.Address = HeaderAddr, .RawValue = MD7::Globals::GMemory->Read<uint16>(HeaderAddr)});
 			};
 
 			uint16 HeaderWithoutNumber = ReadEntryHeader(NameEntry);
@@ -338,12 +338,12 @@ public:
 			if (NameLen == 0)
 			{
 				const int32 EntryIdOffset  = Layout->FNameEntry.String + ((Layout->FNameEntry.String == 6) * 2);
-				const int32 NextEntryIndex = GMemory->Read<int32>(NameEntry + EntryIdOffset);
+				const int32 NextEntryIndex = MD7::Globals::GMemory->Read<int32>(NameEntry + EntryIdOffset);
 
-				StrNumber = GMemory->Read<int32>(NameEntry + EntryIdOffset + sizeof(int32));
+				StrNumber = MD7::Globals::GMemory->Read<int32>(NameEntry + EntryIdOffset + sizeof(int32));
 				NameEntry = GetNameEntryByIndex(NamesPtr, NamesLayout, NextEntryIndex);
 
-				if (!GMemory->IsAddressReadable(NameEntry))
+				if (!MD7::Globals::GMemory->IsAddressReadable(NameEntry))
 					return std::wstring();
 
 				HeaderWithoutNumber = ReadEntryHeader(NameEntry);
@@ -355,7 +355,7 @@ public:
 			StrAddr = NameEntry + Layout->FNameEntry.String;
 		}
 
-		if (!GMemory->IsAddressReadable(StrAddr) || StrLen <= 0 || StrLen > GSettings.General.MaxFNameLen || (IsWide && DisableWideNameEntry()))
+		if (!MD7::Globals::GMemory->IsAddressReadable(StrAddr) || StrLen <= 0 || StrLen > MD7::Globals::GSettings.General.MaxFNameLen || (IsWide && DisableWideNameEntry()))
 			return std::wstring();
 
 		std::wstring Result;
@@ -364,7 +364,7 @@ public:
 		{
 			if (!InternalSettings::bUseChar16String)
 			{
-				std::u32string Str = GMemory->ReadUTF32(StrAddr, StrLen, GDecryptCallbacks.String.UTF32);
+				std::u32string Str = MD7::Globals::GMemory->ReadUTF32(StrAddr, StrLen, MD7::Globals::GDecryptCallbacks.String.UTF32);
 
 				if (!Str.empty())
 				{
@@ -373,7 +373,7 @@ public:
 			}
 			else
 			{
-				std::u16string Str = GMemory->ReadUTF16(StrAddr, StrLen, GDecryptCallbacks.String.UTF16);
+				std::u16string Str = MD7::Globals::GMemory->ReadUTF16(StrAddr, StrLen, MD7::Globals::GDecryptCallbacks.String.UTF16);
 
 				if (!Str.empty())
 				{
@@ -383,7 +383,7 @@ public:
 		}
 		else
 		{
-			std::string Str = GMemory->ReadUTF8(StrAddr, StrLen, GDecryptCallbacks.String.UTF8);
+			std::string Str = MD7::Globals::GMemory->ReadUTF8(StrAddr, StrLen, MD7::Globals::GDecryptCallbacks.String.UTF8);
 
 			if (!Str.empty())
 			{
@@ -407,7 +407,10 @@ public:
 	}
 };
 
-/**
- * @brief Global active game profile.
- */
-inline std::shared_ptr<IProfile> GProfile = nullptr;
+namespace MD7::Globals
+{
+	/**
+	 * @brief Global active game profile.
+	 */
+	inline std::shared_ptr<IProfile> GProfile = nullptr;
+}

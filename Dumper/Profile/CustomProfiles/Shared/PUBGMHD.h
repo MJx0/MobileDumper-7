@@ -28,7 +28,7 @@ public:
 		std::unique_ptr<FFixedUObjectArrayLayout> FixedLayout = MakeFixedObjectsLayout();
 		if (LayoutDetection::TestObjectsLayout(ObjectsPtr, FixedLayout.get()).bValid)
 		{
-			GLogger.FmtWrite(ELogLevel::Info, "ResolveGObjectsLayout: Resolved by manual user layout offsets.\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "ResolveGObjectsLayout: Resolved by manual user layout offsets.\n");
 			Out = std::move(FixedLayout);
 			return true;
 		}
@@ -60,7 +60,7 @@ private:
 
 		std::vector<uint8_t> Block;
 
-		for (const auto& Segment : GMemory->GetUnrealModule().GetSegments())
+		for (const auto& Segment : MD7::Globals::GMemory->GetUnrealModule().GetSegments())
 		{
 			if (!Segment.IsValid() || !Segment.IsReadable() || !Segment.IsWriteable() || Segment.IsExecutable())
 				continue;
@@ -73,7 +73,7 @@ private:
 				if (BlockSize != Block.size())
 					Block.resize(BlockSize);
 
-				if (GMemory->ReadBytes(Segment.GetStart() + Offset, Block.data(), BlockSize) != BlockSize)
+				if (MD7::Globals::GMemory->ReadBytes(Segment.GetStart() + Offset, Block.data(), BlockSize) != BlockSize)
 					continue;
 
 				for (size_t InBlock = 0; InBlock + kHeaderBytes <= BlockSize; InBlock += sizeof(uintptr_t))
@@ -96,7 +96,7 @@ private:
 					if (!LayoutDetection::TestObjectsLayout(Global, Layout.get()).bValid)
 						continue;
 
-					GLogger.FmtWrite(ELogLevel::Info, "GetGObjects: Structural scan found GUObjectArray at 0x{:X} -> 0x{:X}\n", GMemory->GetUnrealModule().AddressToOffset(Global), Global);
+					MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GetGObjects: Structural scan found GUObjectArray at 0x{:X} -> 0x{:X}\n", MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(Global), Global);
 					return Global;
 				}
 			}

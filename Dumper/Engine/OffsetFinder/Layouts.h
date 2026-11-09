@@ -316,7 +316,7 @@ struct FLayouts
  * is that FName index 0 decodes to "None"; nothing is assumed about later names.
  *
  * Discovery and validation are separate: detection searches for a layout and scores
- * it, while the testers apply a supplied layout exactly. Neither assigns @c GLayouts.
+ * it, while the testers apply a supplied layout exactly. Neither assigns @c MD7::Globals::GLayouts.
  */
 namespace LayoutDetection
 {
@@ -632,7 +632,7 @@ namespace LayoutDetection
 	 *
 	 * @param CandidateAddress Address to interpret. Must already be decrypted.
 	 * @param Options Hints and tuning.
-	 * @return The detected layout with its confidence and diagnostics. Never assigns @c GLayouts.
+	 * @return The detected layout with its confidence and diagnostics. Never assigns @c MD7::Globals::GLayouts.
 	 */
 	FObjectsDetectionResult DetectObjectsLayout(uintptr_t CandidateAddress, const FOptions& Options = {});
 
@@ -644,7 +644,7 @@ namespace LayoutDetection
 	 *
 	 * @param CandidateAddress Address to interpret. Must already be decrypted.
 	 * @param Options Hints and tuning.
-	 * @return The detected layout with its confidence and diagnostics. Never assigns @c GLayouts.
+	 * @return The detected layout with its confidence and diagnostics. Never assigns @c MD7::Globals::GLayouts.
 	 */
 	FNamesDetectionResult DetectNamesLayout(uintptr_t CandidateAddress, const FOptions& Options = {});
 

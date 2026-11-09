@@ -81,12 +81,12 @@ public:
 
 		if (kill(InPid, SIGSTOP) != 0)
 		{
-			GLogger.FmtWrite(ELogLevel::Warning, "Failed to suspend process {}: {}\n", InPid, strerror(errno));
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Failed to suspend process {}: {}\n", InPid, strerror(errno));
 			return;
 		}
 
 		Pid = InPid;
-		GLogger.FmtWrite(ELogLevel::Info, "Suspended process {}.\n", Pid);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Suspended process {}.\n", Pid);
 	}
 
 	~FProcessSuspension()
@@ -95,9 +95,9 @@ public:
 			return;
 
 		if (kill(Pid, SIGCONT) != 0)
-			GLogger.FmtWrite(ELogLevel::Warning, "Failed to resume process {}: {}\n", Pid, strerror(errno));
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Failed to resume process {}: {}\n", Pid, strerror(errno));
 		else
-			GLogger.FmtWrite(ELogLevel::Info, "Resumed process {}.\n", Pid);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Resumed process {}.\n", Pid);
 	}
 };
 
@@ -105,29 +105,29 @@ bool RunDump(int GamePid, const std::string& GamePackage, EKittyMemOP MemOp = EK
 {
 	auto StartTime = std::chrono::high_resolution_clock::now();
 
-	GSettings.Generator.SDKGenerationPath  = OutputDir ? OutputDir : KittyUtils::Android::getAppExternalFilesDir(GamePackage);
-	GSettings.Generator.SDKGenerationPath += "/MobileDumper-7";
+	MD7::Globals::GSettings.Generator.SDKGenerationPath  = OutputDir ? OutputDir : KittyUtils::Android::getAppExternalFilesDir(GamePackage);
+	MD7::Globals::GSettings.Generator.SDKGenerationPath += "/MobileDumper-7";
 	{
 		std::error_code Ec;
-		std::filesystem::create_directories(GSettings.Generator.SDKGenerationPath, Ec);
+		std::filesystem::create_directories(MD7::Globals::GSettings.Generator.SDKGenerationPath, Ec);
 		if (Ec)
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "Failed to create output dir at \"{}\"\n", GSettings.Generator.SDKGenerationPath, Ec.message());
-			GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", Ec.message());
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failed to create output dir at \"{}\"\n", MD7::Globals::GSettings.Generator.SDKGenerationPath, Ec.message());
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", Ec.message());
 			FDumperMain::SetOnProgressCallback(nullptr);
-			GLogger.CloseFileStream();
+			MD7::Globals::GLogger.CloseFileStream();
 			return false;
 		}
 	}
 
-	GMemory = std::make_unique<FMemoryAndroid>(GamePid, MemOp);
+	MD7::Globals::GMemory = std::make_unique<FMemoryAndroid>(GamePid, MemOp);
 
-	static_cast<FMemoryAndroid*>(GMemory.get())->SetProcessRealName(GamePackage);
+	static_cast<FMemoryAndroid*>(MD7::Globals::GMemory.get())->SetProcessRealName(GamePackage);
 
 #if defined(__LP64__)
-	GArchDecoder = CreateArchDecoder(EArch::Arm64);
+	MD7::Globals::GArchDecoder = CreateArchDecoder(EArch::Arm64);
 #else
-	GArchDecoder = CreateArchDecoder(EArch::Arm32);
+	MD7::Globals::GArchDecoder = CreateArchDecoder(EArch::Arm32);
 #endif
 
 	for (const auto& it : GetUECustomProfiles())
@@ -136,15 +136,15 @@ bool RunDump(int GamePid, const std::string& GamePackage, EKittyMemOP MemOp = EK
 		{
 			if (Identifier == GamePackage)
 			{
-				GLogger.FmtWrite(ELogLevel::Info, "Using Custom UE Profile Override ({}).\n", Identifier);
-				GProfile = it;
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Using Custom UE Profile Override ({}).\n", Identifier);
+				MD7::Globals::GProfile = it;
 				goto DumpLabel;
 			}
 		}
 	}
 
-	GLogger.FmtWrite(ELogLevel::Info, "Using Generic UE Profile.\n");
-	GProfile = std::make_shared<IProfile>();
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Using Generic UE Profile.\n");
+	MD7::Globals::GProfile = std::make_shared<IProfile>();
 
 DumpLabel:
 	std::string OutDumpZip, OutErr;
@@ -189,58 +189,58 @@ DumpLabel:
 		OutErr = "Unknown exception";
 	}
 
-	if (bDumpLib && GMemory && bIsBitOk)
+	if (bDumpLib && MD7::Globals::GMemory && bIsBitOk)
 	{
-		const ModuleInfo Module = GMemory->GetUnrealModule();
+		const ModuleInfo Module = MD7::Globals::GMemory->GetUnrealModule();
 		if (!Module.IsValid())
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "Memory dump failed, Unable to locate Unreal module!\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Memory dump failed, Unable to locate Unreal module!\n");
 		}
 		else
 		{
 			const std::string ModuleStem = std::filesystem::path(Module.GetPathName()).stem().string();
 
 			const std::string Destination = fmt::format("{}/{}_{}_{}_{:X}-{:X}.so",
-			                                            GSettings.Generator.SDKGenerationPath,
+			                                            MD7::Globals::GSettings.Generator.SDKGenerationPath,
 			                                            GamePackage,
-			                                            GProfile ? GProfile->GetGameVersion() : "",
+			                                            MD7::Globals::GProfile ? MD7::Globals::GProfile->GetGameVersion() : "",
 			                                            ModuleStem.empty() ? "UnrealModule" : ModuleStem,
 			                                            Module.GetStart(),
 			                                            Module.GetEnd());
 
-			GLogger.FmtWrite(ELogLevel::Info, "Dumping Unreal module to \"{}\"...\n", Destination);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dumping Unreal module to \"{}\"...\n", Destination);
 
-			if (GMemory->DumpUnrealModule(Destination))
-				GLogger.FmtWrite(ELogLevel::Info, "Dumped Unreal module (0x{:X} - 0x{:X}, {} mapped).\n", Module.GetStart(), Module.GetEnd(), Utils::SizeToString(Module.GetSize()));
+			if (MD7::Globals::GMemory->DumpUnrealModule(Destination))
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dumped Unreal module (0x{:X} - 0x{:X}, {} mapped).\n", Module.GetStart(), Module.GetEnd(), Utils::SizeToString(Module.GetSize()));
 			else
-				GLogger.FmtWrite(ELogLevel::Error, "Failed to dump the Unreal module.\n");
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failed to dump the Unreal module.\n");
 		}
 	}
 
 	auto Elapsed = std::chrono::high_resolution_clock::now() - StartTime;
-	GLogger.FmtWrite(ELogLevel::Info, "Duration: {}\n", Utils::ChronoDurationToString(Elapsed));
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Duration: {}\n", Utils::ChronoDurationToString(Elapsed));
 
 	if (bSuccess)
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "Dump succeded.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dump succeded.\n");
 	}
 	else
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Dump failed!\n");
-		GLogger.FmtWrite(ELogLevel::Error, "Failure reason: \"{}\"\n", OutErr);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Dump failed!\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failure reason: \"{}\"\n", OutErr);
 	}
 
 	// clean up
 	{
 		FDumperMain::SetOnProgressCallback(nullptr);
 
-		GProfile.reset();
+		MD7::Globals::GProfile.reset();
 		GetUECustomProfiles().clear();
 
-		GArchDecoder.reset();
-		GMemory.reset();
+		MD7::Globals::GArchDecoder.reset();
+		MD7::Globals::GMemory.reset();
 
-		GLogger.CloseFileStream();
+		MD7::Globals::GLogger.CloseFileStream();
 	}
 
 	return bSuccess;
@@ -254,7 +254,7 @@ __attribute__((constructor)) static void OnLibraryLoad()
 	std::thread([]()
 	{
 		int SleepSec = 60;
-		GLogger.FmtWrite(ELogLevel::Info, "Starting after {} seconds.\n", SleepSec);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Starting after {} seconds.\n", SleepSec);
 		sleep(SleepSec);
 
 		bool bDumpLib = false;
@@ -267,7 +267,7 @@ extern "C" jint JNIEXPORT JNI_OnLoad(JavaVM*, void*)
 	std::thread([]()
 	{
 		int SleepSec = 60;
-		GLogger.FmtWrite(ELogLevel::Info, "Starting after {} seconds.\n", SleepSec);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Starting after {} seconds.\n", SleepSec);
 		sleep(SleepSec);
 
 		bool bDumpLib = false;
@@ -334,8 +334,8 @@ int main(int Argc, char** Args)
 	}
 	catch (const std::exception& Err)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "✘ Command Line Error: {}\n\n", Err.what());
-		GLogger.FmtWrite(ELogLevel::Info, "{}", Program.help().str());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "✘ Command Line Error: {}\n\n", Err.what());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "{}", Program.help().str());
 		return 1;
 	}
 
@@ -343,7 +343,7 @@ int main(int Argc, char** Args)
 	{
 		if (!ChooseUserProcess(GamePid, GamePackge))
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "No user process was selected.\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "No user process was selected.\n");
 			return 1;
 		}
 	}
@@ -359,19 +359,19 @@ int main(int Argc, char** Args)
 			{
 				GamePids = Utils::Android::GetProcessIDsByUid(PackageUid);
 				if (!GamePids.empty())
-					GLogger.FmtWrite(ELogLevel::Warning, "No process matched \"{}\" by cmdline (possibly spoofed), Found {} by UID {} instead.\n", GamePackge, GamePids.size(), PackageUid);
+					MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "No process matched \"{}\" by cmdline (possibly spoofed), Found {} by UID {} instead.\n", GamePackge, GamePids.size(), PackageUid);
 			}
 		}
 
 		if (GamePids.empty())
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "Couldn't find target package \"{}\" in the running processes.\n", GamePackge);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Couldn't find target package \"{}\" in the running processes.\n", GamePackge);
 			return 1;
 		}
 
 		if (!ChooseProcessFromMultiple(GamePids, GamePackge, GamePid))
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "Failed to select process ID.\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failed to select process ID.\n");
 			return 1;
 		}
 	}
@@ -380,7 +380,7 @@ int main(int Argc, char** Args)
 	{
 		if (!ChooseMemoryAccessType(MemAccessType))
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "Failed to select memory access type.\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failed to select memory access type.\n");
 			return 1;
 		}
 	}
@@ -389,13 +389,13 @@ int main(int Argc, char** Args)
 	{
 		if (!ChooseOutputDirectory(OutputDir))
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "Output directory path is not specified.\n");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Output directory path is not specified.\n");
 			return 1;
 		}
 
 		if (access(OutputDir.c_str(), W_OK) != 0)
 		{
-			GLogger.FmtWrite(ELogLevel::Error, "Output directory path (\"{}\") is not writeable!\n", OutputDir);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Output directory path (\"{}\") is not writeable!\n", OutputDir);
 			return 1;
 		}
 	}
@@ -404,12 +404,12 @@ int main(int Argc, char** Args)
 
 	EKittyMemOP MemOp = (MemAccessType == 2) ? EK_MEM_OP_IO : EK_MEM_OP_SYSCALL;
 
-	GLogger.FmtWrite(ELogLevel::Info, "Process ID: {}\n", GamePid);
-	GLogger.FmtWrite(ELogLevel::Info, "Process Name: {}\n", GamePackge);
-	GLogger.FmtWrite(ELogLevel::Info, "Memory Access: {}\n", MemOp == EK_MEM_OP_IO ? "pread" : "process_vm_readv");
-	GLogger.FmtWrite(ELogLevel::Info, "Output Directory: {}\n", OutputDir);
-	GLogger.FmtWrite(ELogLevel::Info, "Dump UE Library: {}\n", bDumpLib ? "Yes" : "No");
-	GLogger.FmtWrite(ELogLevel::Info, "Suspend Game: {}\n", bSuspendGame ? "Yes" : "No");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Process ID: {}\n", GamePid);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Process Name: {}\n", GamePackge);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Memory Access: {}\n", MemOp == EK_MEM_OP_IO ? "pread" : "process_vm_readv");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Output Directory: {}\n", OutputDir);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dump UE Library: {}\n", bDumpLib ? "Yes" : "No");
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Suspend Game: {}\n", bSuspendGame ? "Yes" : "No");
 
 	bool bSuccess = RunDump(GamePid, GamePackge, MemOp, OutputDir.c_str(), bDumpLib, bSuspendGame);
 	return bSuccess ? 0 : 1;
@@ -447,7 +447,7 @@ bool ChooseUserProcess(pid_t& OutPid, std::string& OutId)
 	DIR* ProcDir = opendir("/proc");
 	if (!ProcDir)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Failed to open /proc — is the process running as root?\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failed to open /proc — is the process running as root?\n");
 		return false;
 	}
 
@@ -526,7 +526,7 @@ bool ChooseUserProcess(pid_t& OutPid, std::string& OutId)
 
 	if (UserProcesses.empty())
 	{
-		GLogger.FmtWrite(ELogLevel::Warning, "No user processes detected. Ensure the target game is running.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "No user processes detected. Ensure the target game is running.\n");
 		return false;
 	}
 
@@ -583,7 +583,7 @@ bool ChooseUserProcess(pid_t& OutPid, std::string& OutId)
 	int SelectedIndex = 0;
 	if (!ReadIntegerInput(SelectedIndex) || SelectedIndex < 1 || SelectedIndex > static_cast<int>(UserProcesses.size()))
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Invalid selection index.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Invalid selection index.\n");
 		return false;
 	}
 
@@ -646,7 +646,7 @@ bool ChooseProcessFromMultiple(const std::vector<pid_t>& Pids, const std::string
 	int SelectedIndex = 0;
 	if (!ReadIntegerInput(SelectedIndex) || SelectedIndex < 1 || SelectedIndex > static_cast<int>(Pids.size()))
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Invalid selection index.");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Invalid selection index.");
 		return false;
 	}
 
@@ -671,7 +671,7 @@ bool ChooseMemoryAccessType(int& OutMemAccessType)
 	int SelectedType = 0;
 	if (!ReadIntegerInput(SelectedType) || SelectedType < 1 || SelectedType > 2)
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Selected memory access type is out of range.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Selected memory access type is out of range.\n");
 		return false;
 	}
 
@@ -694,7 +694,7 @@ bool ChooseOutputDirectory(std::string& OutOutputDir)
 
 	if (OutOutputDir.empty())
 	{
-		GLogger.FmtWrite(ELogLevel::Error, "Output directory path cannot be empty.\n");
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Output directory path cannot be empty.\n");
 		return false;
 	}
 

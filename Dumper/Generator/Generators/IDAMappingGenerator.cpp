@@ -22,7 +22,7 @@
 /// @brief __PAGEZERO size for iOS binaries, Offsets in the mapping file are measured from the start of __TEXT.
 inline static uintptr_t GetPageZeroSize()
 {
-	static const uintptr_t PageZeroSize = GMemory->GetUnrealModule().ForEachSegment([](MemRegionInfo Segment) -> bool
+	static const uintptr_t PageZeroSize = MD7::Globals::GMemory->GetUnrealModule().ForEachSegment([](MemRegionInfo Segment) -> bool
 	{
 		return Segment.GetPathName() == "__PAGEZERO";
 	}).GetSize();
@@ -40,7 +40,7 @@ inline static IDAMappingsLayouts::OffsetType ToImageOffset(uintptr_t Offset)
 /// @brief Converts a runtime address to an offset into the module image.
 inline static IDAMappingsLayouts::OffsetType AddressToImageOffset(uintptr_t Address)
 {
-	return ToImageOffset(GMemory->GetUnrealModule().AddressToOffset(Address));
+	return ToImageOffset(MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(Address));
 }
 
 std::string GenerateFunctionDeclarationForIDA(const StructWrapper& OwnerClass, const FunctionWrapper& Func)
@@ -158,7 +158,7 @@ std::string IDAMappingGenerator::MangleUFunctionName(const std::string& ClassNam
 
 IDAMappingsLayouts::StringOffset IDAMappingGenerator::AddNameToData(std::stringstream& NameTable, const std::string& Name)
 {
-	if (GSettings.MappingGenerator.bShouldCheckForDuplicatedNames)
+	if (MD7::Globals::GSettings.MappingGenerator.bShouldCheckForDuplicatedNames)
 	{
 		static std::unordered_map<std::string, IDAMappingsLayouts::StringOffset> NameMap;
 
@@ -381,7 +381,7 @@ std::string IDAMappingGenerator::GetIDACppTypeForProperty(UEProperty Property, b
 
 		return "struct UObject";
 	}
-	else if (GSettings.EngineCore.bEnableEncryptedObjectPropertySupport && (Flags & EClassCastFlags::ObjectPropertyBase))
+	else if (MD7::Globals::GSettings.EngineCore.bEnableEncryptedObjectPropertySupport && (Flags & EClassCastFlags::ObjectPropertyBase))
 	{
 		return "struct TEncryptedObjPtr";
 	}
@@ -461,7 +461,7 @@ void IDAMappingGenerator::InitPredefinedMembers()
 uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructData, std::stringstream& NameData)
 {
 	const int32 PtrSize            = sizeof(void*);
-	const int32 FNameSize          = GOffsets.FName.SizeOf;
+	const int32 FNameSize          = MD7::Globals::GOffsets.FName.SizeOf;
 	const int32 FWeakObjectPtrSize = 0x08; // always two int32s
 
 	std::vector<PredefinedStruct> Types;
@@ -534,7 +534,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 
 	// FScriptDelegate: { FWeakObjectPtr Object; FName FunctionName; } runtime FNameSize
 	{
-		PredefinedStruct& T = AddPredef("FScriptDelegate", GInSDKOffsets.DelegateProperty.SizeOf, alignof(int32));
+		PredefinedStruct& T = AddPredef("FScriptDelegate", MD7::Globals::GInSDKOffsets.DelegateProperty.SizeOf, alignof(int32));
 		T.Properties        = {
             IDA_MEMBER_AT("struct TWeakObjectPtr", "Object", 0, FWeakObjectPtrSize, alignof(int32)),
             IDA_MEMBER_AT("struct FName", "FunctionName", FWeakObjectPtrSize, FNameSize, alignof(int32)),
@@ -543,7 +543,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 
 	// FMulticastInlineDelegate: { TArray<FScriptDelegate> InvocationList; }
 	{
-		PredefinedStruct& T = AddPredef("FMulticastInlineDelegate", GInSDKOffsets.MulticastInlineDelegateProperty.SizeOf, alignof(TArray<int>));
+		PredefinedStruct& T = AddPredef("FMulticastInlineDelegate", MD7::Globals::GInSDKOffsets.MulticastInlineDelegateProperty.SizeOf, alignof(TArray<int>));
 		T.Properties        = {
             IDA_MEMBER_AT("struct TArray", "InvocationList", 0, sizeof(TArray<int>), alignof(TArray<int>)),
         };
@@ -576,7 +576,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 
 	// TFieldPath: { FField* ResolvedField; TWeakObjectPtr<UStruct> ResolvedOwner; TArray<FName> Path; }
 	{
-		PredefinedStruct& T = AddPredef("TFieldPath", GInSDKOffsets.FieldPathProperty.SizeOf, alignof(void*));
+		PredefinedStruct& T = AddPredef("TFieldPath", MD7::Globals::GInSDKOffsets.FieldPathProperty.SizeOf, alignof(void*));
 		T.Properties        = {
             IDA_MEMBER_AT("struct FField*", "ResolvedField", 0, PtrSize, alignof(void*)),
             IDA_MEMBER_AT("struct TWeakObjectPtr", "ResolvedOwner", PtrSize, FWeakObjectPtrSize, alignof(int32)),
@@ -585,9 +585,9 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 	}
 
 	// TUObjectArray: chunked vs fixed layout
-	if (GLayouts.ObjectsLayout->GetType() == EObjectsType::Chunked)
+	if (MD7::Globals::GLayouts.ObjectsLayout->GetType() == EObjectsType::Chunked)
 	{
-		const auto Layout           = reinterpret_cast<FChunkedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
+		const auto Layout           = reinterpret_cast<FChunkedUObjectArrayLayout*>(MD7::Globals::GLayouts.ObjectsLayout.get());
 		const int32 ObjectArraySize = std::max({FieldEnd(Layout->Objects, PtrSize), FieldEnd(Layout->MaxElements, (int32)sizeof(int32)), FieldEnd(Layout->NumElements, (int32)sizeof(int32)), FieldEnd(Layout->MaxChunks, (int32)sizeof(int32)), FieldEnd(Layout->NumChunks, (int32)sizeof(int32))});
 
 		// FUObjectItem: { UObject* Object; ... padding to FUObjectItemSize } runtime offsets
@@ -620,7 +620,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 	}
 	else
 	{
-		const auto Layout           = reinterpret_cast<FFixedUObjectArrayLayout*>(GLayouts.ObjectsLayout.get());
+		const auto Layout           = reinterpret_cast<FFixedUObjectArrayLayout*>(MD7::Globals::GLayouts.ObjectsLayout.get());
 		const int32 ObjectArraySize = (std::max)({FieldEnd(Layout->Objects, PtrSize), FieldEnd(Layout->MaxObjects, (int32)sizeof(int32)), FieldEnd(Layout->NumObjects, (int32)sizeof(int32))});
 
 		// FUObjectItem: { UObject* Object; ... padding to FUObjectItemSize } runtime offsets
@@ -642,11 +642,11 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 			T.Properties.push_back(IDA_MEMBER_AT("int32", "MaxElements", Layout->MaxObjects, sizeof(int32), alignof(int32)));
 	}
 
-	// The names container: FNamePool or the legacy TNameEntryArray. GNames is typed after whichever
+	// The names container: FNamePool or the legacy TNameEntryArray. MD7::Globals::GNames is typed after whichever
 	// of the two is emitted here, so the two decisions must stay in agreement.
 	if (InternalSettings::bUseNamePool)
 	{
-		const auto Layout = reinterpret_cast<FNamePoolLayout*>(GLayouts.NamesLayout.get());
+		const auto Layout = reinterpret_cast<FNamePoolLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 
 		/* Only the FNameEntryAllocator portion is detected, so this stops at the block table -- the
 		   engine's FNamePool continues with its name hash tables. */
@@ -673,7 +673,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 	}
 	else
 	{
-		const auto Layout = reinterpret_cast<FNameArrayLayout*>(GLayouts.NamesLayout.get());
+		const auto Layout = reinterpret_cast<FNameArrayLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 
 		/* Chunks is one address, not the whole chunk table. Sizing it as 'ElementsPerChunk / PtrSize'
 		   pointers was an invented figure -- the engine's table length is MaxTotalElements divided by
@@ -692,7 +692,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 	}
 
 	// FStructBaseChain: void** (1 ptr) + int32 slot (uint32 + trailing pad)
-	if (GOffsets.UStruct.StructBaseChain != -1)
+	if (MD7::Globals::GOffsets.UStruct.StructBaseChain != -1)
 	{
 		PredefinedStruct& T = AddPredef("FStructBaseChain", PtrSize * 2, alignof(void*));
 		T.Properties        = {
@@ -716,7 +716,7 @@ uint32 IDAMappingGenerator::GeneratePredefinedTypes(std::stringstream& StructDat
 	}
 
 	// FText
-	AddPredef("FText", GInSDKOffsets.FText.SizeOf, alignof(void*));
+	AddPredef("FText", MD7::Globals::GInSDKOffsets.FText.SizeOf, alignof(void*));
 
 	for (const PredefinedStruct& Predef : Types)
 		GenerateSingleStruct(StructWrapper(&Predef), StructData, NameData);
@@ -1136,7 +1136,7 @@ void IDAMappingGenerator::Generate()
 		}
 	}
 
-	// Generate named variables (GObjects, GNames)
+	// Generate named variables (MD7::Globals::GObjects, MD7::Globals::GNames)
 	uint32_t NumGlobalSymbols = 0;
 
 	auto WriteNamedVar = [&](IDAMappingsLayouts::OffsetType VarOffset, const std::string& TypeStr, const std::string& NameStr)
@@ -1152,19 +1152,19 @@ void IDAMappingGenerator::Generate()
 	// Statics are stored as module-relative offsets, so they need the same __PAGEZERO
 	// rebase as the addresses above to land on the image.
 	{
-		WriteNamedVar(ToImageOffset(GInSDKOffsets.Statics.GObjects), "TUObjectArray", "GObjects");
+		WriteNamedVar(ToImageOffset(MD7::Globals::GInSDKOffsets.Statics.GObjects), "TUObjectArray", "GObjects");
 
 		const char* TypeName = InternalSettings::bUseNamePool ? "FNamePool" : "TNameEntryArray";
-		WriteNamedVar(ToImageOffset(GInSDKOffsets.Statics.GNames), TypeName, "GNames");
+		WriteNamedVar(ToImageOffset(MD7::Globals::GInSDKOffsets.Statics.GNames), TypeName, "GNames");
 
-		if (GInSDKOffsets.Statics.GEngine != 0x0)
-			WriteNamedVar(ToImageOffset(GInSDKOffsets.Statics.GEngine), "UEngine*", "GEngine");
+		if (MD7::Globals::GInSDKOffsets.Statics.GEngine != 0x0)
+			WriteNamedVar(ToImageOffset(MD7::Globals::GInSDKOffsets.Statics.GEngine), "UEngine*", "GEngine");
 
-		if (GInSDKOffsets.Statics.GWorld != 0x0)
-			WriteNamedVar(ToImageOffset(GInSDKOffsets.Statics.GWorld), "UWorld*", "GWorld");
+		if (MD7::Globals::GInSDKOffsets.Statics.GWorld != 0x0)
+			WriteNamedVar(ToImageOffset(MD7::Globals::GInSDKOffsets.Statics.GWorld), "UWorld*", "GWorld");
 
-		if (GInSDKOffsets.Statics.PEOffset != 0x0)
-			WriteNamedVar(ToImageOffset(GInSDKOffsets.Statics.PEOffset),
+		if (MD7::Globals::GInSDKOffsets.Statics.PEOffset != 0x0)
+			WriteNamedVar(ToImageOffset(MD7::Globals::GInSDKOffsets.Statics.PEOffset),
 			              "void (*)(UObject *This, UFunction *Function, void *Params);",
 			              "UObject::ProcessEvent");
 	}

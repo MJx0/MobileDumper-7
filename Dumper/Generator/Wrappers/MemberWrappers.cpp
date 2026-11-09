@@ -297,7 +297,7 @@ uintptr_t FunctionWrapper::GetExecFuncOffset() const
 	if (!bIsUnrealFunction)
 		return 0x0;
 
-	return GMemory->GetUnrealModule().AddressToOffset(reinterpret_cast<uintptr_t>(Function.GetExecFunction()));
+	return MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(reinterpret_cast<uintptr_t>(Function.GetExecFunction()));
 }
 
 UEFunction FunctionWrapper::GetUnrealFunction() const

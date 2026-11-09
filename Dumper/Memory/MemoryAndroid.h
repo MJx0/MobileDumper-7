@@ -43,7 +43,7 @@ class FMemoryAndroid : public IMemory
 	 * @param ModuleName Name of the module to retrieve or cache.
 	 * @return Pointer to the cached module entry.
 	 */
-	std::pair<ElfScanner, ModuleInfo>* GetOrInsertModuleCache(const std::string& ModuleName);
+	std::pair<ElfScanner, ModuleInfo>* GetOrInsertModuleCache(const std::string& ModuleName) const;
 
 	/// @brief Number of bytes loaded per relocation-slot cache miss.
 	static constexpr size_t kRelocCacheBlockSize = 4096;
@@ -145,22 +145,22 @@ public:
 	bool ReadRelocationPointer(uintptr_t Slot, uintptr_t& Out) const override;
 
 	/// @copydoc IMemory::GetModuleInfo
-	ModuleInfo GetModuleInfo(const std::string& ModuleName) override;
+	ModuleInfo GetModuleInfo(const std::string& ModuleName) const override;
 
 	/// @copydoc IMemory::FindModuleSymbol
-	uintptr_t FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName) override;
+	uintptr_t FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName) const override;
 
 	/// @copydoc IMemory::GetUnrealModule
-	ModuleInfo GetUnrealModule() override;
+	ModuleInfo GetUnrealModule() const override;
 
 	/// @copydoc IMemory::FindUnrealSymbol
-	uintptr_t FindUnrealSymbol(const std::string& SymbolName) override;
+	uintptr_t FindUnrealSymbol(const std::string& SymbolName) const override;
 
 	/// @copydoc IMemory::FindUnrealImportSlot
-	uintptr_t FindUnrealImportSlot(const std::string& SymbolName) override;
+	uintptr_t FindUnrealImportSlot(const std::string& SymbolName) const override;
 
 	/// @copydoc IMemory::DumpUnrealModule
-	bool DumpUnrealModule(const std::string& DestinationPath) override;
+	bool DumpUnrealModule(const std::string& DestinationPath) const override;
 
 	/// @copydoc IMemory::FindPatternInRange
 	uintptr_t FindPatternInRange(uintptr_t Start, size_t Range, const std::string& Pattern, int Step = 0, uint32_t SkipCount = 0) const override;

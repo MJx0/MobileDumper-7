@@ -13,7 +13,7 @@
 
 FNameEntry::FNameEntry(uint8* Ptr)
 {
-	Address = !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Ptr)) ? nullptr : Ptr;
+	Address = !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(Ptr)) ? nullptr : Ptr;
 }
 
 std::wstring FNameEntry::GetWString()
@@ -40,35 +40,35 @@ void* FNameEntry::GetAddress()
 
 int32 NameArray::GetNumElements()
 {
-	FNameArrayLayout* NamesLayout = reinterpret_cast<FNameArrayLayout*>(GLayouts.NamesLayout.get());
+	FNameArrayLayout* NamesLayout = reinterpret_cast<FNameArrayLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 	if (!NamesLayout || NamesLayout->GetType() != ENamesType::Array)
 		return 0;
 
 	if (NamesLayout->NumElements == -1)
 		return 0;
 
-	const uintptr_t Addr = GNames + NamesLayout->NumElements;
-	return GDecryptCallbacks.NameArray.NumElements({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
+	const uintptr_t Addr = MD7::Globals::GNames + NamesLayout->NumElements;
+	return MD7::Globals::GDecryptCallbacks.NameArray.NumElements({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<int32>(Addr)});
 }
 
 int32 NameArray::GetNumChunks()
 {
-	FNamePoolLayout* NamesLayout = reinterpret_cast<FNamePoolLayout*>(GLayouts.NamesLayout.get());
+	FNamePoolLayout* NamesLayout = reinterpret_cast<FNamePoolLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 	if (!NamesLayout || NamesLayout->GetType() != ENamesType::Pool)
 		return 0;
 
-	const uintptr_t Addr = GNames + NamesLayout->MaxChunkIndex;
-	return GDecryptCallbacks.NamePool.MaxChunkIndex({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
+	const uintptr_t Addr = MD7::Globals::GNames + NamesLayout->MaxChunkIndex;
+	return MD7::Globals::GDecryptCallbacks.NamePool.MaxChunkIndex({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<int32>(Addr)});
 }
 
 int32 NameArray::GetByteCursor()
 {
-	FNamePoolLayout* NamesLayout = reinterpret_cast<FNamePoolLayout*>(GLayouts.NamesLayout.get());
+	FNamePoolLayout* NamesLayout = reinterpret_cast<FNamePoolLayout*>(MD7::Globals::GLayouts.NamesLayout.get());
 	if (!NamesLayout || NamesLayout->GetType() != ENamesType::Pool)
 		return 0;
 
-	const uintptr_t Addr = GNames + NamesLayout->ByteCursor;
-	return GDecryptCallbacks.NamePool.ByteCursor({.Address = Addr, .RawValue = GMemory->Read<int32>(Addr)});
+	const uintptr_t Addr = MD7::Globals::GNames + NamesLayout->ByteCursor;
+	return MD7::Globals::GDecryptCallbacks.NamePool.ByteCursor({.Address = Addr, .RawValue = MD7::Globals::GMemory->Read<int32>(Addr)});
 }
 
 FNameEntry NameArray::GetNameEntry(const void* Name)

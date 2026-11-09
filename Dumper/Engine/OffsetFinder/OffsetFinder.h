@@ -34,7 +34,7 @@ namespace OffsetFinder
 		for (size_t i = 0; i < ObjectValuePair.size(); i++)
 		{
 			if (ObjectValuePair[i].first == nullptr)
-				GLogger.FmtWrite(ELogLevel::Error, "FindOffset is skipping ObjectValuePair[{}] because .first is nullptr.\n", i);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "FindOffset is skipping ObjectValuePair[{}] because .first is nullptr.\n", i);
 		}
 
 		int HighestFoundOffset = MinOffset;
@@ -48,7 +48,7 @@ namespace OffsetFinder
 			for (int j = HighestFoundOffset; j < MaxOffset; j += Alignement)
 			{
 				const uintptr_t ProbeAddr = reinterpret_cast<uintptr_t>(ObjectValuePair[i].first) + j;
-				T TypedValueAtOffset      = GMemory->Read<T>(ProbeAddr);
+				T TypedValueAtOffset      = MD7::Globals::GMemory->Read<T>(ProbeAddr);
 				if (DecryptFn)
 					TypedValueAtOffset = DecryptFn({.Address = ProbeAddr, .RawValue = TypedValueAtOffset});
 
@@ -80,7 +80,7 @@ namespace OffsetFinder
 				continue;
 
 			const uintptr_t ProbeAddr = reinterpret_cast<uintptr_t>(Pair.first) + HighestFoundOffset;
-			T TypedValueAtOffset      = GMemory->Read<T>(ProbeAddr);
+			T TypedValueAtOffset      = MD7::Globals::GMemory->Read<T>(ProbeAddr);
 			if (DecryptFn)
 				TypedValueAtOffset = DecryptFn({.Address = ProbeAddr, .RawValue = TypedValueAtOffset});
 
@@ -110,7 +110,7 @@ namespace OffsetFinder
 			int32_t Score = 0;
 			for (const auto& [Ptr, Expected] : ObjectValuePair)
 			{
-				if (Ptr && GMemory->Read<T>(reinterpret_cast<uintptr_t>(Ptr) + Off) == Expected)
+				if (Ptr && MD7::Globals::GMemory->Read<T>(reinterpret_cast<uintptr_t>(Ptr) + Off) == Expected)
 					Score++;
 			}
 
@@ -141,7 +141,7 @@ namespace OffsetFinder
 	template <typename T, int Alignement = alignof(T)>
 	void DumpOffsetCandidates(const std::vector<std::pair<void*, T>>& ObjectValuePair, int32_t MinOffset, int32_t MaxOffset, const std::string& Tag)
 	{
-		GLogger.FmtWrite(ELogLevel::Info, "[OffsetDump:{}] Scanning [0x{:X}, 0x{:X}) step 0x{:X} across {} entrie(s)\n", Tag, MinOffset, MaxOffset, Alignement, ObjectValuePair.size());
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "[OffsetDump:{}] Scanning [0x{:X}, 0x{:X}) step 0x{:X} across {} entrie(s)\n", Tag, MinOffset, MaxOffset, Alignement, ObjectValuePair.size());
 
 		std::vector<std::vector<int32_t>> PerEntryMatches(ObjectValuePair.size());
 
@@ -151,7 +151,7 @@ namespace OffsetFinder
 
 			if (!Ptr)
 			{
-				GLogger.FmtWrite(ELogLevel::Warning, "[OffsetDump:{}] Entry {} has a null pointer, skipping\n", Tag, i);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "[OffsetDump:{}] Entry {} has a null pointer, skipping\n", Tag, i);
 				continue;
 			}
 
@@ -159,7 +159,7 @@ namespace OffsetFinder
 
 			for (int32_t Off = MinOffset; Off < MaxOffset; Off += Alignement)
 			{
-				if (GMemory->Read<T>(reinterpret_cast<uintptr_t>(Ptr) + Off) == Expected)
+				if (MD7::Globals::GMemory->Read<T>(reinterpret_cast<uintptr_t>(Ptr) + Off) == Expected)
 					PerEntryMatches[i].push_back(Off);
 			}
 
@@ -167,10 +167,10 @@ namespace OffsetFinder
 			for (int32_t Off : PerEntryMatches[i])
 				MatchList += fmt::format("0x{:X} ", Off);
 
-			GLogger.FmtWrite(ELogLevel::Info, "[OffsetDump:{}] Entry {} (obj=0x{:X}, expects {}) matches at: {}\n", Tag, i, reinterpret_cast<uintptr_t>(Ptr), HexOf(Expected), MatchList.empty() ? "(none)" : MatchList);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "[OffsetDump:{}] Entry {} (obj=0x{:X}, expects {}) matches at: {}\n", Tag, i, reinterpret_cast<uintptr_t>(Ptr), HexOf(Expected), MatchList.empty() ? "(none)" : MatchList);
 		}
 
-		GLogger.FmtWrite(ELogLevel::Info, "[OffsetDump:{}] Per-offset table (value @ offset, * marks a match):\n", Tag);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "[OffsetDump:{}] Per-offset table (value @ offset, * marks a match):\n", Tag);
 		for (int32_t Off = MinOffset; Off < MaxOffset; Off += Alignement)
 		{
 			std::string Row = fmt::format("[OffsetDump:{}]   0x{:X}:", Tag, Off);
@@ -185,11 +185,11 @@ namespace OffsetFinder
 				const bool bMatches = std::find(PerEntryMatches[i].begin(), PerEntryMatches[i].end(), Off) != PerEntryMatches[i].end();
 				bAllMatch           = bAllMatch && bMatches;
 
-				const T ValueAtOff  = GMemory->Read<T>(reinterpret_cast<uintptr_t>(Ptr) + Off);
+				const T ValueAtOff  = MD7::Globals::GMemory->Read<T>(reinterpret_cast<uintptr_t>(Ptr) + Off);
 				Row                += fmt::format("  [{}]={}{}", i, HexOf(ValueAtOff), bMatches ? "*" : " ");
 			}
 
-			GLogger.FmtWrite(ELogLevel::Info, "{}{}\n", Row, bAllMatch ? "  <-- ALL MATCH" : "");
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "{}{}\n", Row, bAllMatch ? "  <-- ALL MATCH" : "");
 		}
 
 		std::vector<int32_t> Consensus;
@@ -215,7 +215,7 @@ namespace OffsetFinder
 		for (int32_t Off : Consensus)
 			ConsensusList += fmt::format("0x{:X} ", Off);
 
-		GLogger.FmtWrite(ELogLevel::Info, "[OffsetDump:{}] Consensus (every entry matches simultaneously): {}\n", Tag, ConsensusList.empty() ? "(none)" : ConsensusList);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "[OffsetDump:{}] Consensus (every entry matches simultaneously): {}\n", Tag, ConsensusList.empty() ? "(none)" : ConsensusList);
 	}
 
 	template <bool bCheckForVft = true>
@@ -224,21 +224,21 @@ namespace OffsetFinder
 		const uint8_t* ObjA = static_cast<const uint8_t*>(PtrObjA);
 		const uint8_t* ObjB = static_cast<const uint8_t*>(PtrObjB);
 
-		if (!GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(ObjA)) || !GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(ObjB)))
+		if (!MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(ObjA)) || !MD7::Globals::GMemory->IsAddressReadable(reinterpret_cast<uintptr_t>(ObjB)))
 			return OffsetNotFound;
 
 		for (int j = StartingOffset; j <= MaxOffset; j += sizeof(void*))
 		{
 			const uintptr_t AddrA = reinterpret_cast<uintptr_t>(ObjA) + j;
 			const uintptr_t AddrB = reinterpret_cast<uintptr_t>(ObjB) + j;
-			const uintptr_t ValA  = DecryptFn ? DecryptFn({.Address = AddrA, .RawValue = GMemory->Read<uintptr_t>(AddrA)}) : GMemory->Read<uintptr_t>(AddrA);
-			const uintptr_t ValB  = DecryptFn ? DecryptFn({.Address = AddrB, .RawValue = GMemory->Read<uintptr_t>(AddrB)}) : GMemory->Read<uintptr_t>(AddrB);
-			const bool bIsAValid  = GMemory->IsAddressReadable(ValA) && (bCheckForVft ? GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(ValA)) : true);
-			const bool bIsBValid  = GMemory->IsAddressReadable(ValB) && (bCheckForVft ? GMemory->IsAddressReadable(GMemory->Read<uintptr_t>(ValB)) : true);
+			const uintptr_t ValA  = DecryptFn ? DecryptFn({.Address = AddrA, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(AddrA)}) : MD7::Globals::GMemory->Read<uintptr_t>(AddrA);
+			const uintptr_t ValB  = DecryptFn ? DecryptFn({.Address = AddrB, .RawValue = MD7::Globals::GMemory->Read<uintptr_t>(AddrB)}) : MD7::Globals::GMemory->Read<uintptr_t>(AddrB);
+			const bool bIsAValid  = MD7::Globals::GMemory->IsAddressReadable(ValA) && (bCheckForVft ? MD7::Globals::GMemory->IsAddressReadable(MD7::Globals::GMemory->Read<uintptr_t>(ValA)) : true);
+			const bool bIsBValid  = MD7::Globals::GMemory->IsAddressReadable(ValB) && (bCheckForVft ? MD7::Globals::GMemory->IsAddressReadable(MD7::Globals::GMemory->Read<uintptr_t>(ValB)) : true);
 
 			if (bNeedsToBeInModuleMemory)
 			{
-				ModuleInfo ModInfo = GMemory->GetUnrealModule();
+				ModuleInfo ModInfo = MD7::Globals::GMemory->GetUnrealModule();
 				if (!ModInfo.Contains(ValA) || !ModInfo.Contains(ValB))
 					continue;
 			}
@@ -253,28 +253,28 @@ namespace OffsetFinder
 	// Finds the exec-function registered with a UFunction whose name matches RefStr.
 	// Locates the (string_ptr, func_ptr) registration pair written by FNativeFunctionRegistrar
 	// by using platform bulk-scanners instead of a linear sweep, which is critical for performance
-	// on mobile where each GMemory read is a syscall.
+	// on mobile where each MD7::Globals::GMemory read is a syscall.
 	template <typename Type = const char*>
 	void* FindUnrealExecFunctionByString(Type RefStr)
 	{
-		if (!GMemory)
+		if (!MD7::Globals::GMemory)
 			return nullptr;
 
-		ModuleInfo ModuleInfo = GMemory->GetUnrealModule();
+		ModuleInfo ModuleInfo = MD7::Globals::GMemory->GetUnrealModule();
 
-		uintptr_t StringAddr = GMemory->FindByStringInRange(RefStr, ModuleInfo.GetBase(), ModuleInfo.GetSize());
+		uintptr_t StringAddr = MD7::Globals::GMemory->FindByStringInRange(RefStr, ModuleInfo.GetBase(), ModuleInfo.GetSize());
 		if (!StringAddr)
 			return nullptr;
 
 		// Step 2: search data sections for a pointer holding that string's address.
-		uintptr_t PtrSlot = GMemory->FindAlignedValueInRange(StringAddr, sizeof(uintptr_t), ModuleInfo.GetBase(), ModuleInfo.GetSize());
+		uintptr_t PtrSlot = MD7::Globals::GMemory->FindAlignedValueInRange(StringAddr, sizeof(uintptr_t), ModuleInfo.GetBase(), ModuleInfo.GetSize());
 		if (PtrSlot == 0)
 			return nullptr;
 
 		// Step 3: exec function pointer immediately follows the string pointer in the table.
-		const uintptr_t ExecFuncAddr = GMemory->Read<uintptr_t>(PtrSlot + sizeof(void*));
+		const uintptr_t ExecFuncAddr = MD7::Globals::GMemory->Read<uintptr_t>(PtrSlot + sizeof(void*));
 
-		if (!GMemory->IsAddressReadable(ExecFuncAddr))
+		if (!MD7::Globals::GMemory->IsAddressReadable(ExecFuncAddr))
 			return nullptr;
 
 		return reinterpret_cast<void*>(ExecFuncAddr);
@@ -313,7 +313,7 @@ namespace OffsetFinder
 		auto GetDataAtOffsetAsInt = [](const void* Ptr, int32_t Offset) -> uint32_t
 		{
 			const uintptr_t Addr = reinterpret_cast<uintptr_t>(Ptr) + Offset;
-			return static_cast<uint32_t>(GDecryptCallbacks.FName.CompIdx({.Address = Addr, .RawValue = static_cast<int32>(GMemory->Read<uint32_t>(Addr))}));
+			return static_cast<uint32_t>(MD7::Globals::GDecryptCallbacks.FName.CompIdx({.Address = Addr, .RawValue = static_cast<int32>(MD7::Globals::GMemory->Read<uint32_t>(Addr))}));
 		};
 
 		const IteratorType VerifyStartIt = DataSetStartIterator;
@@ -372,11 +372,11 @@ namespace OffsetFinder
 			{
 				const void* Addr        = (*It).GetAddress();
 				const uintptr_t CmpAddr = reinterpret_cast<uintptr_t>(Addr) + Off;
-				const int32_t CmpIdx    = GDecryptCallbacks.FName.CompIdx({.Address = CmpAddr, .RawValue = GMemory->Read<int32_t>(CmpAddr)});
+				const int32_t CmpIdx    = MD7::Globals::GDecryptCallbacks.FName.CompIdx({.Address = CmpAddr, .RawValue = MD7::Globals::GMemory->Read<int32_t>(CmpAddr)});
 				if (CmpIdx <= 0)
 					continue;
 				const std::string Name = NameArray::GetNameEntry(CmpIdx).GetString();
-				const bool bValid      = !Name.empty() && Name.size() <= GSettings.General.MaxFNameLen && std::all_of(Name.begin(), Name.end(), [](char C)
+				const bool bValid      = !Name.empty() && Name.size() <= MD7::Globals::GSettings.General.MaxFNameLen && std::all_of(Name.begin(), Name.end(), [](char C)
                 { return C >= 0x20 && C <= 0x7E; });
 				if (bValid)
 					Score++;
@@ -403,7 +403,7 @@ namespace OffsetFinder
 			}
 			else
 			{
-				GLogger.FmtWrite(ELogLevel::Warning, "Another [UObject/FField]::Name offset (0x{:04X}) is also considered valid.\n", Off);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Another [UObject/FField]::Name offset (0x{:04X}) is also considered valid.\n", Off);
 			}
 		}
 

@@ -605,7 +605,7 @@ public:
 	}
 
 	/// @brief Finds and caches information about a named module.
-	virtual ModuleInfo GetModuleInfo(const std::string& ModuleName) = 0;
+	virtual ModuleInfo GetModuleInfo(const std::string& ModuleName) const = 0;
 
 	/**
 	 * @brief Finds an exported symbol in a module.
@@ -614,7 +614,7 @@ public:
 	 * @param SymbolName Exported symbol name.
 	 * @return Runtime symbol address, or 0 if not found.
 	 */
-	virtual uintptr_t FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName) = 0;
+	virtual uintptr_t FindModuleSymbol(const std::string& ModuleName, const std::string& SymbolName) const = 0;
 
 	/**
 	 * @brief Finds the slot an imported symbol is called through in the Unreal module.
@@ -627,14 +627,14 @@ public:
 	 * @param SymbolName Imported symbol name, as written in the module's import table.
 	 * @return Runtime slot address, or 0 when the symbol is not imported or the format is unsupported.
 	 */
-	virtual uintptr_t FindUnrealImportSlot(const std::string& SymbolName)
+	virtual uintptr_t FindUnrealImportSlot(const std::string& SymbolName) const
 	{
 		((void)SymbolName);
 		return 0;
 	}
 
 	/// @brief Returns information about the Unreal Engine module.
-	virtual ModuleInfo GetUnrealModule() = 0;
+	virtual ModuleInfo GetUnrealModule() const = 0;
 
 	/**
 	 * @brief Finds an exported symbol in the cached Unreal module.
@@ -642,7 +642,7 @@ public:
 	 * @param SymbolName Exported symbol name.
 	 * @return Runtime symbol address, or 0 if not found.
 	 */
-	virtual uintptr_t FindUnrealSymbol(const std::string& SymbolName) = 0;
+	virtual uintptr_t FindUnrealSymbol(const std::string& SymbolName) const = 0;
 
 	/**
 	 * @brief Writes the Unreal module's mapped image to a file.
@@ -653,7 +653,7 @@ public:
 	 * @param DestinationPath File or directory path to write to.
 	 * @return true on success; false when unsupported on this backend or the write failed.
 	 */
-	virtual bool DumpUnrealModule(const std::string& DestinationPath)
+	virtual bool DumpUnrealModule(const std::string& DestinationPath) const
 	{
 		((void)DestinationPath);
 		return false;
@@ -848,7 +848,10 @@ public:
 	}
 };
 
-/**
- * @brief Global active memory backend.
- */
-inline std::unique_ptr<IMemory> GMemory;
+namespace MD7::Globals
+{
+	/**
+	 * @brief Global active memory backend.
+	 */
+	inline std::unique_ptr<IMemory> GMemory;
+}

@@ -4,13 +4,13 @@
 
 std::string IProfile::GetGameIdentifier() const
 {
-	return GMemory->GetProcessName();
+	return MD7::Globals::GMemory->GetProcessName();
 }
 
 std::string IProfile::GetGameVersion() const
 {
 	std::string Pattern = ".*/";
-	for (char C : GMemory->GetProcessName())
+	for (char C : MD7::Globals::GMemory->GetProcessName())
 	{
 		if (C == '.')
 			Pattern += '\\';
@@ -19,7 +19,7 @@ std::string IProfile::GetGameVersion() const
 
 	Pattern += "-[^/]*/base\\.apk$";
 
-	std::vector<KittyMemoryEx::ProcMap> ApkMaps = KittyMemoryEx::getMaps(GMemory->GetProcessID(), KittyMemoryEx::EProcMapFilter::Regex, Pattern);
+	std::vector<KittyMemoryEx::ProcMap> ApkMaps = KittyMemoryEx::getMaps(MD7::Globals::GMemory->GetProcessID(), KittyMemoryEx::EProcMapFilter::Regex, Pattern);
 	if (ApkMaps.empty())
 		return "";
 

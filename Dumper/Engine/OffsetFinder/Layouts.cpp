@@ -20,7 +20,7 @@ namespace LayoutDetection
 
 		bool IsReadable(uintptr_t Address, size_t Size = sizeof(void*))
 		{
-			return Address != 0 && GMemory && GMemory->IsAddressReadable(Address, Size);
+			return Address != 0 && MD7::Globals::GMemory && MD7::Globals::GMemory->IsAddressReadable(Address, Size);
 		}
 
 		template <typename T>
@@ -29,7 +29,7 @@ namespace LayoutDetection
 			if (!IsReadable(Address, sizeof(T)))
 				return false;
 
-			Out = GMemory->Read<T>(Address);
+			Out = MD7::Globals::GMemory->Read<T>(Address);
 			return true;
 		}
 
@@ -53,7 +53,7 @@ namespace LayoutDetection
 				return false;
 
 			Out.assign(Len, 0);
-			return GMemory->ReadBytes(Address, Out.data(), Len);
+			return MD7::Globals::GMemory->ReadBytes(Address, Out.data(), Len);
 		}
 
 		/*
@@ -249,7 +249,7 @@ namespace LayoutDetection
 			{
 				const uintptr_t Raw = PeekPtr(Block, Start);
 
-				const uintptr_t Decrypted = GDecryptCallbacks.NameStorage.Chunk({.Address = Raw, .Index = 0, .RawValue = Raw});
+				const uintptr_t Decrypted = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = Raw, .Index = 0, .RawValue = Raw});
 
 				if (Decrypted == Raw || !IsReadable(Decrypted))
 					continue;
@@ -261,7 +261,7 @@ namespace LayoutDetection
 				{
 					const uintptr_t ProbeRaw = PeekPtr(Block, Probe);
 					const int32 ProbeIdx     = static_cast<int32>((Probe - Start) / sizeof(void*));
-					const uintptr_t Value    = GDecryptCallbacks.NameStorage.Chunk({.Address = ProbeRaw, .Index = ProbeIdx, .RawValue = ProbeRaw});
+					const uintptr_t Value    = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ProbeRaw, .Index = ProbeIdx, .RawValue = ProbeRaw});
 
 					if (!IsReadable(Value))
 						break;
@@ -347,7 +347,7 @@ namespace LayoutDetection
 			if (ObjAddr == 0 || IndexOffset < 0)
 				return false;
 
-			return SafeReadDecrypted(ObjAddr + IndexOffset, OutIndex, GDecryptCallbacks.UObject.Index);
+			return SafeReadDecrypted(ObjAddr + IndexOffset, OutIndex, MD7::Globals::GDecryptCallbacks.UObject.Index);
 		}
 
 		std::string ReadDecryptedName(uintptr_t StringAddr, int32 NameLen)
@@ -365,11 +365,11 @@ namespace LayoutDetection
 			if (Readable <= 0)
 				return {};
 
-			std::string Str = GMemory->ReadUTF8(StringAddr, Readable);
+			std::string Str = MD7::Globals::GMemory->ReadUTF8(StringAddr, Readable);
 			if (Str.empty())
 				return {};
 
-			GDecryptCallbacks.String.UTF8(Str.data(), static_cast<int32>(Str.length()));
+			MD7::Globals::GDecryptCallbacks.String.UTF8(Str.data(), static_cast<int32>(Str.length()));
 
 			return Str;
 		}
@@ -389,22 +389,22 @@ namespace LayoutDetection
 				if (!IsReadable(StringAddr, static_cast<size_t>(NameLen) * sizeof(char16_t)))
 					return false;
 
-				std::u16string Str = GMemory->ReadUTF16(StringAddr, NameLen);
+				std::u16string Str = MD7::Globals::GMemory->ReadUTF16(StringAddr, NameLen);
 				if (Str.empty())
 					return false;
 
-				GDecryptCallbacks.String.UTF16(Str.data(), static_cast<int32>(Str.length()));
+				MD7::Globals::GDecryptCallbacks.String.UTF16(Str.data(), static_cast<int32>(Str.length()));
 				return true;
 			}
 
 			if (!IsReadable(StringAddr, static_cast<size_t>(NameLen) * sizeof(char32_t)))
 				return false;
 
-			std::u32string Str = GMemory->ReadUTF32(StringAddr, NameLen);
+			std::u32string Str = MD7::Globals::GMemory->ReadUTF32(StringAddr, NameLen);
 			if (Str.empty())
 				return false;
 
-			GDecryptCallbacks.String.UTF32(Str.data(), static_cast<int32>(Str.length()));
+			MD7::Globals::GDecryptCallbacks.String.UTF32(Str.data(), static_cast<int32>(Str.length()));
 			return true;
 		}
 
@@ -495,7 +495,7 @@ namespace LayoutDetection
 					// The block already holds the stored value, so an unencrypted target costs no
 					// extra reads here; only a hook that decodes from the address issues its own.
 					const int32 Stored   = PeekInt32(ObjectBlocks[i], static_cast<size_t>(Offset));
-					const int32 Reported = GDecryptCallbacks.UObject.Index({.Address = SampleObjects[i] + Offset, .RawValue = Stored});
+					const int32 Reported = MD7::Globals::GDecryptCallbacks.UObject.Index({.Address = SampleObjects[i] + Offset, .RawValue = Stored});
 
 					if (Reported != SampleIndices[i])
 					{
@@ -726,7 +726,7 @@ namespace LayoutDetection
 				if (Overlaps(CapOffset))
 					continue;
 
-				const int32 MaxElements = GDecryptCallbacks.ChunkedObjects.MaxElements({.Address = Root + CapOffset, .RawValue = PeekInt32(Header, CapOffset)});
+				const int32 MaxElements = MD7::Globals::GDecryptCallbacks.ChunkedObjects.MaxElements({.Address = Root + CapOffset, .RawValue = PeekInt32(Header, CapOffset)});
 				if (MaxElements < kMinElementsPerChunk || MaxElements > kMaxObjectCapacity)
 					continue;
 
@@ -735,7 +735,7 @@ namespace LayoutDetection
 					if (ChunkOffset == CapOffset || Overlaps(ChunkOffset))
 						continue;
 
-					const int32 MaxChunks = GDecryptCallbacks.ChunkedObjects.MaxChunks({.Address = Root + ChunkOffset, .RawValue = PeekInt32(Header, ChunkOffset)});
+					const int32 MaxChunks = MD7::Globals::GDecryptCallbacks.ChunkedObjects.MaxChunks({.Address = Root + ChunkOffset, .RawValue = PeekInt32(Header, ChunkOffset)});
 					if (MaxChunks <= 0 || MaxChunks > kMaxChunkScan * kMaxChunkScan)
 						continue;
 
@@ -759,7 +759,7 @@ namespace LayoutDetection
 		}
 
 		// DecryptChunkFn is only ever supplied by the names call site: chunk pointers are
-		// never encrypted for GObjects, and passing nullptr here (the objects call site)
+		// never encrypted for MD7::Globals::GObjects, and passing nullptr here (the objects call site)
 		// keeps this identical to a plain readability probe.
 		int32 CountReadableChunkPointers(uintptr_t ChunksBase, const FDecryptIndexedFn<uintptr_t>& DecryptChunkFn = {})
 		{
@@ -831,8 +831,8 @@ namespace LayoutDetection
 		bool EnumerateFixedCandidates(uintptr_t Root, const std::vector<uint8_t>& Header, const FOptions& Options, std::vector<FObjectsCandidate>& Out, std::vector<std::string>& Details)
 		{
 			bool bFoundItems                       = false;
-			const std::vector<int32> PtrCandidates = CollectPointerCandidates(Root, Header, GDecryptCallbacks.FixedObjects.Objects);
-			const std::vector<int32> IntCandidates = CollectInt32Candidates(Root, Header, kMinObjectCount, kMaxObjectCount, GDecryptCallbacks.FixedObjects.NumObjects);
+			const std::vector<int32> PtrCandidates = CollectPointerCandidates(Root, Header, MD7::Globals::GDecryptCallbacks.FixedObjects.Objects);
+			const std::vector<int32> IntCandidates = CollectInt32Candidates(Root, Header, kMinObjectCount, kMaxObjectCount, MD7::Globals::GDecryptCallbacks.FixedObjects.NumObjects);
 
 			if (PtrCandidates.empty() || IntCandidates.empty())
 			{
@@ -842,7 +842,7 @@ namespace LayoutDetection
 
 			for (int32 ObjectsOffset : PtrCandidates)
 			{
-				const uintptr_t ItemsBase = GDecryptCallbacks.FixedObjects.Objects({.Address = Root + ObjectsOffset, .RawValue = PeekPtr(Header, static_cast<size_t>(ObjectsOffset))});
+				const uintptr_t ItemsBase = MD7::Globals::GDecryptCallbacks.FixedObjects.Objects({.Address = Root + ObjectsOffset, .RawValue = PeekPtr(Header, static_cast<size_t>(ObjectsOffset))});
 
 				FItemAddrFn AddrFn = [ItemsBase](int32 Index, int32 ItemSize) -> uintptr_t
 				{
@@ -850,7 +850,7 @@ namespace LayoutDetection
 				};
 
 				FItemLayout Item;
-				Item.DecryptObject = GDecryptCallbacks.FixedObjects.FUObjectItem.Object;
+				Item.DecryptObject = MD7::Globals::GDecryptCallbacks.FixedObjects.FUObjectItem.Object;
 				if (!DiscoverItemLayout(ItemsBase, AddrFn, 0, &Item))
 				{
 					Reject(Details, fmt::format("Fixed: Objects@+0x{:X} -> 0x{:X}, no item stride held across samples", ObjectsOffset, ItemsBase));
@@ -865,7 +865,7 @@ namespace LayoutDetection
 					if (NumOffset >= ObjectsOffset && NumOffset < ObjectsOffset + kPtrSize)
 						continue;
 
-					const int32 Num = GDecryptCallbacks.FixedObjects.NumObjects({.Address = Root + NumOffset, .RawValue = PeekInt32(Header, static_cast<size_t>(NumOffset))});
+					const int32 Num = MD7::Globals::GDecryptCallbacks.FixedObjects.NumObjects({.Address = Root + NumOffset, .RawValue = PeekInt32(Header, static_cast<size_t>(NumOffset))});
 					if (Num < kMinObjectCount || Num > kMaxObjectCount)
 						continue;
 
@@ -933,8 +933,8 @@ namespace LayoutDetection
 		bool EnumerateChunkedCandidates(uintptr_t Root, const std::vector<uint8_t>& Header, const FOptions& Options, std::vector<FObjectsCandidate>& Out, std::vector<std::string>& Details)
 		{
 			bool bFoundItems                       = false;
-			const std::vector<int32> PtrCandidates = CollectPointerCandidates(Root, Header, GDecryptCallbacks.ChunkedObjects.Objects);
-			const std::vector<int32> IntCandidates = CollectInt32Candidates(Root, Header, kMinObjectCount, kMaxObjectCount, GDecryptCallbacks.ChunkedObjects.NumElements);
+			const std::vector<int32> PtrCandidates = CollectPointerCandidates(Root, Header, MD7::Globals::GDecryptCallbacks.ChunkedObjects.Objects);
+			const std::vector<int32> IntCandidates = CollectInt32Candidates(Root, Header, kMinObjectCount, kMaxObjectCount, MD7::Globals::GDecryptCallbacks.ChunkedObjects.NumElements);
 
 			if (PtrCandidates.empty() || IntCandidates.empty())
 			{
@@ -944,7 +944,7 @@ namespace LayoutDetection
 
 			for (int32 ObjectsOffset : PtrCandidates)
 			{
-				const uintptr_t ChunksBase = GDecryptCallbacks.ChunkedObjects.Objects({.Address = Root + ObjectsOffset, .RawValue = PeekPtr(Header, static_cast<size_t>(ObjectsOffset))});
+				const uintptr_t ChunksBase = MD7::Globals::GDecryptCallbacks.ChunkedObjects.Objects({.Address = Root + ObjectsOffset, .RawValue = PeekPtr(Header, static_cast<size_t>(ObjectsOffset))});
 
 				const int32 ChunkCount = CountReadableChunkPointers(ChunksBase);
 				if (ChunkCount < kMinChunkPtrRun)
@@ -964,7 +964,7 @@ namespace LayoutDetection
 				};
 
 				FItemLayout Item;
-				Item.DecryptObject = GDecryptCallbacks.ChunkedObjects.FUObjectItem.Object;
+				Item.DecryptObject = MD7::Globals::GDecryptCallbacks.ChunkedObjects.FUObjectItem.Object;
 				if (!DiscoverItemLayout(FirstChunk, ProbeFn, 0, &Item))
 				{
 					Reject(Details, fmt::format("Chunked: Objects@+0x{:X} chunk0 0x{:X}, no item stride held across samples", ObjectsOffset, FirstChunk));
@@ -995,7 +995,7 @@ namespace LayoutDetection
 					if (NumOffset >= ObjectsOffset && NumOffset < ObjectsOffset + kPtrSize)
 						continue;
 
-					const int32 Num = GDecryptCallbacks.ChunkedObjects.NumElements({.Address = Root + NumOffset, .RawValue = PeekInt32(Header, static_cast<size_t>(NumOffset))});
+					const int32 Num = MD7::Globals::GDecryptCallbacks.ChunkedObjects.NumElements({.Address = Root + NumOffset, .RawValue = PeekInt32(Header, static_cast<size_t>(NumOffset))});
 					if (Num < kMinObjectCount || Num > kMaxObjectCount)
 						continue;
 
@@ -1144,7 +1144,7 @@ namespace LayoutDetection
 		 * struct" needs no separate root: it is already covered by finding Objects at a
 		 * larger offset within the header scan. Sweeping Candidate+N as extra roots instead
 		 * produced duplicate layouts rebased onto a root the caller never learns about,
-		 * which Generator then applied to GObjects.
+		 * which Generator then applied to MD7::Globals::GObjects.
 		 *
 		 * The pointer-to-array case is likewise the caller's to resolve - Generator already
 		 * retries detection against the dereferenced candidate.
@@ -1216,10 +1216,10 @@ namespace LayoutDetection
 			for (int32 i = 0; i < kNameWalkCount; i++)
 			{
 				const uintptr_t RawEntry  = BlockStart + RunningOffset;
-				const uintptr_t EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = i, .RawValue = RawEntry});
+				const uintptr_t EntryAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = i, .RawValue = RawEntry});
 
 				uint16 Header = 0;
-				if (!SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Header, Header, GDecryptCallbacks.NamePool.FNameEntry.Header))
+				if (!SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Header, Header, MD7::Globals::GDecryptCallbacks.NamePool.FNameEntry.Header))
 					break;
 
 				const int32 NameLen = Layout.FNameEntry.GetLength(Header);
@@ -1281,7 +1281,7 @@ namespace LayoutDetection
 			// decrypts a chunk-relative offset 0 as an entry in its own right. BlockStart
 			// itself is left untouched so it can still be passed to WalkPoolEntries below,
 			// which redoes this same per-entry decryption internally.
-			const uintptr_t Entry0 = GDecryptCallbacks.NameStorage.Entry({.Address = BlockStart, .Index = 0, .RawValue = BlockStart});
+			const uintptr_t Entry0 = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = BlockStart, .Index = 0, .RawValue = BlockStart});
 
 			int32 StringOffset = -1;
 			if (!FindNoneOffset(Entry0, &StringOffset))
@@ -1425,8 +1425,8 @@ namespace LayoutDetection
 
 						// Spacing is measured on decrypted addresses: an encrypted transform
 						// need not preserve the difference between two raw pointers.
-						Current = GDecryptCallbacks.NameStorage.Chunk({.Address = CurrentSlot, .Index = i, .RawValue = Current});
-						Next    = GDecryptCallbacks.NameStorage.Chunk({.Address = NextSlot, .Index = i + 1, .RawValue = Next});
+						Current = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = CurrentSlot, .Index = i, .RawValue = Current});
+						Next    = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = NextSlot, .Index = i + 1, .RawValue = Next});
 
 						const uintptr_t Diff = Next >= Current ? Next - Current : Current - Next;
 						if (Diff == Expected)
@@ -1480,16 +1480,16 @@ namespace LayoutDetection
 							if (!SafeRead(BlockSlot, BlockPtr))
 								continue;
 
-							BlockPtr = GDecryptCallbacks.NameStorage.Chunk({.Address = BlockSlot, .Index = BlockIdx, .RawValue = BlockPtr});
+							BlockPtr = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = BlockSlot, .Index = BlockIdx, .RawValue = BlockPtr});
 
 							if (!IsReadable(BlockPtr))
 								continue;
 
 							const uintptr_t RawEntry  = BlockPtr + static_cast<uintptr_t>(ByteOff);
-							const uintptr_t EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = 0, .RawValue = RawEntry});
+							const uintptr_t EntryAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = 0, .RawValue = RawEntry});
 
 							uint16 Header = 0;
-							if (!SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Header, Header, GDecryptCallbacks.NamePool.FNameEntry.Header))
+							if (!SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Header, Header, MD7::Globals::GDecryptCallbacks.NamePool.FNameEntry.Header))
 								continue;
 
 							const int32 NameLen = Layout.FNameEntry.GetLength(Header);
@@ -1612,13 +1612,13 @@ namespace LayoutDetection
 			{
 				const uintptr_t BlockSlot = Root + Run.Offset;
 
-				uintptr_t FirstBlock = GDecryptCallbacks.NamePool.Blocks({.Address = BlockSlot, .RawValue = PeekPtr(Header, static_cast<size_t>(Run.Offset))});
-				FirstBlock           = GDecryptCallbacks.NameStorage.Chunk({.Address = BlockSlot, .Index = 0, .RawValue = FirstBlock});
+				uintptr_t FirstBlock = MD7::Globals::GDecryptCallbacks.NamePool.Blocks({.Address = BlockSlot, .RawValue = PeekPtr(Header, static_cast<size_t>(Run.Offset))});
+				FirstBlock           = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = BlockSlot, .Index = 0, .RawValue = FirstBlock});
 
 				// Entry 0 of the block gets its own, separate entry decryption for this
 				// probe; DiscoverPoolEntryLayout/WalkPoolEntries redo it internally when
 				// given the chunk-only-decrypted FirstBlock below.
-				const uintptr_t FirstBlockEntry0 = GDecryptCallbacks.NameStorage.Entry({.Address = FirstBlock, .Index = 0, .RawValue = FirstBlock});
+				const uintptr_t FirstBlockEntry0 = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = FirstBlock, .Index = 0, .RawValue = FirstBlock});
 
 				if (!StartsWithNoneEntry(FirstBlockEntry0))
 					continue;
@@ -1644,7 +1644,7 @@ namespace LayoutDetection
 					if (!SafeRead(BlockPtrSlot, BlockPtr))
 						break;
 
-					BlockPtr = GDecryptCallbacks.NameStorage.Chunk({.Address = BlockPtrSlot, .Index = i, .RawValue = BlockPtr});
+					BlockPtr = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = BlockPtrSlot, .Index = i, .RawValue = BlockPtr});
 
 					if (!IsReadable(BlockPtr))
 						break;
@@ -1727,13 +1727,13 @@ namespace LayoutDetection
 						if (!SafeRead(ChunkSlot, ChunkAddr))
 							return {};
 
-						ChunkAddr = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
+						ChunkAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
 						if (!IsReadable(ChunkAddr))
 							return {};
 
 						const uintptr_t RawEntry  = ChunkAddr + static_cast<uintptr_t>(ByteOff);
-						const uintptr_t EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = 0, .RawValue = RawEntry});
+						const uintptr_t EntryAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = RawEntry, .Index = 0, .RawValue = RawEntry});
 
 						uint16 EntryHeader = 0;
 						if (!SafeRead(EntryAddr + Snapshot.FNameEntry.Header, EntryHeader))
@@ -1785,7 +1785,7 @@ namespace LayoutDetection
 			if (!SafeRead(FirstChunk, FirstEntry))
 				return false;
 
-			FirstEntry = GDecryptCallbacks.NameStorage.Entry({.Address = FirstChunk, .Index = 0, .RawValue = FirstEntry});
+			FirstEntry = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = FirstChunk, .Index = 0, .RawValue = FirstEntry});
 
 			if (!IsReadable(FirstEntry))
 				return false;
@@ -1812,13 +1812,13 @@ namespace LayoutDetection
 					if (!SafeRead(SampleSlot, EntryAddr))
 						continue; // An empty slot says nothing about this offset.
 
-					EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = SampleSlot, .Index = SampleIdx, .RawValue = EntryAddr});
+					EntryAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = SampleSlot, .Index = SampleIdx, .RawValue = EntryAddr});
 
 					if (!IsReadable(EntryAddr))
 						continue;
 
 					uint32 IndexField = 0;
-					if (!SafeReadDecrypted(EntryAddr + Offset, IndexField, GDecryptCallbacks.NameArray.FNameEntry.Index))
+					if (!SafeReadDecrypted(EntryAddr + Offset, IndexField, MD7::Globals::GDecryptCallbacks.NameArray.FNameEntry.Index))
 						continue;
 
 					// A live entry that disagrees does rule the offset out.
@@ -1847,7 +1847,7 @@ namespace LayoutDetection
 			if (!SafeRead(ChunksBase + kPtrSize, SecondChunk))
 				return 0;
 
-			SecondChunk = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunksBase + kPtrSize, .Index = 1, .RawValue = SecondChunk});
+			SecondChunk = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ChunksBase + kPtrSize, .Index = 1, .RawValue = SecondChunk});
 
 			if (!IsReadable(SecondChunk))
 				return 0;
@@ -1856,13 +1856,13 @@ namespace LayoutDetection
 			if (!SafeRead(SecondChunk, FirstEntry))
 				return 0;
 
-			FirstEntry = GDecryptCallbacks.NameStorage.Entry({.Address = SecondChunk, .Index = 0, .RawValue = FirstEntry});
+			FirstEntry = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = SecondChunk, .Index = 0, .RawValue = FirstEntry});
 
 			if (!IsReadable(FirstEntry))
 				return 0;
 
 			uint32 IndexField = 0;
-			if (!SafeReadDecrypted(FirstEntry + Layout.FNameEntry.Index, IndexField, GDecryptCallbacks.NameArray.FNameEntry.Index))
+			if (!SafeReadDecrypted(FirstEntry + Layout.FNameEntry.Index, IndexField, MD7::Globals::GDecryptCallbacks.NameArray.FNameEntry.Index))
 				return 0;
 
 			const int32 ElementsPerChunk = static_cast<int32>(IndexField >> 1);
@@ -1889,7 +1889,7 @@ namespace LayoutDetection
 					break;
 				}
 
-				EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = SlotAddr, .Index = i, .RawValue = EntryAddr});
+				EntryAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = SlotAddr, .Index = i, .RawValue = EntryAddr});
 
 				/*
 				 * A null slot is a hole, not the end. The engine registers hardcoded EName
@@ -1910,7 +1910,7 @@ namespace LayoutDetection
 				}
 
 				uint32 IndexField = 0;
-				if (!SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Index, IndexField, GDecryptCallbacks.NameArray.FNameEntry.Index))
+				if (!SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Index, IndexField, MD7::Globals::GDecryptCallbacks.NameArray.FNameEntry.Index))
 				{
 					if (OutStopReason)
 						*OutStopReason = fmt::format("WalkArrayEntries: Entry [{}] at 0x{:X} has no readable index field at +0x{:X}", i, EntryAddr, Layout.FNameEntry.Index);
@@ -1979,7 +1979,7 @@ namespace LayoutDetection
 				if (!SafeRead(ChunkSlot, ChunkAddr))
 					return 0;
 
-				ChunkAddr = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
+				ChunkAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
 				if (!IsReadable(ChunkAddr))
 					return 0;
@@ -1990,7 +1990,7 @@ namespace LayoutDetection
 				if (!SafeRead(EntrySlot, EntryAddr))
 					return 0;
 
-				return GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = EntryAddr});
+				return MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = EntryAddr});
 			};
 
 			// The last live entry must both resolve and report its own index. Requiring the
@@ -2002,7 +2002,7 @@ namespace LayoutDetection
 					return false;
 
 				uint32 IndexField = 0;
-				return SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Index, IndexField, GDecryptCallbacks.NameArray.FNameEntry.Index) && static_cast<int32>(IndexField >> 1) == Index;
+				return SafeReadDecrypted(EntryAddr + Layout.FNameEntry.Index, IndexField, MD7::Globals::GDecryptCallbacks.NameArray.FNameEntry.Index) && static_cast<int32>(IndexField >> 1) == Index;
 			};
 
 			// The already-allocated chunk pointers occupy
@@ -2018,7 +2018,7 @@ namespace LayoutDetection
 				if (Offset + sizeof(int32) > ChunksFieldBegin && Offset < ChunksFieldEnd)
 					continue;
 
-				const int32 Value = GDecryptCallbacks.NameArray.NumElements({.Address = Root + Offset, .RawValue = PeekInt32(Wide, Offset)});
+				const int32 Value = MD7::Globals::GDecryptCallbacks.NameArray.NumElements({.Address = Root + Offset, .RawValue = PeekInt32(Wide, Offset)});
 				if (Value < kMinNameCount || Value > kMaxNameElements)
 					continue;
 
@@ -2064,7 +2064,7 @@ namespace LayoutDetection
 				if (!SafeRead(ChunksBase, FirstChunk))
 					continue;
 
-				FirstChunk = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunksBase, .Index = 0, .RawValue = FirstChunk});
+				FirstChunk = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ChunksBase, .Index = 0, .RawValue = FirstChunk});
 
 				if (!IsReadable(FirstChunk))
 					continue;
@@ -2073,7 +2073,7 @@ namespace LayoutDetection
 				if (!SafeRead(FirstChunk, FirstEntry))
 					continue;
 
-				FirstEntry = GDecryptCallbacks.NameStorage.Entry({.Address = FirstChunk, .Index = 0, .RawValue = FirstEntry});
+				FirstEntry = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = FirstChunk, .Index = 0, .RawValue = FirstEntry});
 
 				if (!StartsWithNoneEntry(FirstEntry))
 					continue;
@@ -2089,7 +2089,7 @@ namespace LayoutDetection
 					continue;
 				}
 
-				const int32 ChunkCount       = CountReadableChunkPointers(ChunksBase, GDecryptCallbacks.NameStorage.Chunk);
+				const int32 ChunkCount       = CountReadableChunkPointers(ChunksBase, MD7::Globals::GDecryptCallbacks.NameStorage.Chunk);
 				const int32 ElementsPerChunk = DiscoverNamesPerChunk(ChunksBase, ChunkCount, Layout);
 				if (ElementsPerChunk <= 0)
 				{
@@ -2133,7 +2133,7 @@ namespace LayoutDetection
 						if (!SafeRead(ChunkSlot, ChunkAddr))
 							return {};
 
-						ChunkAddr = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
+						ChunkAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = ChunkIdx, .RawValue = ChunkAddr});
 
 						if (!IsReadable(ChunkAddr))
 							return {};
@@ -2144,7 +2144,7 @@ namespace LayoutDetection
 						if (!SafeRead(EntrySlot, EntryAddr))
 							return {};
 
-						EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = EntryAddr});
+						EntryAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = EntrySlot, .Index = InChunk, .RawValue = EntryAddr});
 
 						if (!IsReadable(EntryAddr))
 							return {};
@@ -2448,13 +2448,13 @@ namespace LayoutDetection
 			const FFixedUObjectArrayLayout& L = *static_cast<const FFixedUObjectArrayLayout*>(Layout);
 
 			uintptr_t ItemsBase = 0;
-			if (!SafeReadDecrypted(CandidateAddress + L.Objects, ItemsBase, GDecryptCallbacks.FixedObjects.Objects) || !IsReadable(ItemsBase))
+			if (!SafeReadDecrypted(CandidateAddress + L.Objects, ItemsBase, MD7::Globals::GDecryptCallbacks.FixedObjects.Objects) || !IsReadable(ItemsBase))
 			{
 				Result.Summary = fmt::format("Objects@+0x{:X} did not yield a readable item array", L.Objects);
 				return Result;
 			}
 
-			if (!SafeReadDecrypted(CandidateAddress + L.NumObjects, Num, GDecryptCallbacks.FixedObjects.NumObjects) || Num < kMinObjectCount || Num > kMaxObjectCount)
+			if (!SafeReadDecrypted(CandidateAddress + L.NumObjects, Num, MD7::Globals::GDecryptCallbacks.FixedObjects.NumObjects) || Num < kMinObjectCount || Num > kMaxObjectCount)
 			{
 				Result.Summary = fmt::format("NumObjects@+0x{:X} = {} is outside [{}, {}]", L.NumObjects, Num, kMinObjectCount, kMaxObjectCount);
 				return Result;
@@ -2462,7 +2462,7 @@ namespace LayoutDetection
 
 			Item.ObjectOffset  = L.FUObjectItem.Object;
 			Item.ItemSize      = L.FUObjectItem.Size;
-			Item.DecryptObject = GDecryptCallbacks.FixedObjects.FUObjectItem.Object;
+			Item.DecryptObject = MD7::Globals::GDecryptCallbacks.FixedObjects.FUObjectItem.Object;
 			AddrFn             = [ItemsBase](int32 Index, int32 ItemSize) -> uintptr_t
 			{ return GetFixedItemAddr(ItemsBase, ItemSize, Index); };
 
@@ -2479,13 +2479,13 @@ namespace LayoutDetection
 			const FChunkedUObjectArrayLayout& L = *static_cast<const FChunkedUObjectArrayLayout*>(Layout);
 
 			uintptr_t ChunksBase = 0;
-			if (!SafeReadDecrypted(CandidateAddress + L.Objects, ChunksBase, GDecryptCallbacks.ChunkedObjects.Objects) || !IsReadable(ChunksBase))
+			if (!SafeReadDecrypted(CandidateAddress + L.Objects, ChunksBase, MD7::Globals::GDecryptCallbacks.ChunkedObjects.Objects) || !IsReadable(ChunksBase))
 			{
 				Result.Summary = fmt::format("Objects@+0x{:X} did not yield a readable chunk table", L.Objects);
 				return Result;
 			}
 
-			if (!SafeReadDecrypted(CandidateAddress + L.NumElements, Num, GDecryptCallbacks.ChunkedObjects.NumElements) || Num < kMinObjectCount || Num > kMaxObjectCount)
+			if (!SafeReadDecrypted(CandidateAddress + L.NumElements, Num, MD7::Globals::GDecryptCallbacks.ChunkedObjects.NumElements) || Num < kMinObjectCount || Num > kMaxObjectCount)
 			{
 				Result.Summary = fmt::format("NumElements@+0x{:X} = {} is outside [{}, {}]", L.NumElements, Num, kMinObjectCount, kMaxObjectCount);
 				return Result;
@@ -2500,7 +2500,7 @@ namespace LayoutDetection
 			const int32 ElementsPerChunk = L.ElementsPerChunk;
 			Item.ObjectOffset            = L.FUObjectItem.Object;
 			Item.ItemSize                = L.FUObjectItem.Size;
-			Item.DecryptObject           = GDecryptCallbacks.ChunkedObjects.FUObjectItem.Object;
+			Item.DecryptObject           = MD7::Globals::GDecryptCallbacks.ChunkedObjects.FUObjectItem.Object;
 			AddrFn                       = [ChunksBase, ElementsPerChunk](int32 Index, int32 ItemSize) -> uintptr_t
 			{ return GetChunkedItemAddr(ChunksBase, ElementsPerChunk, ItemSize, Index); };
 
@@ -2597,13 +2597,13 @@ namespace LayoutDetection
 			const FNamePoolLayout& L = *static_cast<const FNamePoolLayout*>(Layout);
 
 			uintptr_t FirstBlock = 0;
-			if (!SafeReadDecrypted(CandidateAddress + L.Blocks, FirstBlock, GDecryptCallbacks.NamePool.Blocks))
+			if (!SafeReadDecrypted(CandidateAddress + L.Blocks, FirstBlock, MD7::Globals::GDecryptCallbacks.NamePool.Blocks))
 			{
 				Result.Summary = fmt::format("Blocks@+0x{:X} did not yield a readable block", L.Blocks);
 				return Result;
 			}
 
-			FirstBlock = GDecryptCallbacks.NameStorage.Chunk({.Address = CandidateAddress + L.Blocks, .Index = 0, .RawValue = FirstBlock});
+			FirstBlock = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = CandidateAddress + L.Blocks, .Index = 0, .RawValue = FirstBlock});
 
 			if (!IsReadable(FirstBlock))
 			{
@@ -2617,14 +2617,14 @@ namespace LayoutDetection
 			if (L.MaxChunkIndex != -1)
 			{
 				int32 MaxChunkIndex = 0;
-				if (!SafeReadDecrypted(CandidateAddress + L.MaxChunkIndex, MaxChunkIndex, GDecryptCallbacks.NamePool.MaxChunkIndex) || MaxChunkIndex < 0)
+				if (!SafeReadDecrypted(CandidateAddress + L.MaxChunkIndex, MaxChunkIndex, MD7::Globals::GDecryptCallbacks.NamePool.MaxChunkIndex) || MaxChunkIndex < 0)
 					Problems.push_back(fmt::format("MaxChunkIndex@+0x{:X} = {} is negative", L.MaxChunkIndex, MaxChunkIndex));
 			}
 
 			if (L.ByteCursor != -1)
 			{
 				int32 ByteCursor = 0;
-				if (!SafeReadDecrypted(CandidateAddress + L.ByteCursor, ByteCursor, GDecryptCallbacks.NamePool.ByteCursor) || ByteCursor < 0 || ByteCursor > kMaxByteCursor)
+				if (!SafeReadDecrypted(CandidateAddress + L.ByteCursor, ByteCursor, MD7::Globals::GDecryptCallbacks.NamePool.ByteCursor) || ByteCursor < 0 || ByteCursor > kMaxByteCursor)
 					Problems.push_back(fmt::format("ByteCursor@+0x{:X} = {} is outside [0, 0x{:X}]", L.ByteCursor, ByteCursor, kMaxByteCursor));
 			}
 
@@ -2644,13 +2644,13 @@ namespace LayoutDetection
 			const FNameArrayLayout& L = *static_cast<const FNameArrayLayout*>(Layout);
 
 			uintptr_t FirstChunk = 0;
-			if (!SafeReadDecrypted(CandidateAddress + L.Chunks, FirstChunk, GDecryptCallbacks.NameArray.Chunks))
+			if (!SafeReadDecrypted(CandidateAddress + L.Chunks, FirstChunk, MD7::Globals::GDecryptCallbacks.NameArray.Chunks))
 			{
 				Result.Summary = fmt::format("Chunks@+0x{:X} did not yield a readable chunk", L.Chunks);
 				return Result;
 			}
 
-			FirstChunk = GDecryptCallbacks.NameStorage.Chunk({.Address = CandidateAddress + L.Chunks, .Index = 0, .RawValue = FirstChunk});
+			FirstChunk = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = CandidateAddress + L.Chunks, .Index = 0, .RawValue = FirstChunk});
 
 			if (!IsReadable(FirstChunk))
 			{
@@ -2689,7 +2689,7 @@ namespace LayoutDetection
 					uintptr_t EntryAddr      = 0;
 					const uintptr_t SlotAddr = FirstChunk + static_cast<uintptr_t>(i) * kPtrSize;
 					SafeRead(SlotAddr, EntryAddr);
-					EntryAddr = GDecryptCallbacks.NameStorage.Entry({.Address = SlotAddr, .Index = i, .RawValue = EntryAddr});
+					EntryAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Entry({.Address = SlotAddr, .Index = i, .RawValue = EntryAddr});
 
 					uint32 IndexField    = 0;
 					const bool bHasIndex = SafeRead(EntryAddr + L.FNameEntry.Index, IndexField);
@@ -2702,7 +2702,7 @@ namespace LayoutDetection
 					uintptr_t ChunkAddr       = 0;
 					const uintptr_t ChunkSlot = CandidateAddress + L.Chunks + static_cast<uintptr_t>(i) * kPtrSize;
 					SafeRead(ChunkSlot, ChunkAddr);
-					ChunkAddr = GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = i, .RawValue = ChunkAddr});
+					ChunkAddr = MD7::Globals::GDecryptCallbacks.NameStorage.Chunk({.Address = ChunkSlot, .Index = i, .RawValue = ChunkAddr});
 					Result.Details.push_back(fmt::format("  Chunk[{}] 0x{:X} -> 0x{:X}", i, ChunkSlot, ChunkAddr));
 				}
 			}
@@ -2748,7 +2748,7 @@ namespace LayoutDetection
 	{
 		if (!IsReadable(CandidateAddress))
 		{
-			GLogger.FmtWrite(ELogLevel::Debug, "DumpCandidateMemory: [{}] 0x{:X} is not readable\n", Tag, CandidateAddress);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "DumpCandidateMemory: [{}] 0x{:X} is not readable\n", Tag, CandidateAddress);
 			return;
 		}
 
@@ -2756,14 +2756,14 @@ namespace LayoutDetection
 		const size_t HeaderSize = ReadBlockBestEffort(CandidateAddress, Header, static_cast<size_t>(kDumpHeaderSize));
 		if (HeaderSize == 0)
 		{
-			GLogger.FmtWrite(ELogLevel::Debug, "DumpCandidateMemory: [{}] 0x{:X} could not be read\n", Tag, CandidateAddress);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "DumpCandidateMemory: [{}] 0x{:X} could not be read\n", Tag, CandidateAddress);
 			return;
 		}
 
 		// The rows below carry only the tag, not the function name: at hundreds of lines per
 		// dump the prefix would outweigh the data it labels.
-		GLogger.FmtWrite(ELogLevel::Debug, "DumpCandidateMemory: [{}] Dump of 0x{:X}, 0x{:X} bytes readable\n", Tag, CandidateAddress, HeaderSize);
-		GLogger.FmtWrite(ELogLevel::Debug, "[{}]   off     qword             ptr  i32[lo]      i32[hi]      ascii\n", Tag);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "DumpCandidateMemory: [{}] Dump of 0x{:X}, 0x{:X} bytes readable\n", Tag, CandidateAddress, HeaderSize);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "[{}]   off     qword             ptr  i32[lo]      i32[hi]      ascii\n", Tag);
 
 		// One line per pointer-sized slot: the raw qword, whether it resolves, and both
 		// halves as int32 - every field the detector reasons about, in one view.
@@ -2784,7 +2784,7 @@ namespace LayoutDetection
 
 			if (ZeroRunStart != -1)
 			{
-				GLogger.FmtWrite(ELogLevel::Debug, "[{}]   +0x{:03X}..+0x{:03X}  all zero\n", Tag, ZeroRunStart, Offset - kPtrSize);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "[{}]   +0x{:03X}..+0x{:03X}  all zero\n", Tag, ZeroRunStart, Offset - kPtrSize);
 				ZeroRunStart = -1;
 			}
 
@@ -2798,11 +2798,11 @@ namespace LayoutDetection
 				Ascii.push_back((Ch >= 0x20 && Ch <= 0x7E) ? static_cast<char>(Ch) : '.');
 			}
 
-			GLogger.FmtWrite(ELogLevel::Debug, "[{}]   +0x{:03X}  0x{:016X}  {}  {:<11} {:<11} {}\n", Tag, Offset, Qword, IsReadable(Qword) ? "R" : "-", Low, High, Ascii);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "[{}]   +0x{:03X}  0x{:016X}  {}  {:<11} {:<11} {}\n", Tag, Offset, Qword, IsReadable(Qword) ? "R" : "-", Low, High, Ascii);
 		}
 
 		if (ZeroRunStart != -1)
-			GLogger.FmtWrite(ELogLevel::Debug, "[{}]   +0x{:03X}..+0x{:03X}  all zero\n", Tag, ZeroRunStart, DumpLimit - kPtrSize);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "[{}]   +0x{:03X}..+0x{:03X}  all zero\n", Tag, ZeroRunStart, DumpLimit - kPtrSize);
 
 		// Follow readable pointers: the item array, chunk table or name block that the
 		// candidate leads to is where a failed hypothesis usually goes wrong.
@@ -2818,7 +2818,7 @@ namespace LayoutDetection
 				continue;
 
 			Followed++;
-			GLogger.FmtWrite(ELogLevel::Debug, "[{}]   follow +0x{:03X} -> 0x{:X}\n", Tag, Offset, Target);
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "[{}]   follow +0x{:03X} -> 0x{:X}\n", Tag, Offset, Target);
 
 			for (int32 Inner = 0; Inner + kPtrSize <= kDumpFollowSize; Inner += kPtrSize)
 			{
@@ -2831,11 +2831,11 @@ namespace LayoutDetection
 					Ascii.push_back((Ch >= 0x20 && Ch <= 0x7E) ? static_cast<char>(Ch) : '.');
 				}
 
-				GLogger.FmtWrite(ELogLevel::Debug, "[{}]     +0x{:03X}  0x{:016X}  {}  {:<11} {:<11} {}\n", Tag, Inner, InnerQword, IsReadable(InnerQword) ? "R" : "-", PeekInt32(Block, static_cast<size_t>(Inner)), PeekInt32(Block, static_cast<size_t>(Inner + sizeof(int32))), Ascii);
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "[{}]     +0x{:03X}  0x{:016X}  {}  {:<11} {:<11} {}\n", Tag, Inner, InnerQword, IsReadable(InnerQword) ? "R" : "-", PeekInt32(Block, static_cast<size_t>(Inner)), PeekInt32(Block, static_cast<size_t>(Inner + sizeof(int32))), Ascii);
 			}
 		}
 
-		GLogger.FmtWrite(ELogLevel::Debug, "DumpCandidateMemory: [{}] End of dump\n", Tag);
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug, "DumpCandidateMemory: [{}] End of dump\n", Tag);
 	}
 
 } // namespace LayoutDetection
