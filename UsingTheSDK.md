@@ -46,14 +46,15 @@ accommodated by manually editing those functions.
 
 ### 2.2 When the defaults are not enough
 
-If a game encrypts `GNames`, `GObjects`, the name chunk/entry addresses, the `UObject` pointer
-inside each `FUObjectItem`, or the name characters themselves, the default accessors above can't
-read them — they only know how to read plain values. For each of those, there's a matching
-function in a second namespace, `DecryptionUtils`, next to `InSDKUtils`:
+If a game encrypts `GNames`, `GObjects`, `GEngine`, `GWorld`, the name chunk/entry addresses, the
+`UObject` pointer inside each `FUObjectItem`, or the name characters themselves, the default
+accessors above can't read them — they only know how to read plain values. For each of those,
+there's a matching function in a second namespace, `DecryptionUtils`, next to `InSDKUtils`:
 
 | Function | Decrypts |
 | --- | --- |
 | `DecryptGNames(uintptr_t)` / `DecryptGObjects(uintptr_t)` | the two global pointers |
+| `DecryptGEngine(uintptr_t)` / `DecryptGWorld(uintptr_t)` | the `GEngine`/`GWorld` static offsets used by `UEngine::GetEngine()`/`UWorld::GetWorld()` |
 | `DecryptFNameChunk(uintptr_t, int32)` / `DecryptFNameEntry(uintptr_t, int32)` | the name container's chunk/block table and its entries |
 | `DecryptFObjectItemEntry(UObject*)` | the `UObject*` inside each `FUObjectItem` |
 | `DecryptFNameUTF8/16/32(CharT*, int32)` | the name characters, in place |
@@ -78,7 +79,8 @@ real examples.
 Every override lives under `GSettings.CppGenerator`, grouped by which generated namespace it belongs
 to: `InSDKUtils.GetImageBaseFuncBody` / `.GetGNamesFuncBody` / `.GetGObjectsBody` /
 `.GetNameByIndexFuncBody` / `.GetObjectByIndexFuncBody`, and `DecryptionUtils.DecryptGNamesFuncBody` /
-`.DecryptGObjectsFuncBody` / `.DecryptFNameChunkFuncBody` / `.DecryptFNameEntryFuncBody` /
+`.DecryptGObjectsFuncBody` / `.DecryptGEngineFuncBody` / `.DecryptGWorldFuncBody` /
+`.DecryptFNameChunkFuncBody` / `.DecryptFNameEntryFuncBody` /
 `.DecryptFObjectItemEntryFuncBody` / `.DecryptFNameUTF8FuncBody` / `.DecryptFNameUTF16FuncBody` /
 `.DecryptFNameUTF32FuncBody` — all in [Dumper/Settings.h](Dumper/Settings.h). Setting one replaces that
 body in every SDK generated afterwards, which is the better option than re-editing a regenerated file.
