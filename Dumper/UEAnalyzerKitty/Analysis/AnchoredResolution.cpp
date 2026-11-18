@@ -304,12 +304,18 @@ namespace UEAnalyzerKitty
 			const FunctionBounds CallerFn = Boundary.Find(Call);
 			if (!CallerFn.IsValid())
 				continue;
-			uint64_t This = 0;
-			if (!CallGraph::ResolveArgumentAtCall(Memory_, Module_, Arch_, CallerFn.Start, Call, /*X0=*/0, This))
+			uint64_t This        = 0;
+			int AliasOfParam     = -1;
+			if (CallGraph::ResolveArgumentAtCall(Memory_, Module_, Arch_, CallerFn.Start, Call, /*X0=*/0, This, &AliasOfParam))
+			{
+				if (This && IsWritableData(Module_, This))
+					++Votes[This];
 				continue;
-			if (!This || !IsWritableData(Module_, This))
-				continue;
-			++Votes[This];
+			}
+			// This caller is itself a wrapper that only forwards its own `this`
+			// unchanged; its own callers are reached the same way the anchor was.
+			if (AliasOfParam == 0)
+				VoteForArgumentAtCallers(CallerFn.Start, 0, Votes, 1);
 		}
 
 		if (Votes.empty())
@@ -322,11 +328,46 @@ namespace UEAnalyzerKitty
 			return X.first > Y.first;
 		});
 
+		// A single resolved caller is not the agreement the comment above promises,
+		// and nothing distinguishes it from an unrelated global that happens to be
+		// that one caller's own `this`. Require genuine agreement.
+		if (Best->second < 2)
+			return false;
+
 		Out.Container    = Best->first;
 		Out.MemberOffset = Offset;
 		Out.Result       = Best->first + static_cast<uint64_t>(Offset);
 		Out.bViaCaller   = true;
 		return IsWritableData(Module_, Out.Result);
+	}
+
+	void AnchoredResolution::VoteForArgumentAtCallers(uint64_t Entry, int ArgReg, std::unordered_map<uint64_t, int>& Votes, int Depth) const
+	{
+		constexpr int kMaxDepth = 3;
+		if (Depth > kMaxDepth || !Calls_)
+			return;
+
+		const std::vector<uint64_t>* Callers = Calls_->CallersOf(Entry);
+		if (!Callers)
+			return;
+
+		FunctionBoundary Boundary(Memory_, Module_, Arch_);
+		for (uint64_t Call : *Callers)
+		{
+			const FunctionBounds CallerFn = Boundary.Find(Call);
+			if (!CallerFn.IsValid())
+				continue;
+			uint64_t Value    = 0;
+			int AliasOfParam = -1;
+			if (CallGraph::ResolveArgumentAtCall(Memory_, Module_, Arch_, CallerFn.Start, Call, ArgReg, Value, &AliasOfParam))
+			{
+				if (Value && IsWritableData(Module_, Value))
+					++Votes[Value];
+				continue;
+			}
+			if (AliasOfParam == ArgReg)
+				VoteForArgumentAtCallers(CallerFn.Start, ArgReg, Votes, Depth + 1);
+		}
 	}
 
 
@@ -1053,12 +1094,11 @@ namespace UEAnalyzerKitty
 			{
 				float Weight = Group[i]->Which->Trust;
 
-				// A resolution that recovered `this` from the callers and derived the
-				// member offset from how the function uses it is far stronger than
-				// picking the most-touched global out of a GC helper: it identifies
-				// the container exactly and reconstructs the member rather than
-				// guessing.
-				if (Group[i]->bViaCaller && Group[i]->MemberOffset >= 0)
+				// A derived member offset - whether the container came from a caller
+				// argument or was named directly in the function - reconstructs the
+				// member rather than guessing, and is far stronger evidence than
+				// picking the most-touched global out of a GC helper.
+				if (Group[i]->MemberOffset >= 0)
 					Weight += 4.0f;
 
 				// Same reasoning, and the same class of evidence: the allocation size

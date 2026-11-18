@@ -73,8 +73,11 @@ namespace UEAnalyzerKitty
 		return It == Callers_.end() ? nullptr : &It->second;
 	}
 
-	bool CallGraph::ResolveArgumentAtCall(const IMemory* Memory, const ModuleInfo& Module, const IArchDecoder& Arch, uint64_t CallerStart, uint64_t CallSite, int ArgReg, uint64_t& OutValue)
+	bool CallGraph::ResolveArgumentAtCall(const IMemory* Memory, const ModuleInfo& Module, const IArchDecoder& Arch, uint64_t CallerStart, uint64_t CallSite, int ArgReg, uint64_t& OutValue, int* OutAliasOfParam)
 	{
+		if (OutAliasOfParam)
+			*OutAliasOfParam = -1;
+
 		const uint32_t Stride = Arch.InstructionStride();
 		if (Stride == 0 || CallSite < CallerStart)
 			return false;
@@ -85,10 +88,18 @@ namespace UEAnalyzerKitty
 
 		struct Reg
 		{
-			uint64_t Value = 0;
-			bool bKnown    = false;
+			uint64_t Value      = 0;
+			bool bKnown         = false;
+			// Index of this function's own incoming argument register that this
+			// register is still an untouched copy of, or -1. Every register starts
+			// as a trivial copy of itself; only MoveReg and a preserved-across-Call
+			// slot can carry that forward, so a wrapper that parks `this` in a
+			// callee-saved register and restores it unchanged is still traceable.
+			int AliasOfParam = -1;
 		};
 		std::vector<Reg> Regs(static_cast<size_t>(NumRegs));
+		for (int i = 0; i < NumRegs; ++i)
+			Regs[static_cast<size_t>(i)].AliasOfParam = i;
 
 		NormalizedInsn Insn;
 		// Walks from the caller's entry to the call site and stops; the sweep in
@@ -110,8 +121,9 @@ namespace UEAnalyzerKitty
 			case NormalizedInsn::EKind::SetBase:
 				if (Dest >= 0)
 				{
-					Regs[Dest].Value  = Insn.Value;
-					Regs[Dest].bKnown = true;
+					Regs[Dest].Value       = Insn.Value;
+					Regs[Dest].bKnown      = true;
+					Regs[Dest].AliasOfParam = -1;
 				}
 				break;
 
@@ -127,6 +139,7 @@ namespace UEAnalyzerKitty
 					{
 						Regs[Dest].bKnown = false;
 					}
+					Regs[Dest].AliasOfParam = -1;
 				}
 				break;
 
@@ -150,8 +163,12 @@ namespace UEAnalyzerKitty
 						bResolved         = true;
 					}
 				}
-				if (Dest >= 0 && !bResolved)
-					Regs[Dest].bKnown = false;
+				if (Dest >= 0)
+				{
+					if (!bResolved)
+						Regs[Dest].bKnown = false;
+					Regs[Dest].AliasOfParam = -1;
+				}
 				break;
 			}
 
@@ -167,15 +184,23 @@ namespace UEAnalyzerKitty
 					{
 						Regs[Dest].bKnown = false;
 					}
+					// An exact copy carries the source's alias along with it, so a
+					// wrapper that parks `this` in a callee-saved register stays
+					// traceable through the move.
+					Regs[Dest].AliasOfParam = (Src >= 0) ? Regs[Src].AliasOfParam : -1;
 				}
 				break;
 
 			case NormalizedInsn::EKind::Call:
 				// A nested call clobbers the argument registers, so anything set
-				// before it cannot be the argument to *this* call.
+				// before it cannot be the argument to *this* call. A register the
+				// call does not clobber keeps both its value and its alias.
 				for (int R = 0; R < NumRegs; ++R)
 					if (Arch.CallClobbers(R))
-						Regs[static_cast<size_t>(R)].bKnown = false;
+					{
+						Regs[static_cast<size_t>(R)].bKnown     = false;
+						Regs[static_cast<size_t>(R)].AliasOfParam = -1;
+					}
 				break;
 
 			case NormalizedInsn::EKind::Return:
@@ -184,15 +209,22 @@ namespace UEAnalyzerKitty
 
 			default:
 				if (Dest >= 0)
-					Regs[Dest].bKnown = false;
+				{
+					Regs[Dest].bKnown      = false;
+					Regs[Dest].AliasOfParam = -1;
+				}
 				break;
 			}
 		}
 
-		if (!Regs[static_cast<size_t>(ArgReg)].bKnown)
-			return false;
-		OutValue = Regs[static_cast<size_t>(ArgReg)].Value;
-		return true;
+		if (Regs[static_cast<size_t>(ArgReg)].bKnown)
+		{
+			OutValue = Regs[static_cast<size_t>(ArgReg)].Value;
+			return true;
+		}
+		if (OutAliasOfParam)
+			*OutAliasOfParam = Regs[static_cast<size_t>(ArgReg)].AliasOfParam;
+		return false;
 	}
 
 } // namespace UEAnalyzerKitty

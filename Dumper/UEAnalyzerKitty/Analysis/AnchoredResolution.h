@@ -131,7 +131,7 @@ namespace UEAnalyzerKitty
 
 		/// Resolves a table that the anchored function allocates and stores.
 		///
-		/// UE <= 4.22 builds MD7::Globals::GNames in FName::StaticInit rather than receiving it:
+		/// UE <= 4.22 builds GNames in FName::StaticInit rather than receiving it:
 		/// the function allocates N bytes, stores the pointer into the global, then
 		/// reads its counts back at N-8 and N-4 - TNameEntryArray being
 		/// `FNameEntry** Chunks[]; int32 NumElements; int32 NumChunks`. That
@@ -202,6 +202,17 @@ namespace UEAnalyzerKitty
 		 *        it, which is how the object array is reached.
 		 */
 		bool ResolveViaCaller(const FunctionBounds& Fn, AnchorHit& Out, bool bSelfIsTarget = false) const;
+
+		/**
+		 * @brief Votes for ArgReg at every caller of Entry, climbing through wrapper
+		 * functions that only forward their own incoming argument unchanged.
+		 *
+		 * A caller whose own copy of ArgReg is not resolvable is otherwise a dead
+		 * end even when it is a plain pass-through - the known shape in this binary
+		 * for a `this` reached via one extra layer of indirection. Bounded in depth
+		 * so an unrelated chain cannot be walked indefinitely.
+		 */
+		void VoteForArgumentAtCallers(uint64_t Entry, int ArgReg, std::unordered_map<uint64_t, int>& Votes, int Depth) const;
 
 		/// Offset off the incoming `this` register that behaves like the array.
 		bool DeriveThisOffset(const FunctionBounds& Fn, int64_t& OutOffset) const;

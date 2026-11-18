@@ -40,6 +40,7 @@ namespace UEAnalyzerKitty
 			float NamedByCode     = 1.0f; ///< How often the container is named.
 			float AccessRank      = 2.0f;
 			float AnchorProximity = 3.0f;
+			float ChunkConstant   = 1.5f; ///< Bonus when the held table's chunk size is visible nearby.
 			float ScoreScale      = 40.0f;
 		};
 

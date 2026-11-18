@@ -75,9 +75,14 @@ namespace UEAnalyzerKitty
 		 * @param CallSite    Address of the call instruction.
 		 * @param ArgReg      Argument register index (0 = X0/R0, the `this` slot).
 		 * @param OutValue    Receives the resolved address on success.
+		 * @param OutAliasOfParam On failure, set to the index of this function's own
+		 *        incoming argument register that ArgReg is an untouched copy of, or
+		 *        -1 if it is not provably a copy of any of them. Lets a caller tell
+		 *        "this wrapper just forwards its own `this`" from "this register's
+		 *        value is genuinely unknown", without changing the success case.
 		 * @return false when the register does not hold a resolvable address.
 		 */
-		static bool ResolveArgumentAtCall(const IMemory* Memory, const ModuleInfo& Module, const IArchDecoder& Arch, uint64_t CallerStart, uint64_t CallSite, int ArgReg, uint64_t& OutValue);
+		static bool ResolveArgumentAtCall(const IMemory* Memory, const ModuleInfo& Module, const IArchDecoder& Arch, uint64_t CallerStart, uint64_t CallSite, int ArgReg, uint64_t& OutValue, int* OutAliasOfParam = nullptr);
 
 	private:
 		std::unordered_map<uint64_t, std::vector<uint64_t>> Callers_;

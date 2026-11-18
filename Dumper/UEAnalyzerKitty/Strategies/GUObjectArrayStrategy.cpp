@@ -193,6 +193,11 @@ namespace UEAnalyzerKitty
 			std::snprintf(Buf, sizeof(Buf), "table at +%lld read %u times", (long long)Struct.PrimaryFieldOffset, Struct.PrimaryFieldAccesses);
 			C.Add("table_heat", Table, Buf);
 
+			// A chunk-size constant nearby is specific to the object array, unlike a
+			// generic hot pointer table that merely looks similar from the outside.
+			if (Struct.bChunkConstant && Weights.ChunkConstant != 0.0f)
+				C.Add("chunk_constant", Weights.ChunkConstant, "chunk-size constant near the table");
+
 			// Being named a lot is the container's distinguishing property - it is
 			// passed as `this` all over the engine, while the array it holds is
 			// dereferenced rather than passed.
