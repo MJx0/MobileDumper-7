@@ -1,8 +1,11 @@
 #pragma once
 
 #include <functional>
+#include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <mutex>
+#include <sstream>
 #include <string>
 
 #include "fmt/format.h"
@@ -39,7 +42,8 @@ public:
 	{
 		std::lock_guard<std::mutex> Lock(_Mutex);
 		_FileStream.close();
-		std::filesystem::create_directories(std::filesystem::path(FilePath).parent_path());
+		std::error_code Ec;
+		std::filesystem::create_directories(std::filesystem::path(FilePath).parent_path(), Ec);
 		_FileStream.open(FilePath, std::ios::out | std::ios::trunc);
 	}
 

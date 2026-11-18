@@ -1,8 +1,5 @@
 #include "Logger.h"
 
-#include <filesystem>
-#include <iostream>
-
 #if defined(__ANDROID__)
 #include <android/log.h>
 #elif defined(__APPLE__)
@@ -44,7 +41,8 @@ std::string LogDetail::WStringToUtf8(const std::wstring& Ws)
 
 FLogger::FLogger(const std::string& Path)
 {
-	std::filesystem::create_directories(std::filesystem::path(Path).parent_path());
+	std::error_code Ec;
+	std::filesystem::create_directories(std::filesystem::path(Path).parent_path(), Ec);
 	_FileStream.open(Path, std::ios::out | std::ios::trunc);
 }
 
