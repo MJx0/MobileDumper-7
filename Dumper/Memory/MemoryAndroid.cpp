@@ -2,6 +2,8 @@
 
 #include "MemoryAndroid.h"
 
+#include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
@@ -9,10 +11,41 @@
 #include <KittyMemoryEx/KittyScanner.hpp>
 
 #include "../Settings.h"
+#include "../Utils/Logger.h"
 
 bool FMemoryAndroid::Initialize()
 {
 	return RefreshMemory();
+}
+
+void FMemoryAndroid::SuspendTarget()
+{
+	if (bIsSuspended || ProcessId <= 0)
+		return;
+
+	if (kill(ProcessId, SIGSTOP) != 0)
+	{
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Failed to suspend process {}: {}\n", ProcessId, strerror(errno));
+		return;
+	}
+
+	bIsSuspended = true;
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Suspended process {}.\n", ProcessId);
+}
+
+void FMemoryAndroid::ResumeTarget()
+{
+	if (!bIsSuspended)
+		return;
+
+	if (kill(ProcessId, SIGCONT) != 0)
+	{
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Failed to resume process {}: {}\n", ProcessId, strerror(errno));
+		return;
+	}
+
+	bIsSuspended = false;
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Resumed process {}.\n", ProcessId);
 }
 
 int FMemoryAndroid::GetProcessID() const
@@ -546,6 +579,24 @@ std::vector<uintptr_t> FMemoryAndroid::FindAllAlignedValuesInRange(uintptr_t Val
 		BulkFindAll(Value, Alignment, SubStart, SubEnd, Results, MaxHits);
 		if (MaxHits && Results.size() >= MaxHits)
 			return Results;
+	}
+	return Results;
+}
+
+std::unordered_map<uintptr_t, std::vector<uintptr_t>> FMemoryAndroid::FindAllAlignedValuesInRangeMulti(
+    const std::vector<uintptr_t>& Values, int32_t Alignment, uintptr_t Start, size_t Range, size_t MaxHitsPerValue) const
+{
+	std::unordered_map<uintptr_t, std::vector<uintptr_t>> Results;
+	for (const auto& Segment : BuildSegmentsRanges(Start, Range))
+	{
+		uintptr_t SubStart = Segment.GetStart();
+		uintptr_t SubEnd   = Segment.GetEnd();
+
+		if (Alignment > 1)
+			SubStart = (SubStart + Alignment - 1) & ~static_cast<uintptr_t>(Alignment - 1);
+		if (SubStart >= SubEnd)
+			continue;
+		BulkFindAllMulti(Values, Alignment, SubStart, SubEnd, Results, MaxHitsPerValue);
 	}
 	return Results;
 }

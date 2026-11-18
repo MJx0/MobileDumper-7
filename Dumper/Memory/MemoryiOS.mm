@@ -20,6 +20,55 @@ bool FMemoryiOS::Initialize()
 	return RefreshMemory();
 }
 
+void FMemoryiOS::SuspendTarget()
+{
+	if (!SuspendedThreads.empty())
+		return;
+
+	thread_t SelfThread = mach_thread_self();
+
+	thread_act_array_t ThreadList      = nullptr;
+	mach_msg_type_number_t ThreadCount = 0;
+
+	if (task_threads(mach_task_self(), &ThreadList, &ThreadCount) != KERN_SUCCESS)
+	{
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "SuspendTarget: task_threads failed.\n");
+		mach_port_deallocate(mach_task_self(), SelfThread);
+		return;
+	}
+
+	for (mach_msg_type_number_t I = 0; I < ThreadCount; I++)
+	{
+		thread_t T = ThreadList[I];
+		if (T == SelfThread || T == MainThreadHandle)
+		{
+			mach_port_deallocate(mach_task_self(), T);
+			continue;
+		}
+		if (thread_suspend(T) == KERN_SUCCESS)
+			SuspendedThreads.push_back(T);
+		else
+			mach_port_deallocate(mach_task_self(), T);
+	}
+
+	vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(ThreadList), ThreadCount * sizeof(thread_act_t));
+	mach_port_deallocate(mach_task_self(), SelfThread);
+
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Suspended {} game thread(s).\n", SuspendedThreads.size());
+}
+
+void FMemoryiOS::ResumeTarget()
+{
+	for (thread_t T : SuspendedThreads)
+	{
+		thread_resume(T);
+		mach_port_deallocate(mach_task_self(), T);
+	}
+	if (!SuspendedThreads.empty())
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Resumed {} game thread(s).\n", SuspendedThreads.size());
+	SuspendedThreads.clear();
+}
+
 std::string FMemoryiOS::GetProcessName() const
 {
 	NSBundle* MainBundle = [NSBundle mainBundle];
@@ -518,6 +567,24 @@ std::vector<uintptr_t> FMemoryiOS::FindAllAlignedValuesInRange(uintptr_t Value,
 		BulkFindAll(Value, Alignment, SubStart, SubEnd, Results, MaxHits);
 		if (MaxHits && Results.size() >= MaxHits)
 			return Results;
+	}
+	return Results;
+}
+
+std::unordered_map<uintptr_t, std::vector<uintptr_t>> FMemoryiOS::FindAllAlignedValuesInRangeMulti(
+    const std::vector<uintptr_t>& Values, int32_t Alignment, uintptr_t Start, size_t Range, size_t MaxHitsPerValue) const
+{
+	std::unordered_map<uintptr_t, std::vector<uintptr_t>> Results;
+	for (const auto& Segment : BuildSegmentsRanges(Start, Range))
+	{
+		uintptr_t SubStart = Segment.GetStart();
+		uintptr_t SubEnd   = Segment.GetEnd();
+
+		if (Alignment > 1)
+			SubStart = (SubStart + Alignment - 1) & ~static_cast<uintptr_t>(Alignment - 1);
+		if (SubStart >= SubEnd)
+			continue;
+		BulkFindAllMulti(Values, Alignment, SubStart, SubEnd, Results, MaxHitsPerValue);
 	}
 	return Results;
 }

@@ -26,6 +26,7 @@
 #include "Settings.h"
 
 #include "Architecture/IArchDecoder.h"
+#include "Generator/Generators/Generator.h"
 #include "Memory/IMemory.h"
 #include "Memory/MemoryAndroid.h"
 #include "Profile/IProfile.h"
@@ -67,9 +68,11 @@ std::vector<std::shared_ptr<IProfile>>& GetUECustomProfiles()
 }
 
 /// @brief Stops the target process for the duration of the dump.
+///
+/// Thin RAII wrapper around IMemory::SuspendTarget/ResumeTarget.
 class FProcessSuspension
 {
-	pid_t Pid = 0;
+	bool bActive = false;
 
 public:
 	FProcessSuspension(const FProcessSuspension&)            = delete;
@@ -80,25 +83,14 @@ public:
 		if (InPid <= 0)
 			return;
 
-		if (kill(InPid, SIGSTOP) != 0)
-		{
-			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Failed to suspend process {}: {}\n", InPid, strerror(errno));
-			return;
-		}
-
-		Pid = InPid;
-		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Suspended process {}.\n", Pid);
+		MD7::Globals::GMemory->SuspendTarget();
+		bActive = true;
 	}
 
 	~FProcessSuspension()
 	{
-		if (Pid <= 0)
-			return;
-
-		if (kill(Pid, SIGCONT) != 0)
-			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Failed to resume process {}: {}\n", Pid, strerror(errno));
-		else
-			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Resumed process {}.\n", Pid);
+		if (bActive)
+			MD7::Globals::GMemory->ResumeTarget();
 	}
 };
 
@@ -106,9 +98,17 @@ bool RunDump(int GamePid, const std::string& GamePackage, EKittyMemOP MemOp = EK
 {
 	auto StartTime = std::chrono::high_resolution_clock::now();
 
-	MD7::Globals::GSettings.Generator.SDKGenerationPath  = OutputDir ? OutputDir : KittyUtils::Android::getAppExternalFilesDir(GamePackage);
+	const std::string BaseOutputDir = OutputDir ? OutputDir : KittyUtils::Android::getAppExternalFilesDir(GamePackage);
+
+	MD7::Globals::GSettings.Generator.SDKGenerationPath  = BaseOutputDir;
 	MD7::Globals::GSettings.Generator.SDKGenerationPath += "/MobileDumper-7";
 	{
+		// exists() returns false both when the path is genuinely absent and when the check itself
+		// failed (e.g. permission denied on a parent component) - only the former means we're
+		// about to create it ourselves, so an inconclusive check is treated as "it already exists".
+		std::error_code ExistsEc;
+		const bool bWeWillCreateBaseOutputDir = !std::filesystem::exists(BaseOutputDir, ExistsEc) && !ExistsEc;
+
 		std::error_code Ec;
 		std::filesystem::create_directories(MD7::Globals::GSettings.Generator.SDKGenerationPath, Ec);
 		if (Ec)
@@ -119,6 +119,14 @@ bool RunDump(int GamePid, const std::string& GamePackage, EKittyMemOP MemOp = EK
 			MD7::Globals::GLogger.CloseFileStream();
 			return false;
 		}
+
+		// Running as root leaves these undeletable by other uids
+		// Only open up what the dumper itself created.
+		// BaseOutputDir may be a user-chosen path (e.g. /sdcard) that pre-existed outside our control, so its own permissions are left untouched.
+		std::error_code PermEc;
+		if (bWeWillCreateBaseOutputDir)
+			std::filesystem::permissions(BaseOutputDir, std::filesystem::perms::all, PermEc);
+		std::filesystem::permissions(MD7::Globals::GSettings.Generator.SDKGenerationPath, std::filesystem::perms::all, PermEc);
 	}
 
 	MD7::Globals::GMemory = std::make_unique<FMemoryAndroid>(GamePid, MemOp);
@@ -166,7 +174,44 @@ DumpLabel:
 
 		if (bIsBitOk)
 		{
-			bSuccess = FDumperMain::Run(OutDumpZip, OutErr);
+			if (!FDumperMain::Init(OutErr))
+			{
+				bSuccess = false;
+			}
+			else
+			{
+				if (bDumpLib && MD7::Globals::GMemory)
+				{
+					MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== Memory Dump ===\n");
+
+					const ModuleInfo Module = MD7::Globals::GMemory->GetUnrealModule();
+					if (!Module.IsValid())
+					{
+						MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Memory dump failed, Unable to locate Unreal module!\n");
+					}
+					else
+					{
+						const std::string ModuleStem = std::filesystem::path(Module.GetPathName()).stem().string();
+
+						const std::string Destination = fmt::format("{}/{}_{:X}-{:X}.so",
+						                                            Generator::GetDumperFolder(),
+						                                            ModuleStem.empty() ? "UnrealModule" : ModuleStem,
+						                                            Module.GetStart(),
+						                                            Module.GetEnd());
+
+						MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dumping Unreal module to \"{}\"...\n", Destination);
+
+						if (MD7::Globals::GMemory->DumpUnrealModule(Destination))
+							MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dumped Unreal module (0x{:X} - 0x{:X}, {} mapped).\n", Module.GetStart(), Module.GetEnd(), Utils::SizeToString(Module.GetSize()));
+						else
+							MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failed to dump the Unreal module.\n");
+					}
+
+					MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
+				}
+
+				bSuccess = FDumperMain::Run(OutDumpZip, OutErr);
+			}
 		}
 		else if (!bRemoteMapsReadable)
 		{
@@ -188,34 +233,6 @@ DumpLabel:
 	catch (...)
 	{
 		OutErr = "Unknown exception";
-	}
-
-	if (bDumpLib && MD7::Globals::GMemory && bIsBitOk)
-	{
-		const ModuleInfo Module = MD7::Globals::GMemory->GetUnrealModule();
-		if (!Module.IsValid())
-		{
-			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Memory dump failed, Unable to locate Unreal module!\n");
-		}
-		else
-		{
-			const std::string ModuleStem = std::filesystem::path(Module.GetPathName()).stem().string();
-
-			const std::string Destination = fmt::format("{}/{}_{}_{}_{:X}-{:X}.so",
-			                                            MD7::Globals::GSettings.Generator.SDKGenerationPath,
-			                                            GamePackage,
-			                                            MD7::Globals::GProfile ? MD7::Globals::GProfile->GetGameVersion() : "",
-			                                            ModuleStem.empty() ? "UnrealModule" : ModuleStem,
-			                                            Module.GetStart(),
-			                                            Module.GetEnd());
-
-			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dumping Unreal module to \"{}\"...\n", Destination);
-
-			if (MD7::Globals::GMemory->DumpUnrealModule(Destination))
-				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dumped Unreal module (0x{:X} - 0x{:X}, {} mapped).\n", Module.GetStart(), Module.GetEnd(), Utils::SizeToString(Module.GetSize()));
-			else
-				MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Failed to dump the Unreal module.\n");
-		}
 	}
 
 	auto Elapsed = std::chrono::high_resolution_clock::now() - StartTime;
@@ -510,7 +527,8 @@ bool ChooseUserProcess(pid_t& OutPid, std::string& OutId)
 			continue;
 
 		// User apps have external data directory
-		if (!fs::exists(KittyUtils::Android::getAppExternalFilesDir(ProcName)))
+		std::error_code ExistsEc;
+		if (!fs::exists(KittyUtils::Android::getAppExternalFilesDir(ProcName), ExistsEc))
 			continue;
 
 		std::string State = Status.getString("State");

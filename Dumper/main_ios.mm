@@ -24,6 +24,8 @@
 #include "Memory/IMemory.h"
 #include "Memory/MemoryiOS.h"
 #include "Profile/IProfile.h"
+#include "Utils/Utils.h"
+#include "Utils/Logger.h"
 
 #include "UI/iOS/DraggableButton.h"
 #include "UI/iOS/Icons.h"
@@ -346,59 +348,15 @@ void ShowDumpAlert()
 
 /// Suspends all game threads for the lifetime of this object.
 /// Skips the calling thread and the main (UI) thread — suspending either
+/// Thin RAII wrapper around IMemory::SuspendTarget/ResumeTarget.
 class FThreadSuspension
 {
-	std::vector<thread_t> SuspendedThreads;
-
 public:
 	FThreadSuspension(const FThreadSuspension&)            = delete;
 	FThreadSuspension& operator=(const FThreadSuspension&) = delete;
 
-	FThreadSuspension()
-	{
-		thread_t SelfThread = mach_thread_self();
-		thread_t MainThread = GMainMachThread;
-
-		thread_act_array_t ThreadList      = nullptr;
-		mach_msg_type_number_t ThreadCount = 0;
-
-		if (task_threads(mach_task_self(), &ThreadList, &ThreadCount) != KERN_SUCCESS)
-		{
-			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "FThreadSuspension: task_threads failed.\n");
-			mach_port_deallocate(mach_task_self(), SelfThread);
-			return;
-		}
-
-		for (mach_msg_type_number_t I = 0; I < ThreadCount; I++)
-		{
-			thread_t T = ThreadList[I];
-			if (T == SelfThread || T == MainThread)
-			{
-				mach_port_deallocate(mach_task_self(), T);
-				continue;
-			}
-			if (thread_suspend(T) == KERN_SUCCESS)
-				SuspendedThreads.push_back(T);
-			else
-				mach_port_deallocate(mach_task_self(), T);
-		}
-
-		vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(ThreadList), ThreadCount * sizeof(thread_act_t));
-		mach_port_deallocate(mach_task_self(), SelfThread);
-
-		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Suspended {} game thread(s).\n", SuspendedThreads.size());
-	}
-
-	~FThreadSuspension()
-	{
-		for (thread_t T : SuspendedThreads)
-		{
-			thread_resume(T);
-			mach_port_deallocate(mach_task_self(), T);
-		}
-		if (!SuspendedThreads.empty())
-			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Resumed {} game thread(s).\n", SuspendedThreads.size());
-	}
+	FThreadSuspension()  { MD7::Globals::GMemory->SuspendTarget(); }
+	~FThreadSuspension() { MD7::Globals::GMemory->ResumeTarget(); }
 };
 
 void RunDump(KittyAlertView* WaitingAlert, bool bSuspend)
@@ -424,6 +382,7 @@ void RunDump(KittyAlertView* WaitingAlert, bool bSuspend)
 
 	MD7::Globals::GMemory      = std::make_unique<FMemoryiOS>(mach_task_self());
 	MD7::Globals::GArchDecoder = CreateArchDecoder(EArch::Arm64);
+	static_cast<FMemoryiOS*>(MD7::Globals::GMemory.get())->SetMainThreadHandle(GMainMachThread);
 
 	for (const auto& it : GetUECustomProfiles())
 	{
@@ -450,7 +409,14 @@ DumpLabel:
 		if (bSuspend)
 			Suspension.emplace();
 
-		bSuccess = FDumperMain::Run(OutDumpZip, OutErr);
+		if (FDumperMain::Init(OutErr))
+		{
+			bSuccess = FDumperMain::Run(OutDumpZip, OutErr);
+		}
+		else
+		{
+			bSuccess = false;
+		}
 	}
 	catch (const std::exception& E)
 	{

@@ -17,6 +17,12 @@ class FMemoryiOS : public IMemory
 	/// @brief Mach task port used to access the target process.
 	mach_port_t TaskId;
 
+	/// @brief Threads currently suspended by SuspendTarget(); empty when not suspended.
+	std::vector<thread_t> SuspendedThreads;
+
+	/// @brief The app's main/UI thread, excluded from suspension. Set via SetMainThreadHandle().
+	thread_t MainThreadHandle = MACH_PORT_NULL;
+
 	/// @brief Validates target memory pointers before access.
 	mutable KittyPtrValidator PtrValidator;
 
@@ -94,6 +100,19 @@ public:
 	/// @copydoc IMemory::Initialize
 	bool Initialize() override;
 
+	/// @copydoc IMemory::SuspendTarget
+	void SuspendTarget() override;
+
+	/// @copydoc IMemory::ResumeTarget
+	void ResumeTarget() override;
+
+	/// @copydoc IMemory::IsTargetSuspended
+	bool IsTargetSuspended() const override { return !SuspendedThreads.empty(); }
+
+	/// @brief Records the app's main/UI thread so SuspendTarget() skips it, matching the
+	/// dumper's own thread always being excluded too. Call once, right after construction.
+	void SetMainThreadHandle(thread_t InMainThread) { MainThreadHandle = InMainThread; }
+
 	/// @copydoc IMemory::GetProcessName
 	std::string GetProcessName() const override;
 
@@ -156,6 +175,10 @@ public:
 
 	/// @copydoc IMemory::FindAllAlignedValuesInRange
 	std::vector<uintptr_t> FindAllAlignedValuesInRange(uintptr_t Value, int32_t Alignment, uintptr_t Start, size_t Range, size_t MaxHits = 0) const override;
+
+	/// @copydoc IMemory::FindAllAlignedValuesInRangeMulti
+	std::unordered_map<uintptr_t, std::vector<uintptr_t>> FindAllAlignedValuesInRangeMulti(
+	    const std::vector<uintptr_t>& Values, int32_t Alignment, uintptr_t Start, size_t Range, size_t MaxHitsPerValue = 0) const override;
 
 	/// @copydoc IMemory::FindRawDataInRange
 	uintptr_t FindRawDataInRange(const void* Data, size_t DataSize, uintptr_t Start, size_t Range) const override;

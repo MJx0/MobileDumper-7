@@ -12,6 +12,7 @@
 #include <type_traits>
 #include <unistd.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -360,6 +361,50 @@ protected:
 		}
 	}
 
+	/**
+	 * @brief Finds aligned occurrences of several pointer values in one scan pass.
+	 *
+	 * Single-pass variant of @ref BulkFindAll for multiple needles at once, so scanning a
+	 * range for N values costs one read-and-scan pass instead of N.
+	 *
+	 * @param Values Pointer-sized values to search for.
+	 * @param Alignment Required address alignment.
+	 * @param Cur Current start address of the search.
+	 * @param End Exclusive end address of the search.
+	 * @param Out Receives matching addresses in ascending order, keyed by the value matched.
+	 * @param MaxHitsPerValue Maximum matches per value; 0 returns all matches.
+	 */
+	inline void BulkFindAllMulti(const std::vector<uintptr_t>& Values, int32_t Alignment, uintptr_t Cur, uintptr_t End,
+	                              std::unordered_map<uintptr_t, std::vector<uintptr_t>>& Out, size_t MaxHitsPerValue = 0) const
+	{
+		const std::unordered_set<uintptr_t> ValueSet(Values.begin(), Values.end());
+		std::vector<uint8_t> Buffer;
+		const size_t Step = static_cast<size_t>(Alignment);
+		while (Cur + sizeof(uintptr_t) <= End)
+		{
+			size_t ChunkSize = std::min(static_cast<size_t>(End - Cur), kScanChunkBytes);
+			ChunkSize        = (ChunkSize / Step) * Step;
+			if (!ChunkSize)
+				break;
+			Buffer.resize(ChunkSize);
+			if (ReadBytes(Cur, Buffer.data(), ChunkSize))
+			{
+				for (size_t Off = 0; Off + sizeof(uintptr_t) <= ChunkSize; Off += Step)
+				{
+					uintptr_t Val;
+					std::memcpy(&Val, Buffer.data() + Off, sizeof(uintptr_t));
+					if (ValueSet.count(Val))
+					{
+						std::vector<uintptr_t>& Hits = Out[Val];
+						if (!MaxHitsPerValue || Hits.size() < MaxHitsPerValue)
+							Hits.push_back(Cur + Off);
+					}
+				}
+			}
+			Cur += ChunkSize;
+		}
+	}
+
 public:
 	virtual ~IMemory() = default;
 
@@ -369,6 +414,15 @@ public:
 	 * @return true if the backend initialized successfully.
 	 */
 	virtual bool Initialize() = 0;
+
+	/// @brief Suspends the target so it can't mutate its own memory. No-op where unsupported.
+	virtual void SuspendTarget() {}
+
+	/// @brief Reverses @ref SuspendTarget. No-op where unsupported or not currently suspended.
+	virtual void ResumeTarget() {}
+
+	/// @brief Whether @ref SuspendTarget currently has the target suspended.
+	virtual bool IsTargetSuspended() const { return false; }
 
 	/// @brief Process name at runtime, image path for a file backend.
 	virtual std::string GetProcessName() const = 0;
@@ -765,6 +819,23 @@ public:
 	    uintptr_t Start,
 	    size_t Range,
 	    size_t MaxHits = 0) const = 0;
+
+	/**
+	 * @brief Finds aligned occurrences of several pointer-sized values in one combined scan.
+	 *
+	 * @param Values Pointer-sized values to search for.
+	 * @param Alignment Required address alignment.
+	 * @param Start Start address of the search range.
+	 * @param Range Number of bytes to search.
+	 * @param MaxHitsPerValue Maximum matches per value; 0 returns all matches.
+	 * @return Match addresses in ascending order, keyed by the value matched.
+	 */
+	virtual std::unordered_map<uintptr_t, std::vector<uintptr_t>> FindAllAlignedValuesInRangeMulti(
+	    const std::vector<uintptr_t>& Values,
+	    int32_t Alignment,
+	    uintptr_t Start,
+	    size_t Range,
+	    size_t MaxHitsPerValue = 0) const = 0;
 
 	/**
 	 * @brief Finds the first occurrence of a raw byte sequence.

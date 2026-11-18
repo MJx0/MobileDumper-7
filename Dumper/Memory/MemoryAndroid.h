@@ -23,6 +23,9 @@ class FMemoryAndroid : public IMemory
 	/// @brief Memory operation mode used by KittyMemoryEx.
 	EKittyMemOP KittyMemOp;
 
+	/// @brief Whether SuspendTarget() currently has the process stopped.
+	bool bIsSuspended = false;
+
 	/// @brief Public so platform code can access elfScanner/memScanner directly.
 	mutable KittyMemoryMgr KittyMemMgr;
 
@@ -104,6 +107,15 @@ public:
 	/// @copydoc IMemory::Initialize
 	bool Initialize() override;
 
+	/// @copydoc IMemory::SuspendTarget
+	void SuspendTarget() override;
+
+	/// @copydoc IMemory::ResumeTarget
+	void ResumeTarget() override;
+
+	/// @copydoc IMemory::IsTargetSuspended
+	bool IsTargetSuspended() const override { return bIsSuspended; }
+
 	/// @copydoc IMemory::GetProcessName
 	/// Returns ProcessRealName when set, else reads cmdline as usual.
 	std::string GetProcessName() const override;
@@ -173,6 +185,10 @@ public:
 
 	/// @copydoc IMemory::FindAllAlignedValuesInRange
 	std::vector<uintptr_t> FindAllAlignedValuesInRange(uintptr_t Value, int32_t Alignment, uintptr_t Start, size_t Range, size_t MaxHits = 0) const override;
+
+	/// @copydoc IMemory::FindAllAlignedValuesInRangeMulti
+	std::unordered_map<uintptr_t, std::vector<uintptr_t>> FindAllAlignedValuesInRangeMulti(
+	    const std::vector<uintptr_t>& Values, int32_t Alignment, uintptr_t Start, size_t Range, size_t MaxHitsPerValue = 0) const override;
 
 	/// @copydoc IMemory::FindRawDataInRange
 	uintptr_t FindRawDataInRange(const void* Data, size_t DataSize, uintptr_t Start, size_t Range) const override;

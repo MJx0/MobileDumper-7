@@ -33,7 +33,7 @@ void FDumperMain::SetOnProgressCallback(const std::function<void(const std::stri
 	OnProgressCallbackFn = Callback;
 }
 
-bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
+bool FDumperMain::Init(std::string& OutErrorString)
 {
 	auto CleanFailureReturn = []() -> bool
 	{
@@ -43,13 +43,49 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== {} v{} ===\n", kProgramName, kProgramVer);
 
-	std::chrono::high_resolution_clock::time_point DumpStartTime = std::chrono::high_resolution_clock::now();
-
 	OnProgressCallback("Initializing Process Memory...\n");
 	{
 		if (!MD7::Globals::GMemory || !MD7::Globals::GMemory->Initialize() || !MD7::Globals::GMemory->IsMemoryAccessOk())
 		{
-			OutErrorString = "Memory Initialize and access failed!";
+			OutErrorString = "Process memory Initialize and access failed!";
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", OutErrorString);
+			return CleanFailureReturn();
+		}
+	}
+
+	if (!MD7::Globals::GSettings.General.UnrealModuleName.empty())
+		OnProgressCallback(fmt::format("Locating Unreal Engine module \"{}\"...\n", MD7::Globals::GSettings.General.UnrealModuleName));
+	else
+		OnProgressCallback("Locating Unreal Engine module (auto-detecting)...\n");
+	{
+		constexpr int kMaxRetries    = 5;
+		constexpr int kRetryAfterSec = 5;
+
+		ModuleInfo ModInfo{};
+		int RetriesLeft = kMaxRetries;
+		do
+		{
+			ModInfo = MD7::Globals::GMemory->GetUnrealModule();
+			if (ModInfo.IsValid())
+				break;
+
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Failed to find Unreal Engine module, retrying in {} seconds...\n", kRetryAfterSec);
+
+			// A retry while suspended can never see a different result
+			// resume briefly so the target can actually make progress, then restore suspension before continuing.
+			const bool bWasSuspended = MD7::Globals::GMemory->IsTargetSuspended();
+			if (bWasSuspended)
+				MD7::Globals::GMemory->ResumeTarget();
+
+			sleep(kRetryAfterSec);
+
+			if (bWasSuspended)
+				MD7::Globals::GMemory->SuspendTarget();
+		} while (--RetriesLeft > 0);
+
+		if (!ModInfo.IsValid())
+		{
+			OutErrorString = fmt::format("Failed to find the Unreal Engine module after {} attempts - either the game needs more time to load (wait and try again), or the dumper failed to locate it for an unrelated reason.", kMaxRetries);
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", OutErrorString);
 			return CleanFailureReturn();
 		}
@@ -66,6 +102,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", OutErrorString);
 			return CleanFailureReturn();
 		}
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Game Name: \"{}\".\n", InternalSettings::GameName);
 
 		if (InternalSettings::GameVersion.empty())
 		{
@@ -73,13 +110,44 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", OutErrorString);
 			return CleanFailureReturn();
 		}
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Game Version: \"{}\".\n", InternalSettings::GameVersion);
 	}
 
 	const std::string DumperDir = Generator::GetDumperFolder();
 
 	const std::string DumperLog = DumperDir + "/MobileDumper-7.log";
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Log File: {}\n", DumperLog);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 	MD7::Globals::GLogger.SetFileStream(DumperLog);
+
+	return true;
+}
+
+bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
+{
+	const std::string DumperDir = Generator::GetDumperFolder();
+
+	std::chrono::high_resolution_clock::time_point DumpStartTime = std::chrono::high_resolution_clock::now();
+
+	auto FinalizeAndReturn = [&](bool bSuccess) -> bool
+	{
+		MD7::Globals::GLogger.CloseFileStream();
+
+		OnProgressCallback(fmt::format("Zipping dump folder with compression level {}, This could take few minutes...\n", MD7::Globals::GSettings.Generator.ZipCompressionLevel));
+		{
+			fs::path OutZip;
+			const bool bZipOk = Generator::ZipDumperFolder(OutZip);
+			OutDumpZip        = bZipOk ? OutZip.string() : DumperDir;
+			OnProgressCallback(fmt::format("{}\nDump Location: {}\n", bZipOk ? "Dump zipped successfully." : "Zipping dump failed.", OutDumpZip));
+			if (bZipOk)
+			{
+				fs::remove_all(DumperDir);
+			}
+		}
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
+
+		return bSuccess;
+	};
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== Dumper Info ===\n");
 	{
@@ -102,7 +170,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== Unreal Module ===\n");
 		{
 			if (!Generator::InitUnrealModule(OutErrorString))
-				return CleanFailureReturn();
+				return FinalizeAndReturn(false);
 		}
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 	}
@@ -112,7 +180,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== UEAnalyzerKitty ===\n");
 		{
 			if (!Generator::InitUEAnalyzerKitty(OutErrorString))
-				return CleanFailureReturn();
+				return FinalizeAndReturn(false);
 		}
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 	}
@@ -121,8 +189,8 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 	OnProgressCallback("Initializing Decrypt Callbacks...\n");
 	{
 		{
-			// Hooks outlive the profile that installed them, so start from the defaults.
 			MD7::Globals::GDecryptCallbacks = FDecryptCallbacks{};
+			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Calling IProfile::OverrideDecryptCallbacks...\n");
 			MD7::Globals::GProfile->OverrideDecryptCallbacks(MD7::Globals::GDecryptCallbacks);
 		}
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
@@ -133,7 +201,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== Objects ===\n");
 		{
 			if (!Generator::InitObjects(OutErrorString))
-				return CleanFailureReturn();
+				return FinalizeAndReturn(false);
 		}
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 	}
@@ -143,7 +211,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== Names ===\n");
 		{
 			if (!Generator::InitNames(OutErrorString))
-				return CleanFailureReturn();
+				return FinalizeAndReturn(false);
 		}
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 	}
@@ -156,7 +224,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== Settings ===\n");
 		{
 			if (!Generator::InitSettings(OutErrorString))
-				return CleanFailureReturn();
+				return FinalizeAndReturn(false);
 		}
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 	}
@@ -166,7 +234,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== Offsets ===\n");
 		{
 			if (!Generator::InitOffsets(OutErrorString))
-				return CleanFailureReturn();
+				return FinalizeAndReturn(false);
 		}
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 	}
@@ -176,7 +244,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== Internal Settings ===\n");
 		{
 			if (!Generator::InitInternalSettings(OutErrorString))
-				return CleanFailureReturn();
+				return FinalizeAndReturn(false);
 		}
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 	}
@@ -195,7 +263,7 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 	{
 		OutErrorString = "All generators are disabled in settings, nothing to dump!";
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "Error: \"{}\"\n", OutErrorString);
-		return CleanFailureReturn();
+		return FinalizeAndReturn(false);
 	}
 
 	if (MD7::Globals::GSettings.Generator.bGenerateGObjects)
@@ -281,23 +349,5 @@ bool FDumperMain::Run(std::string& OutDumpZip, std::string& OutErrorString)
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Dump Folder: {}\n", DumperDir);
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
 
-	// log file will be zipped
-	MD7::Globals::GLogger.CloseFileStream();
-
-	{
-		OnProgressCallback("Zipping dump folder...\n");
-		{
-			fs::path OutZip;
-			const bool bZipOk = Generator::ZipDumperFolder(OutZip);
-			OutDumpZip        = bZipOk ? OutZip.string() : DumperDir;
-			OnProgressCallback(fmt::format("{}\nDump Location: {}\n", bZipOk ? "Dump zipped successfully." : "Zipping dump failed.", OutDumpZip));
-			if (bZipOk)
-			{
-				fs::remove_all(DumperDir);
-			}
-		}
-		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "==================\n");
-	}
-
-	return true;
+	return FinalizeAndReturn(true);
 }

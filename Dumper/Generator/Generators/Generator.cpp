@@ -25,22 +25,10 @@
 
 bool Generator::InitUnrealModule(std::string& OutErrorString)
 {
-	int Retries       = 5;
-	int RetryAfterSec = 5;
-	ModuleInfo ModInfo{};
-	do
-	{
-		ModInfo = MD7::Globals::GMemory->GetUnrealModule();
-		if (ModInfo.IsValid())
-			break;
-
-		MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Failed to find Unreal Engine module, retrying in {} seconds...\n", RetryAfterSec);
-		sleep(RetryAfterSec);
-	} while (--Retries > 0);
-
+	const ModuleInfo ModInfo = MD7::Globals::GMemory->GetUnrealModule();
 	if (!ModInfo.IsValid())
 	{
-		OutErrorString = fmt::format("Failed to find Unreal Engine module after {} attempts!\n", Retries);
+		OutErrorString = "Failed to find Unreal Engine module!";
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "{}\n", OutErrorString);
 		return false;
 	}
@@ -161,8 +149,8 @@ bool Generator::InitObjects(std::string& OutErrorString)
 		MD7::Globals::GObjects = Address;
 		if (TryGObjectsAt(MD7::Globals::GObjects, "Direct", DiagLevel))
 		{
-			MD7::Globals::GInSDKOffsets.Statics.GObjects       = ObjectsOffset;
-			InternalSettings::bIsGObjectsPointer = false;
+			MD7::Globals::GInSDKOffsets.Statics.GObjects = ObjectsOffset;
+			InternalSettings::bIsGObjectsPointer         = false;
 			return true;
 		}
 
@@ -177,8 +165,8 @@ bool Generator::InitObjects(std::string& OutErrorString)
 
 		if (TryGObjectsAt(MD7::Globals::GObjects, "Dereference", DiagLevel))
 		{
-			MD7::Globals::GInSDKOffsets.Statics.GObjects       = ObjectsOffset;
-			InternalSettings::bIsGObjectsPointer = true;
+			MD7::Globals::GInSDKOffsets.Statics.GObjects = ObjectsOffset;
+			InternalSettings::bIsGObjectsPointer         = true;
 			return true;
 		}
 
@@ -361,8 +349,8 @@ bool Generator::InitNames(std::string& OutErrorString)
 		MD7::Globals::GNames = Address;
 		if (TryGNamesAt(MD7::Globals::GNames, "Direct", DiagLevel))
 		{
-			MD7::Globals::GInSDKOffsets.Statics.GNames       = NamesOffset;
-			InternalSettings::bIsGNamesPointer = false;
+			MD7::Globals::GInSDKOffsets.Statics.GNames = NamesOffset;
+			InternalSettings::bIsGNamesPointer         = false;
 			return true;
 		}
 
@@ -377,8 +365,8 @@ bool Generator::InitNames(std::string& OutErrorString)
 
 		if (TryGNamesAt(MD7::Globals::GNames, "Dereference", DiagLevel))
 		{
-			MD7::Globals::GInSDKOffsets.Statics.GNames       = NamesOffset;
-			InternalSettings::bIsGNamesPointer = true;
+			MD7::Globals::GInSDKOffsets.Statics.GNames = NamesOffset;
+			InternalSettings::bIsGNamesPointer         = true;
 			return true;
 		}
 
@@ -552,6 +540,7 @@ bool Generator::InitSettings(std::string& OutErrorString)
 {
 	((void)OutErrorString);
 
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitSettings: Calling IProfile::OverrideSettings...\n");
 	MD7::Globals::GProfile->OverrideSettings(MD7::Globals::GSettings);
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "General::MaxFNameLen: {}\n", MD7::Globals::GSettings.General.MaxFNameLen);
@@ -577,9 +566,10 @@ bool Generator::InitSettings(std::string& OutErrorString)
 
 bool Generator::InitOffsets(std::string& OutErrorString)
 {
-	MD7::Globals::GProfile->OverrideInGenOffsets(MD7::Globals::GOffsets);
-
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitOffsets: Initializing FInGenOffsets...\n");
+
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitOffsets: Calling IProfile::OverrideInGenOffsets...\n");
+	MD7::Globals::GProfile->OverrideInGenOffsets(MD7::Globals::GOffsets);
 
 	if (!MD7::Globals::GOffsets.Init(OutErrorString))
 		return false;
@@ -684,6 +674,7 @@ bool Generator::InitOffsets(std::string& OutErrorString)
 
 	MD7::Globals::GInSDKOffsets.Init();
 
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitOffsets: Calling IProfile::OverrideInSKOffsets...\n");
 	MD7::Globals::GProfile->OverrideInSKOffsets(MD7::Globals::GInSDKOffsets);
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "=== FInSKOffsets ===\n");
@@ -800,6 +791,10 @@ bool Generator::SetupDumperFolder()
 			fs::remove_all(DumperFolder);
 
 		fs::create_directories(DumperFolder);
+
+		// The dumper usually runs as root (adb root/su), which leaves this at the default 755 -
+		// unreadable/undeletable by whatever uid later needs to pull or clean it up.
+		fs::permissions(DumperFolder, fs::perms::all);
 	}
 	catch (const std::filesystem::filesystem_error& fe)
 	{
@@ -868,9 +863,13 @@ bool Generator::SetupFolders(std::string& FolderName, fs::path& OutFolder, std::
 		}
 
 		fs::create_directories(OutFolder);
+		fs::permissions(OutFolder, fs::perms::all);
 
 		if (!SubfolderName.empty())
+		{
 			fs::create_directories(OutSubFolder);
+			fs::permissions(OutSubFolder, fs::perms::all);
+		}
 	}
 	catch (const std::filesystem::filesystem_error& fe)
 	{

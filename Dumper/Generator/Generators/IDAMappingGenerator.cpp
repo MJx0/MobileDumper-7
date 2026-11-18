@@ -1050,7 +1050,8 @@ uint32 IDAMappingGenerator::GenerateInternalEnums(std::stringstream& EnumData, s
 void IDAMappingGenerator::WriteImporterScripts()
 {
 	const fs::path ScriptsFolder = MainFolder / "Scripts";
-	fs::create_directories(ScriptsFolder);
+	std::error_code Ec;
+	fs::create_directories(ScriptsFolder, Ec);
 
 	StreamType IDAScriptFile(ScriptsFolder / "IDAMappingImporter.py", std::ios::binary);
 	IDAScriptFile.write(IDAMappingScripts::IDAMappingImporterPy, static_cast<std::streamsize>(std::strlen(IDAMappingScripts::IDAMappingImporterPy)));
