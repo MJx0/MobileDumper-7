@@ -6176,7 +6176,6 @@ void CppGenerator::GenerateBasicFiles(StreamType& BasicHpp, StreamType& BasicCpp
 #include <string>
 #include <functional>
 #include <type_traits>
-#include <format>
 )",
 	                                               (!MD7::Globals::GSettings.CppGenerator.SDKNamespaceName.empty() ? SDKMacroDefinitions : ""));
 
@@ -9331,9 +9330,6 @@ using TActorBasedCycleFixup = CyclicDependencyFixupImpl::TCyclicClassFixup<Under
 
 	WriteFileEnd(BasicHpp, EFileType::BasicHpp);
 	WriteFileEnd(BasicCpp, EFileType::BasicCpp);
-
-	// std::formatter specialisation for the generated SDK was dropped: it adds an iOS 16.3+
-	// requirement the rest of the SDK doesn't have.
 }
 
 

@@ -30,6 +30,7 @@
 #include "Memory/MemoryAndroid.h"
 #include "Profile/IProfile.h"
 #include "Utils/Utils.h"
+#include "Utils/Logger.h"
 
 #ifdef DUMPER_BUILD_EXECUTABLE
 #include "Utils/argsparse/argsparse.hpp"
@@ -170,12 +171,12 @@ DumpLabel:
 		else if (!bRemoteMapsReadable)
 		{
 			bSuccess = false;
-			OutErr   = std::format("Unable to read memory maps of target remote process ( {} )!", GamePid);
+			OutErr   = fmt::format("Unable to read memory maps of target remote process ( {} )!", GamePid);
 		}
 		else
 		{
 			bSuccess = false;
-			OutErr   = std::format("Dumper is {}bit but target app is {}bit!",
+			OutErr   = fmt::format("Dumper is {}bit but target app is {}bit!",
                                  bIsLocal64bit ? "64" : "32",
                                  bIsRemote64bit ? "64" : "32");
 		}
