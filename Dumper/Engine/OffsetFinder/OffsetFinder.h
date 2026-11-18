@@ -300,7 +300,11 @@ namespace OffsetFinder
 		constexpr auto MaxAllowedAverageComparisonIndexValue = MaxAllowedComparisonIndexValue / 2;
 		constexpr auto MinAllowedAverageComparisonIndexValue = 0x280;
 		constexpr auto LowComparisonIndexUpperCap            = 0x10;
-		constexpr auto MaxAllowedNamesWithLowCmpIdx          = 0x40;
+
+		// A flat count doesn't scale with object population: on a 300k-object game, the real
+		// Name offset legitimately has hundreds of low-cmp-idx hits (common UI/pooled objects),
+		// while wrong offsets sit two orders of magnitude higher as a fraction of the population.
+		constexpr double MaxAllowedNamesWithLowCmpIdxRatio = 0.01;
 
 		for (int i = sizeof(void*); i <= MaxScanOffset; i += 0x4)
 		{
@@ -353,13 +357,19 @@ namespace OffsetFinder
 		for (const ValueInfo& Info : PossibleOffsets)
 		{
 			const auto AverageValue = (Info.TotalValue / NumObjectsConsidered);
+			const bool bPassed      = Info.bIsValidCmpIdxRange && Info.NumNamesWithLowCmpIdx <= (NumObjectsConsidered * MaxAllowedNamesWithLowCmpIdxRatio) && AverageValue >= MinAllowedAverageComparisonIndexValue && AverageValue <= MaxAllowedAverageComparisonIndexValue;
 
-			if (Info.bIsValidCmpIdxRange && Info.NumNamesWithLowCmpIdx <= MaxAllowedNamesWithLowCmpIdx && AverageValue >= MinAllowedAverageComparisonIndexValue && AverageValue <= MaxAllowedAverageComparisonIndexValue)
+			if (bPassed)
 				ValidOffsets.push_back(Info.Offset);
 		}
 
 		if (ValidOffsets.empty())
+		{
+			for (const ValueInfo& Info : PossibleOffsets)
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindNameOffsetForSomeClass: 0x{:X} avg={} lowCmpIdx={} validRange={}\n",
+				                                Info.Offset, Info.TotalValue / NumObjectsConsidered, Info.NumNamesWithLowCmpIdx, Info.bIsValidCmpIdxRange);
 			return -1;
+		}
 
 		if (ValidOffsets.size() == 1)
 			return ValidOffsets[0];
