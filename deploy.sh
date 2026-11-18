@@ -165,11 +165,10 @@ deploy_android() {
 	}
 
 	local remote_exe="/data/local/tmp/MobileDumper-7-${arch}"
-	local remote_output="/data/local/tmp/md7_dumps"
+	# Timestamped so a concurrent/previous run's output under /data/local/tmp isn't clobbered.
+	local remote_output="/data/local/tmp/md7_dumps_$(date '+%Y%m%d_%H%M%S')"
 	local log_file
 	log_file="$(mktemp -t md7_deploy)"
-
-	run_root "rm -rf ${remote_output}" >/dev/null 2>&1 || true
 
 	section "Push & run"
 	info "Installing: $local_exe"
@@ -182,6 +181,7 @@ deploy_android() {
 	# here would just be a second, worse CLI on top of the real one.
 	local dump_command="${remote_exe} --output ${remote_output} --dump ${suspend}"
 
+	info "Command: $dump_command"
 	info "Running the dumper - answer its prompts below:"
 	echo
 

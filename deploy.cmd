@@ -159,9 +159,11 @@ IF "!ROOT_MODE!"=="direct" ( CALL :info "Root access: adb root" ) ELSE ( CALL :i
 :: -- Push & run ---------------------------------------------------------------
 
 SET "REMOTE_EXE=/data/local/tmp/MobileDumper-7-%ARCH%"
-SET "REMOTE_OUTPUT=/data/local/tmp/md7_dumps"
 
-CALL :run_root "rm -rf %REMOTE_OUTPUT%" >NUL 2>&1
+:: Timestamped so a concurrent/previous run's output under /data/local/tmp isn't clobbered.
+SET "TS="
+FOR /F "delims=" %%T IN ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss"') DO SET "TS=%%T"
+SET "REMOTE_OUTPUT=/data/local/tmp/md7_dumps_%TS%"
 
 CALL :section "Push and run"
 CALL :info "Installing: %LOCAL_EXE%"
@@ -175,6 +177,7 @@ CALL :run_root "chmod 755 %REMOTE_EXE%"
 :: is missing, with its own process picker and menus.
 SET "DUMP_COMMAND=%REMOTE_EXE% --output %REMOTE_OUTPUT% --dump %SUSPEND%"
 
+CALL :info "Command: !DUMP_COMMAND!"
 CALL :info "Running the dumper - answer its prompts below:"
 ECHO.
 
