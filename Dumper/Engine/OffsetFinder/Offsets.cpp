@@ -27,45 +27,45 @@ namespace MD7::Globals
 
 bool FInGenOffsets::Init(std::string& OutErrorString)
 {
-#define kSET_UE_OFFSET(Off, Val)                                                           \
-	{                                                                                      \
-		if (this->Off == OffsetFinder::OffsetNotFound)                                     \
-		{                                                                                  \
-			this->Off = Val;                                                               \
+#define kSET_UE_OFFSET(Off, Val)                                                                         \
+	{                                                                                                    \
+		if (this->Off == OffsetFinder::OffsetNotFound)                                                   \
+		{                                                                                                \
+			this->Off = Val;                                                                             \
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "{} = 0x{:X}\n", #Off, uint32_t(this->Off)); \
-		}                                                                                  \
+		}                                                                                                \
 	}
 
-#define kINIT_UE_OFFSET(Off, Required, Init, OverrideIfInvalidVal)                                                            \
-	{                                                                                                                         \
+#define kINIT_UE_OFFSET(Off, Required, Init, OverrideIfInvalidVal)                                                                          \
+	{                                                                                                                                       \
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Initializing {}...\n", #Off);                                                      \
-                                                                                                                              \
-		if (this->Off == OffsetFinder::OffsetNotFound)                                                                        \
-		{                                                                                                                     \
-			Init;                                                                                                             \
-		}                                                                                                                     \
-                                                                                                                              \
-		if (this->Off == OffsetFinder::OffsetNotFound && OverrideIfInvalidVal >= 0)                                           \
-		{                                                                                                                     \
+                                                                                                                                            \
+		if (this->Off == OffsetFinder::OffsetNotFound)                                                                                      \
+		{                                                                                                                                   \
+			Init;                                                                                                                           \
+		}                                                                                                                                   \
+                                                                                                                                            \
+		if (this->Off == OffsetFinder::OffsetNotFound && OverrideIfInvalidVal >= 0)                                                         \
+		{                                                                                                                                   \
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Overriding Invalid ( {} )...\n", #Off);                                        \
-			this->Off = OverrideIfInvalidVal;                                                                                 \
-		}                                                                                                                     \
-                                                                                                                              \
-		if (Required && this->Off == OffsetFinder::OffsetNotFound)                                                            \
-		{                                                                                                                     \
-			OutErrorString = fmt::format("Failed to initialize required offset ( {} )", #Off);                                \
+			this->Off = OverrideIfInvalidVal;                                                                                               \
+		}                                                                                                                                   \
+                                                                                                                                            \
+		if (Required && this->Off == OffsetFinder::OffsetNotFound)                                                                          \
+		{                                                                                                                                   \
+			OutErrorString = fmt::format("Failed to initialize required offset ( {} )", #Off);                                              \
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Error, "{}\n", OutErrorString);                                                       \
-			return false;                                                                                                     \
-		}                                                                                                                     \
-                                                                                                                              \
-		if (this->Off == OffsetFinder::OffsetNotFound)                                                                        \
-		{                                                                                                                     \
+			return false;                                                                                                                   \
+		}                                                                                                                                   \
+                                                                                                                                            \
+		if (this->Off == OffsetFinder::OffsetNotFound)                                                                                      \
+		{                                                                                                                                   \
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Warning, "Couldn't find \"{}\" but it's not required.\n", #Off, uint32_t(this->Off)); \
-		}                                                                                                                     \
-		else                                                                                                                  \
-		{                                                                                                                     \
+		}                                                                                                                                   \
+		else                                                                                                                                \
+		{                                                                                                                                   \
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "{} = 0x{:X}\n", #Off, uint32_t(this->Off));                                    \
-		}                                                                                                                     \
+		}                                                                                                                                   \
 	}
 
 	// Objects validation
@@ -2316,12 +2316,12 @@ void FInSDKOffsets::InitFText()
 	}
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info,
-	                 "InitFText: {} Populated FText instance(s) from {} objects across {} class(es), {} after excluding the shared empty value (seen {} times)\n",
-	                 RawCandidates.size(),
-	                 ObjectsScanned,
-	                 TextPropOffsetsByClass.size(),
-	                 TextCandidates.size(),
-	                 DominantCount);
+	                               "InitFText: {} Populated FText instance(s) from {} objects across {} class(es), {} after excluding the shared empty value (seen {} times)\n",
+	                               RawCandidates.size(),
+	                               ObjectsScanned,
+	                               TextPropOffsetsByClass.size(),
+	                               TextCandidates.size(),
+	                               DominantCount);
 
 	if (TextCandidates.empty())
 	{
@@ -3363,16 +3363,16 @@ void FInSDKOffsets::InitProcessEvent()
 			BestScore   = BestSignals.Count();
 
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug,
-			                 "InitProcessEvent: [{:3}] 0x{:X} score={}{} walk={}/0x{:X} ({}) stp={} ({}) <- exported symbol\n",
-			                 Index,
-			                 SymCodeAddr,
-			                 BestScore,
-			                 BestScore >= kMinScore ? " >=kMinScore" : "",
-			                 SymTrace.EndCursor,
-			                 kScanBytes,
-			                 SymTrace.bStoppedAtNeighbor ? "stopped at next function" : "reached end of window",
-			                 SymTrace.StorePairCount,
-			                 BestSignals.Describe());
+			                               "InitProcessEvent: [{:3}] 0x{:X} score={}{} walk={}/0x{:X} ({}) stp={} ({}) <- exported symbol\n",
+			                               Index,
+			                               SymCodeAddr,
+			                               BestScore,
+			                               BestScore >= kMinScore ? " >=kMinScore" : "",
+			                               SymTrace.EndCursor,
+			                               kScanBytes,
+			                               SymTrace.bStoppedAtNeighbor ? "stopped at next function" : "reached end of window",
+			                               SymTrace.StorePairCount,
+			                               BestSignals.Describe());
 			BestIndex = Index;
 			BestAddr  = FuncAddr;
 			bBySymbol = true;
@@ -3389,24 +3389,24 @@ void FInSDKOffsets::InitProcessEvent()
 		if (Trace.bUnreadable)
 		{
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug,
-			                 "InitProcessEvent: [{:3}] 0x{:X} scored 0 - fewer than 0x{:X} readable bytes, not decoded at all\n",
-			                 Index,
-			                 CodeAddr,
-			                 kScanBytes);
+			                               "InitProcessEvent: [{:3}] 0x{:X} scored 0 - fewer than 0x{:X} readable bytes, not decoded at all\n",
+			                               Index,
+			                               CodeAddr,
+			                               kScanBytes);
 		}
 		else
 		{
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug,
-			                 "InitProcessEvent: [{:3}] 0x{:X} score={}{} walk={}/0x{:X} ({}) stp={} ({})\n",
-			                 Index,
-			                 CodeAddr,
-			                 Signals.Count(),
-			                 Signals.Count() >= kMinScore ? " >=kMinScore" : "",
-			                 Trace.EndCursor,
-			                 kScanBytes,
-			                 Trace.bStoppedAtNeighbor ? "stopped at next function" : "reached end of window",
-			                 Trace.StorePairCount,
-			                 Signals.Describe());
+			                               "InitProcessEvent: [{:3}] 0x{:X} score={}{} walk={}/0x{:X} ({}) stp={} ({})\n",
+			                               Index,
+			                               CodeAddr,
+			                               Signals.Count(),
+			                               Signals.Count() >= kMinScore ? " >=kMinScore" : "",
+			                               Trace.EndCursor,
+			                               kScanBytes,
+			                               Trace.bStoppedAtNeighbor ? "stopped at next function" : "reached end of window",
+			                               Trace.StorePairCount,
+			                               Signals.Describe());
 		}
 
 		/*
@@ -3421,12 +3421,12 @@ void FInSDKOffsets::InitProcessEvent()
 		if (bWinsTie)
 		{
 			MD7::Globals::GLogger.FmtWrite(ELogLevel::Debug,
-			                 "InitProcessEvent: [{:3}] ties slot {} at {} but has more reflection signals ({} vs {}) - taking it\n",
-			                 Index,
-			                 BestIndex,
-			                 Score,
-			                 Signals.ReflectionCount(),
-			                 BestSignals.ReflectionCount());
+			                               "InitProcessEvent: [{:3}] ties slot {} at {} but has more reflection signals ({} vs {}) - taking it\n",
+			                               Index,
+			                               BestIndex,
+			                               Score,
+			                               Signals.ReflectionCount(),
+			                               BestSignals.ReflectionCount());
 		}
 
 		if (bOutrightWinner || bWinsTie)
@@ -3442,13 +3442,13 @@ void FInSDKOffsets::InitProcessEvent()
 	// of the table was actually code - a table that is mostly "not code" means the vtable itself
 	// is suspect, which would explain a wrong index on its own.
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info,
-	                 "InitProcessEvent: Scanned {} of {} VTable slots ({} scored, {} unreadable, {} not code), stopped because {}.\n",
-	                 LastIndex + 1,
-	                 kMaxVTableEntries,
-	                 SlotsScored,
-	                 SlotsUnreadable,
-	                 SlotsNotCode,
-	                 bBySymbol ? "the exported symbol was found" : "every slot up to the cap was scanned");
+	                               "InitProcessEvent: Scanned {} of {} VTable slots ({} scored, {} unreadable, {} not code), stopped because {}.\n",
+	                               LastIndex + 1,
+	                               kMaxVTableEntries,
+	                               SlotsScored,
+	                               SlotsUnreadable,
+	                               SlotsNotCode,
+	                               bBySymbol ? "the exported symbol was found" : "every slot up to the cap was scanned");
 
 	if (BestIndex < 0)
 	{
@@ -3497,9 +3497,9 @@ void FInSDKOffsets::Init()
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding FText Offsets...\n");
 	this->InitFText();
-	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText.SizeOf: 0x{:X}\n", FText.SizeOf);
-	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText.TextData: 0x{:X}\n", FText.TextData);
-	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText.InTextDataString: 0x{:X}\n", FText.InTextDataString);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText::SizeOf: 0x{:X}\n", FText.SizeOf);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText::TextData: 0x{:X}\n", FText.TextData);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FText::InTextDataString: 0x{:X}\n", FText.InTextDataString);
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InternalSettings::bUseChar16String: {}\n", InternalSettings::bUseChar16String);
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding size of WeakObjectProperty...\n");
