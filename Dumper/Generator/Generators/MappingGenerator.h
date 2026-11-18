@@ -1,6 +1,9 @@
 #pragma once
 
 #include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
 
 #include "../../Engine/Unreal/UnrealObjects.h"
 
