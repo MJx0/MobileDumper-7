@@ -143,7 +143,7 @@ UECustomProfiles.push_back(std::make_shared<MyGameProfile>());
 | Method | When to override |
 | -------- | ----------------- |
 | `GetGObjects()` | GObjects pointer cannot be found automatically |
-| `GetGNames()` | GNames pointer cannot be found automatically — see PUBG example below |
+| `GetGNames()` | GNames pointer cannot be found automatically |
 | `ResolveGObjectsLayout(...)` | Auto layout detection fails; provide the object array layout manually |
 | `ResolveGNamesLayout(...)` | Auto layout detection fails; provide the name container layout manually |
 | `OverrideDecryptCallbacks(FDecryptCallbacks&)` | The game encrypts one or more engine values in memory — see Decryption hooks below |
@@ -162,7 +162,7 @@ the game actually encrypts.
 
 | Group | Hooks |
 | --- | --- |
-| `Statics` | `GObjects`, `GNames` — the global pointers |
+| `Statics` | `GObjects`, `GNames` — the global pointers; `GEngine`, `GWorld` — candidate slot values during the static-offset fallback scan |
 | `FName` | `CompIdx`, `Number` |
 | `UObject` | `Flags`, `Index`, `Class`, `Outer` |
 | `NameStorage` | `Chunk`, `Entry` — chunk/block and name entry addresses, shared by both name layouts |
