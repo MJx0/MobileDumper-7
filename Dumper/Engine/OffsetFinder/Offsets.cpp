@@ -2094,14 +2094,27 @@ void FInSDKOffsets::InitDatatableRowMapOffset()
 
 void FInSDKOffsets::InitUEngineAndUWorld()
 {
-	std::unordered_map<std::string, uintptr_t> Offsets = {
-	    {"Engine", 0},
-	    {"World", 0},
-	};
-	OffsetFinder::FindStaticOffsets(Offsets);
+	// Forced-off settings mean the SDK will never read this offset, so there's no point detecting it.
+	std::vector<std::string> ClassNames;
+	if (!MD7::Globals::GSettings.CppGenerator.bForceNoGEngineInSDK)
+		ClassNames.push_back("Engine");
+	else
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitUEngineAndUWorld: Skipping GEngine, bForceNoGEngineInSDK is set.\n");
 
-	this->Statics.GEngine = Offsets["Engine"];
-	this->Statics.GWorld  = Offsets["World"];
+	if (!MD7::Globals::GSettings.CppGenerator.bForceNoGWorldInSDK)
+		ClassNames.push_back("World");
+	else
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitUEngineAndUWorld: Skipping GWorld, bForceNoGWorldInSDK is set.\n");
+
+	const std::unordered_map<std::string, uintptr_t> Offsets = OffsetFinder::FindStaticOffsets(ClassNames);
+
+	if (auto It = Offsets.find("Engine"); It != Offsets.end())
+		this->Statics.GEngine = It->second;
+	if (auto It = Offsets.find("World"); It != Offsets.end())
+		this->Statics.GWorld = It->second;
+
+	if (this->Statics.GEngine != 0 && this->Statics.GWorld == 0 && !MD7::Globals::GSettings.CppGenerator.bForceNoGWorldInSDK)
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "InitUEngineAndUWorld: GWorld wasn't found, Falling back to GEngine->GameViewport->World\n");
 }
 
 void FInSDKOffsets::InitFText()
@@ -3482,12 +3495,10 @@ void FInSDKOffsets::Init()
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding GEngine & GWorld Offsets...\n");
 	this->InitUEngineAndUWorld();
-	if (Statics.GEngine && Statics.GWorld == 0)
-	{
-		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GWorld wasn't found, You may get GWorld via GEngine->GameViewport->World\n");
-	}
-	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GEngine Offset: 0x{:X}\n", Statics.GEngine);
-	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GWorld Offset: 0x{:X}\n", Statics.GWorld);
+	if (!MD7::Globals::GSettings.CppGenerator.bForceNoGEngineInSDK)
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GEngine Offset: 0x{:X}\n", Statics.GEngine);
+	if (!MD7::Globals::GSettings.CppGenerator.bForceNoGWorldInSDK)
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "GWorld Offset: 0x{:X}\n", Statics.GWorld);
 
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "Finding ProcessEvent...\n");
 	this->InitProcessEvent();

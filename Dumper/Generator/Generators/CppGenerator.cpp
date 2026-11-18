@@ -5048,6 +5048,12 @@ void CppGenerator::InitPredefinedFunctions()
 
 	PredefinedElements& UEnginePredefs = PredefinedMembers[ObjectArray::FindClassFast("Engine").GetIndex()];
 
+	// Same shape as GetWorldThroughGWorldCode below: a decrypted raw-offset fast path.
+	constexpr const char* GetEngineThroughGEngineCode = R"(
+	if constexpr (Offsets::GEngine != 0)
+		GEngine = reinterpret_cast<UEngine*>(DecryptionUtils::DecryptGEngine(*reinterpret_cast<uintptr_t*>(InSDKUtils::GetImageBase() + Offsets::GEngine)));
+)";
+
 	UEnginePredefs.Functions =
 	    {
 	        /* static non-inline functions */
@@ -5056,29 +5062,33 @@ void CppGenerator::InitPredefinedFunctions()
 	            .ReturnType     = "class UEngine*",
 	            .NameWithParams = "GetEngine()",
 	            .Body =
-	                R"({
+	                fmt::format(R"({{
 	static UEngine* GEngine = nullptr;
 
 	if (GEngine)
 		return GEngine;
-	
-	/* (Re-)Initialize if GEngine is nullptr */
-	for (int i = 0; i < InSDKUtils::GetGObjects()->Num(); i++)
-	{
-		UObject* Obj = InSDKUtils::GetObjectByIndex(i);
+	{}
+	if (!GEngine)
+	{{
+		/* (Re-)Initialize if GEngine is nullptr */
+		for (int i = 0; i < InSDKUtils::GetGObjects()->Num(); i++)
+		{{
+			UObject* Obj = InSDKUtils::GetObjectByIndex(i);
 
-		if (!Obj)
-			continue;
+			if (!Obj)
+				continue;
 
-		if (Obj->IsA(UEngine::StaticClass()) && !Obj->IsDefaultObject())
-		{
-			GEngine = static_cast<UEngine*>(Obj);
-			break;
-		}
-	}
+			if (Obj->IsA(UEngine::StaticClass()) && !Obj->IsDefaultObject())
+			{{
+				GEngine = static_cast<UEngine*>(Obj);
+				break;
+			}}
+		}}
+	}}
 
-	return GEngine; 
-})",
+	return GEngine;
+}})",
+	                            !MD7::Globals::GSettings.CppGenerator.bForceNoGEngineInSDK ? GetEngineThroughGEngineCode : ""),
 	            .bIsStatic     = true,
 	            .bIsConst      = false,
 	            .bIsBodyInline = false,
@@ -5110,7 +5120,10 @@ void CppGenerator::InitPredefinedFunctions()
 
 	constexpr const char* GetWorldThroughGWorldCode = R"(
 	if constexpr (Offsets::GWorld != 0)
-		return *reinterpret_cast<UWorld**>(InSDKUtils::GetImageBase() + Offsets::GWorld);
+	{
+		if (UWorld* FromOffset = reinterpret_cast<UWorld*>(DecryptionUtils::DecryptGWorld(*reinterpret_cast<uintptr_t*>(InSDKUtils::GetImageBase() + Offsets::GWorld))))
+			return FromOffset;
+	}
 )";
 
 	UWorldPredefs.Functions =
@@ -6261,15 +6274,13 @@ using namespace UC;
 	BasicHpp << "\n#include \"../NameCollisions.inl\"\n";
 	/* Offsets and disclaimer */
 	BasicHpp << fmt::format(R"(
-/*
-* Disclaimer:
-*	- THe 'GEngine' and 'GWorld' offset are not used by the SDK, it's just there for "decoration", use the provided 'UEngine::GetEngine()' and 'UWorld::GetWorld()' functions instead
-*/
 namespace Offsets
 {{
 	constexpr uintptr_t GObjects       = 0x{:08X};
 	constexpr uintptr_t GNames         = 0x{:08X};
+	// Fast path for GetEngine(); skipped if 0 or bForceNoGEngineInSDK is true, falling back to a GObjects scan.
 	constexpr uintptr_t GEngine        = 0x{:08X};
+	// Fast path for GetWorld(); skipped if 0 or bForceNoGWorldInSDK is true, falling back to Engine->GameViewport->World.
 	constexpr uintptr_t GWorld         = 0x{:08X};
 	constexpr uintptr_t ProcessEvent   = 0x{:08X};
 	constexpr int32 ProcessEventIdx    = 0x{:08X};
@@ -6378,6 +6389,8 @@ namespace InSDKUtils
 {
 	uintptr_t DecryptGNames(uintptr_t NamesPtr);
 	uintptr_t DecryptGObjects(uintptr_t ObjectsPtr);
+	uintptr_t DecryptGEngine(uintptr_t EnginePtr);
+	uintptr_t DecryptGWorld(uintptr_t WorldPtr);
 	uintptr_t DecryptFNameChunk(uintptr_t ChunkAddr, int32 ChunkIndex);
 	uintptr_t DecryptFNameEntry(uintptr_t EntryAddr, int32 EntryIndex);
 	UObject* DecryptFObjectItemEntry(UObject* Object);
@@ -6579,6 +6592,18 @@ std::string InSDKUtils::DecodeNameString(const void* Data, int32 NumChars, int32
 	BasicCpp << fmt::format(R"(uintptr_t DecryptionUtils::DecryptGObjects(uintptr_t ObjectsPtr)
 {})",
 	                        CppDecryptSettings.DecryptGObjectsFuncBody.empty() ? "{\n\treturn ObjectsPtr;\n}\n" : CppDecryptSettings.DecryptGObjectsFuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(uintptr_t DecryptionUtils::DecryptGEngine(uintptr_t EnginePtr)
+{})",
+	                        CppDecryptSettings.DecryptGEngineFuncBody.empty() ? "{\n\treturn EnginePtr;\n}\n" : CppDecryptSettings.DecryptGEngineFuncBody);
+
+	BasicCpp << "\n";
+
+	BasicCpp << fmt::format(R"(uintptr_t DecryptionUtils::DecryptGWorld(uintptr_t WorldPtr)
+{})",
+	                        CppDecryptSettings.DecryptGWorldFuncBody.empty() ? "{\n\treturn WorldPtr;\n}\n" : CppDecryptSettings.DecryptGWorldFuncBody);
 
 	BasicCpp << "\n";
 

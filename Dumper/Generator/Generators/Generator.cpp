@@ -555,6 +555,7 @@ bool Generator::InitSettings(std::string& OutErrorString)
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "CppGenerator::SDKNamespaceName: {}\n", MD7::Globals::GSettings.CppGenerator.SDKNamespaceName.empty() ? "(global)" : MD7::Globals::GSettings.CppGenerator.SDKNamespaceName);
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "CppGenerator::XORString: {}\n", MD7::Globals::GSettings.CppGenerator.XORString.empty() ? "(none)" : MD7::Globals::GSettings.CppGenerator.XORString);
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "CppGenerator::bForceNoGWorldInSDK: {}\n", MD7::Globals::GSettings.CppGenerator.bForceNoGWorldInSDK);
+	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "CppGenerator::bForceNoGEngineInSDK: {}\n", MD7::Globals::GSettings.CppGenerator.bForceNoGEngineInSDK);
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "CppGenerator::bAddManualOverrideOptions: {}\n", MD7::Globals::GSettings.CppGenerator.bAddManualOverrideOptions);
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "CppGenerator::bAddFinalSpecifier: {}\n", MD7::Globals::GSettings.CppGenerator.bAddFinalSpecifier);
 	MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "MappingGenerator::bShouldCheckForDuplicatedNames: {}\n", MD7::Globals::GSettings.MappingGenerator.bShouldCheckForDuplicatedNames);

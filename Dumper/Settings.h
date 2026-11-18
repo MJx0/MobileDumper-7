@@ -152,6 +152,14 @@ struct FSettings
 			/// Empty emits a default that returns the pointer unchanged.
 			std::string DecryptGObjectsFuncBody = "";
 
+			/// Override body for @c DecryptionUtils::DecryptGEngine(uintptr_t).
+			/// Empty emits a default that returns the pointer unchanged.
+			std::string DecryptGEngineFuncBody = "";
+
+			/// Override body for @c DecryptionUtils::DecryptGWorld(uintptr_t).
+			/// Empty emits a default that returns the pointer unchanged.
+			std::string DecryptGWorldFuncBody = "";
+
 			/// Override body for @c DecryptionUtils::DecryptFNameChunk(uintptr_t, int32).
 			/// Empty emits a default that returns the address unchanged.
 			std::string DecryptFNameChunkFuncBody = "";
@@ -180,6 +188,10 @@ struct FSettings
 		/// When true, omits @c UWorld::GetWorld() from the generated SDK and
 		/// forces callers to obtain the world via a @c UEngine instance instead.
 		bool bForceNoGWorldInSDK = false;
+
+		/// When true, makes @c UEngine::GetEngine() resolve via the object-array walk only,
+		/// skipping the @c Offsets::GEngine fast path.
+		bool bForceNoGEngineInSDK = false;
 
 		/// Emit helper functions that let callers override MD7::Globals::GObjects, MD7::Globals::GNames, and
 		/// AppendString addresses at runtime without recompiling the SDK.

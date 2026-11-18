@@ -420,5 +420,11 @@ namespace OffsetFinder
 		return BestOffset;
 	}
 
-	void FindStaticOffsets(std::unordered_map<std::string, uintptr_t>& ClassNamesToOffsets);
+	/**
+	 * @brief Resolves each class's static instance pointer offset within the Unreal module.
+	 *
+	 * @param ClassNames Names of the classes to resolve (e.g. "Engine", "World").
+	 * @return Module offsets keyed by class name; a name absent from the map could not be resolved.
+	 */
+	std::unordered_map<std::string, uintptr_t> FindStaticOffsets(const std::vector<std::string>& ClassNames);
 }

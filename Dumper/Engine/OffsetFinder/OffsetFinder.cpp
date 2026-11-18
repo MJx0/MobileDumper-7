@@ -6,15 +6,17 @@
 
 #include "../Unreal/ObjectArray.h"
 
-void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>& ClassNamesToOffsets)
+std::unordered_map<std::string, uintptr_t> OffsetFinder::FindStaticOffsets(const std::vector<std::string>& ClassNames)
 {
-	if (ClassNamesToOffsets.empty())
-		return;
+	std::unordered_map<std::string, uintptr_t> FoundOffsets;
+
+	if (ClassNames.empty())
+		return FoundOffsets;
 
 	// Resolve all requested class names up front
 	std::unordered_map<std::string, UEClass> Classes;
-	Classes.reserve(ClassNamesToOffsets.size());
-	for (auto& [Name, _] : ClassNamesToOffsets)
+	Classes.reserve(ClassNames.size());
+	for (const std::string& Name : ClassNames)
 	{
 		Classes[Name] = ObjectArray::FindClassFast(Name.c_str());
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found '{}' instance at {}.\n", Name, Classes[Name].GetAddress());
@@ -50,31 +52,94 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 
 	const ModuleInfo ModInfo = MD7::Globals::GMemory->GetUnrealModule();
 
-	for (auto& [Name, Instance] : Instances)
+	// One combined scan for every instance address instead of one full-module scan per class.
+	std::vector<uintptr_t> Needles;
+	Needles.reserve(Instances.size());
+	for (const auto& [Name, Instance] : Instances)
+		Needles.push_back(reinterpret_cast<uintptr_t>(Instance.GetAddress()));
+
+	std::unordered_map<uintptr_t, std::vector<uintptr_t>> AllResults;
+	ModInfo.ForEachSegment([&Needles, &AllResults](const MemRegionInfo& Region) -> bool
 	{
-		std::vector<uintptr_t> Results;
-
-		ModInfo.ForEachSegment([&Instance, &Results](const MemRegionInfo& Region) -> bool
+		if (Region.IsReadable() && !Region.IsExecutable())
 		{
-			if (Region.IsReadable() && !Region.IsExecutable())
+			std::unordered_map<uintptr_t, std::vector<uintptr_t>> SegmentResults = MD7::Globals::GMemory->FindAllAlignedValuesInRangeMulti(
+			    Needles,
+			    sizeof(uintptr_t),
+			    Region.GetStart(),
+			    Region.GetSize());
+
+			for (auto& [Addr, Hits] : SegmentResults)
 			{
-				std::vector<uintptr_t> TempResults = MD7::Globals::GMemory->FindAllAlignedValuesInRange(
-				    reinterpret_cast<uintptr_t>(Instance.GetAddress()),
-				    sizeof(uintptr_t),
-				    Region.GetStart(),
-				    Region.GetSize());
-
-				if (!TempResults.empty())
-				{
-					Results = std::move(TempResults);
-					return true;
-				}
+				std::vector<uintptr_t>& Merged = AllResults[Addr];
+				Merged.insert(Merged.end(), Hits.begin(), Hits.end());
 			}
+		}
 
-			return false;
-		});
+		// Don't stop at the first match: different classes' needles can live in different segments.
+		return false;
+	});
+
+	for (const auto& [Name, Instance] : Instances)
+	{
+		const uintptr_t ObjAddr = reinterpret_cast<uintptr_t>(Instance.GetAddress());
+		std::vector<uintptr_t>& Results = AllResults[ObjAddr];
 
 		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found {} candidates for '{}'.\n", Results.size(), Name);
+
+		// Encrypted slot fallback: retry by decrypting each candidate instead of comparing it raw.
+		// Skipped when the hook is still the identity default - decrypt(Val) == Val there, so this
+		// would just re-scan the whole module for free, finding nothing the first pass didn't.
+		if (Results.empty() && (Name == "Engine" || Name == "World"))
+		{
+			const FDecryptFn<uintptr_t>& Decrypt = (Name == "Engine")
+			                                            ? MD7::Globals::GDecryptCallbacks.Statics.GEngine
+			                                            : MD7::Globals::GDecryptCallbacks.Statics.GWorld;
+
+			using FDecryptFnPtr            = uintptr_t (*)(const FDecryptContext<uintptr_t>&);
+			const FDecryptFnPtr* AsPlainFn = Decrypt.target<FDecryptFnPtr>();
+			const bool bHasRealDecrypt     = !AsPlainFn || *AsPlainFn != &DecryptIdentity<uintptr_t>;
+
+			if (bHasRealDecrypt)
+			{
+				ModInfo.ForEachSegment([&Decrypt, &Results, ObjAddr](const MemRegionInfo& Region) -> bool
+				{
+					if (!Region.IsReadable() || Region.IsExecutable())
+						return false;
+
+					constexpr size_t ChunkBytes = 4u * 1024u * 1024u;
+					std::vector<uint8_t> Buffer;
+					uintptr_t Cur        = Region.GetStart();
+					const uintptr_t End  = Region.GetStart() + Region.GetSize();
+
+					while (Cur + sizeof(uintptr_t) <= End)
+					{
+						const size_t ChunkSize = std::min(static_cast<size_t>(End - Cur), ChunkBytes);
+						Buffer.resize(ChunkSize);
+
+						if (MD7::Globals::GMemory->ReadBytes(Cur, Buffer.data(), ChunkSize))
+						{
+							for (size_t Off = 0; Off + sizeof(uintptr_t) <= ChunkSize; Off += sizeof(uintptr_t))
+							{
+								uintptr_t Raw;
+								std::memcpy(&Raw, Buffer.data() + Off, sizeof(uintptr_t));
+
+								if (Decrypt({.Address = Cur + Off, .RawValue = Raw}) == ObjAddr)
+								{
+									Results.push_back(Cur + Off);
+									return true;
+								}
+							}
+						}
+						Cur += ChunkSize;
+					}
+					return false;
+				});
+			}
+
+			if (!Results.empty())
+				MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: Found an encrypted candidate for '{}' via decryption.\n", Name);
+		}
 
 		uintptr_t Result = 0;
 
@@ -84,17 +149,23 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 		}
 		else if (Results.size() == 2)
 		{
-			// If Results[0] changes within 50 ms it's a volatile pointer (e.g. GActiveLogWorld);
-			// in that case Results[1] is the stable static global.
+			// If Results[0] changes within 50 ms it's volatile (e.g. GActiveLogWorld); resume briefly if suspended, or a frozen process can't show the change.
 			const uintptr_t CandidateAddr = reinterpret_cast<uintptr_t>(Results[0]);
-			const uintptr_t ObjAddr       = reinterpret_cast<uintptr_t>(Instance.GetAddress());
-			uintptr_t CurrentValue        = MD7::Globals::GMemory->Read<uintptr_t>(CandidateAddr);
 
+			const bool bWasSuspended = MD7::Globals::GMemory->IsTargetSuspended();
+			if (bWasSuspended)
+				MD7::Globals::GMemory->ResumeTarget();
+
+			uintptr_t CurrentValue = MD7::Globals::GMemory->Read<uintptr_t>(CandidateAddr);
 			for (int i = 0; CurrentValue == ObjAddr && i < 50; ++i)
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 				CurrentValue = MD7::Globals::GMemory->Read<uintptr_t>(CandidateAddr);
 			}
+
+			if (bWasSuspended)
+				MD7::Globals::GMemory->SuspendTarget();
+
 			if (CurrentValue == ObjAddr)
 			{
 				Result = Results[0];
@@ -110,7 +181,11 @@ void OffsetFinder::FindStaticOffsets(std::unordered_map<std::string, uintptr_t>&
 			continue;
 		}
 
-		ClassNamesToOffsets[Name] = MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(Result);
-		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: '{}' offset at 0x{:X}.\n", Name, ClassNamesToOffsets[Name]);
+		// Result is already the slot's address - convert straight to a module offset.
+		const uintptr_t Offset = MD7::Globals::GMemory->GetUnrealModule().AddressToOffset(Result);
+		FoundOffsets[Name]     = Offset;
+		MD7::Globals::GLogger.FmtWrite(ELogLevel::Info, "FindStaticOffsets: '{}' offset at 0x{:X}.\n", Name, Offset);
 	}
+
+	return FoundOffsets;
 }

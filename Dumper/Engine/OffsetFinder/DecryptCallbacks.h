@@ -95,6 +95,11 @@ struct FDecryptCallbacks
 		FDecryptFn<uintptr_t> GObjects = DecryptIdentity<uintptr_t>;
 		/// @brief Decrypts the MD7::Globals::GNames pointer.
 		FDecryptFn<uintptr_t> GNames = DecryptIdentity<uintptr_t>;
+
+		/// @brief Decrypts a candidate GEngine slot value during FindStaticOffsets's fallback scan.
+		FDecryptFn<uintptr_t> GEngine = DecryptIdentity<uintptr_t>;
+		/// @brief Decrypts a candidate GWorld slot value during FindStaticOffsets's fallback scan.
+		FDecryptFn<uintptr_t> GWorld = DecryptIdentity<uintptr_t>;
 	} Statics;
 
 	/// @brief Hooks for FName fields.
