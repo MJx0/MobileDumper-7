@@ -17,7 +17,7 @@
 #include <dirent.h>
 #include <unordered_map>
 
-#include "BinderShell/BinderShellCommand.h"
+#include "BinderShell/BinderShell.h"
 #endif
 
 namespace fs = std::filesystem;
