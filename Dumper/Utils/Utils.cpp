@@ -98,28 +98,35 @@ namespace Utils
 
 			bool bSuccess = true;
 
-			for (const fs::directory_entry& Entry : fs::recursive_directory_iterator(InDir))
+			try
 			{
-				if (!Entry.is_regular_file())
-					continue;
-
-				std::string RelPath = fs::relative(Entry.path(), InDir).string();
-				std::replace(RelPath.begin(), RelPath.end(), '\\', '/');
-
-				if (zip_entry_open(Archive, RelPath.c_str()) < 0)
+				for (const fs::directory_entry& Entry : fs::recursive_directory_iterator(InDir))
 				{
-					bSuccess = false;
-					break;
-				}
+					if (!Entry.is_regular_file())
+						continue;
 
-				if (zip_entry_fwrite(Archive, Entry.path().string().c_str()) < 0)
-				{
+					std::string RelPath = fs::relative(Entry.path(), InDir).string();
+					std::replace(RelPath.begin(), RelPath.end(), '\\', '/');
+
+					if (zip_entry_open(Archive, RelPath.c_str()) < 0)
+					{
+						bSuccess = false;
+						break;
+					}
+
+					if (zip_entry_fwrite(Archive, Entry.path().string().c_str()) < 0)
+					{
+						zip_entry_close(Archive);
+						bSuccess = false;
+						break;
+					}
+
 					zip_entry_close(Archive);
-					bSuccess = false;
-					break;
 				}
-
-				zip_entry_close(Archive);
+			}
+			catch (const std::filesystem::filesystem_error&)
+			{
+				bSuccess = false;
 			}
 
 			zip_close(Archive);
@@ -148,7 +155,8 @@ namespace Utils
 
 		bool ExtractZipToFolder(const std::string& InZip, const std::string& OutFolder)
 		{
-			if (!fs::is_regular_file(InZip))
+			std::error_code IsFileEc;
+			if (!fs::is_regular_file(InZip, IsFileEc))
 				return false;
 
 			struct zip_t* Archive = zip_open(InZip.c_str(), 0, 'r');
@@ -209,7 +217,8 @@ namespace Utils
 
 		bool ExtractZipEntryToFolder(const std::string& InZip, const std::string& EntryPath, const std::string& OutFolder)
 		{
-			if (!fs::is_regular_file(InZip))
+			std::error_code IsFileEc;
+			if (!fs::is_regular_file(InZip, IsFileEc))
 				return false;
 
 			struct zip_t* Archive = zip_open(InZip.c_str(), 0, 'r');
@@ -244,7 +253,8 @@ namespace Utils
 			if (!OutData || !OutDataSize)
 				return false;
 
-			if (!fs::is_regular_file(InZip))
+			std::error_code IsFileEc;
+			if (!fs::is_regular_file(InZip, IsFileEc))
 				return false;
 
 			struct zip_t* Archive = zip_open(InZip.c_str(), 0, 'r');
