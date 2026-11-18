@@ -17,6 +17,7 @@ public:
 	{
 		return {
 		    "com.tencent.ig",
+		    "com.tencent.igfit",
 		    "com.rekoo.pubgm",
 		    "com.pubg.imobile",
 		    "com.pubg.krmobile",
