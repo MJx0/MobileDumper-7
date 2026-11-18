@@ -3207,6 +3207,7 @@ GOTO :EOF
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <thread>
@@ -3325,17 +3326,45 @@ namespace Host
 		va_end(Args);
 	}
 
+	// Per-thread fault state for RunGuarded; pthread_key_t instead of thread_local since TLS in a dlopen'd library is unreliable on some devices.
+	struct FGuardState
+	{
+		sigjmp_buf FaultJump;
+		bool bGuardActive = false;
+	};
+
+	pthread_key_t GGuardStateKey;
+	pthread_once_t GGuardStateKeyOnce = PTHREAD_ONCE_INIT;
+
+	void MakeGuardStateKey()
+	{
+		pthread_key_create(&GGuardStateKey, +[](void* Ptr) { delete static_cast<FGuardState*>(Ptr); });
+	}
+
+	FGuardState& GetGuardState()
+	{
+		pthread_once(&GGuardStateKeyOnce, &MakeGuardStateKey);
+
+		// Only pthread_getspecific is async-signal-safe, so it's the only call the handler below may make.
+		FGuardState* State = static_cast<FGuardState*>(pthread_getspecific(GGuardStateKey));
+		if (!State)
+		{
+			State = new FGuardState();
+			pthread_setspecific(GGuardStateKey, State);
+		}
+		return *State;
+	}
+
 	bool RunGuarded(const std::function<void()>& Body)
 	{
-		// Per-thread: a fault here won't affect the game's own threads.
-		static thread_local sigjmp_buf FaultJump;
-		static thread_local bool bGuardActive = false;
+		FGuardState& State = GetGuardState();
 
 		struct FGuard
 		{
 			static void Handler(int Sig, siginfo_t*, void*)
 			{
-				if (!bGuardActive)
+				FGuardState& State = GetGuardState();
+				if (!State.bGuardActive)
 				{
 					// Not our fault - restore the default handler and let it report this crash normally.
 					signal(Sig, SIG_DFL);
@@ -3343,8 +3372,8 @@ namespace Host
 					return;
 				}
 
-				bGuardActive = false;
-				siglongjmp(FaultJump, 1);
+				State.bGuardActive = false;
+				siglongjmp(State.FaultJump, 1);
 			}
 		};
 
@@ -3361,11 +3390,11 @@ namespace Host
 
 		bool bOk = true;
 
-		if (sigsetjmp(FaultJump, 1) == 0)
+		if (sigsetjmp(State.FaultJump, 1) == 0)
 		{
-			bGuardActive = true;
+			State.bGuardActive = true;
 			Body();
-			bGuardActive = false;
+			State.bGuardActive = false;
 		}
 		else
 		{
@@ -3456,6 +3485,7 @@ pause
 #include <cstdarg>
 #include <cstdio>
 #include <mutex>
+#include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <thread>
@@ -3536,17 +3566,45 @@ namespace Host
 		LoadReadableRanges();
 	}
 
+	// Per-thread fault state for RunGuarded; pthread_key_t instead of thread_local since TLS in a dlopen'd library is unreliable on some devices.
+	struct FGuardState
+	{
+		sigjmp_buf FaultJump;
+		bool bGuardActive = false;
+	};
+
+	pthread_key_t GGuardStateKey;
+	pthread_once_t GGuardStateKeyOnce = PTHREAD_ONCE_INIT;
+
+	void MakeGuardStateKey()
+	{
+		pthread_key_create(&GGuardStateKey, +[](void* Ptr) { delete static_cast<FGuardState*>(Ptr); });
+	}
+
+	FGuardState& GetGuardState()
+	{
+		pthread_once(&GGuardStateKeyOnce, &MakeGuardStateKey);
+
+		// Only pthread_getspecific is async-signal-safe, so it's the only call the handler below may make.
+		FGuardState* State = static_cast<FGuardState*>(pthread_getspecific(GGuardStateKey));
+		if (!State)
+		{
+			State = new FGuardState();
+			pthread_setspecific(GGuardStateKey, State);
+		}
+		return *State;
+	}
+
 	bool RunGuarded(const std::function<void()>& Body)
 	{
-		// Per-thread: a fault here won't affect the game's own threads.
-		static thread_local sigjmp_buf FaultJump;
-		static thread_local bool bGuardActive = false;
+		FGuardState& State = GetGuardState();
 
 		struct FGuard
 		{
 			static void Handler(int Sig, siginfo_t*, void*)
 			{
-				if (!bGuardActive)
+				FGuardState& State = GetGuardState();
+				if (!State.bGuardActive)
 				{
 					// Not our fault - restore the default handler and let it report this crash normally.
 					signal(Sig, SIG_DFL);
@@ -3554,8 +3612,8 @@ namespace Host
 					return;
 				}
 
-				bGuardActive = false;
-				siglongjmp(FaultJump, 1);
+				State.bGuardActive = false;
+				siglongjmp(State.FaultJump, 1);
 			}
 		};
 
@@ -3572,11 +3630,11 @@ namespace Host
 
 		bool bOk = true;
 
-		if (sigsetjmp(FaultJump, 1) == 0)
+		if (sigsetjmp(State.FaultJump, 1) == 0)
 		{
-			bGuardActive = true;
+			State.bGuardActive = true;
 			Body();
-			bGuardActive = false;
+			State.bGuardActive = false;
 		}
 		else
 		{
