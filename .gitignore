@@ -33,6 +33,10 @@ bld/
 [Ll]ogs/
 
 .vs/
+.cache/
+.claude/
+.claudeignore
+CLAUDE.md
 
 # JetBrains
 .idea/
@@ -73,3 +77,6 @@ packages/
 *.dylib
 *.deb
 *.cache
+
+# Third-party submodule sources (read-only, pulled separately)
+libs/
