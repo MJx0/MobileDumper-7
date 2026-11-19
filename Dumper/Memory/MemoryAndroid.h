@@ -35,6 +35,26 @@ class FMemoryAndroid : public IMemory
 	/// @brief Cached memory regions information.
 	mutable std::vector<MemRegionInfo> MemoryRegionsCache;
 
+	/// @brief Page-keyed verdicts for mappings that deny PROT_READ but are actually readable.
+	mutable std::unordered_map<uintptr_t, bool> ForcedReadCache;
+	mutable std::mutex ForcedReadMutex;
+
+	/**
+	 * @brief Probes a mapping whose protection bits deny reads.
+	 *
+	 * Protectors strip PROT_READ from the .bss holding engine globals, which makes the maps
+	 * verdict wrong while a ptrace-style read still succeeds. Only write-only regions are
+	 * probed, once per page.
+	 */
+	bool ProbeUnreadableMapping(uintptr_t Address, size_t Size) const;
+
+	/// @brief Lazily opened /proc/<pid>/mem, or -1 when never needed.
+	mutable int ProcMemFd = -1;
+	mutable std::mutex ProcMemMutex;
+
+	/// @brief Reads through /proc/<pid>/mem, which accepts PROT_WRITE-only pages.
+	size_t ReadViaProcMem(uintptr_t Address, void* Buffer, size_t Size) const;
+
 	/// @brief Cached ELF scanners and module information by module name.
 	mutable std::unordered_map<std::string, std::pair<ElfScanner, ModuleInfo>> ModuleCache;
 
@@ -89,8 +109,8 @@ class FMemoryAndroid : public IMemory
 	bool ReadRelocationSlot(uintptr_t Slot, uintptr_t& Out) const;
 
 public:
-	FMemoryAndroid()           = default;
-	~FMemoryAndroid() override = default;
+	FMemoryAndroid() = default;
+	~FMemoryAndroid() override;
 
 	FMemoryAndroid(const FMemoryAndroid&)            = delete;
 	FMemoryAndroid& operator=(const FMemoryAndroid&) = delete;

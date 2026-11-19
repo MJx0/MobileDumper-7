@@ -8,10 +8,21 @@
 #include <cstring>
 #include <dlfcn.h>
 
+#include <fcntl.h>
+
 #include <KittyMemoryEx/KittyScanner.hpp>
 
 #include "../Settings.h"
 #include "../Utils/Logger.h"
+
+FMemoryAndroid::~FMemoryAndroid()
+{
+	if (ProcMemFd >= 0)
+	{
+		::close(ProcMemFd);
+		ProcMemFd = -1;
+	}
+}
 
 bool FMemoryAndroid::Initialize()
 {
@@ -66,6 +77,11 @@ bool FMemoryAndroid::RefreshMemory()
 	RelocCacheBytes.clear();
 	RelocCacheBytes.shrink_to_fit();
 
+	{
+		const std::lock_guard<std::mutex> ForcedLock(ForcedReadMutex);
+		ForcedReadCache.clear();
+	}
+
 	KittyMemMgr.initialize(ProcessId, KittyMemOp, false);
 
 	PtrValidator.setPID(ProcessId);
@@ -105,7 +121,71 @@ bool FMemoryAndroid::IsValidAddress(uintptr_t Address) const
 
 bool FMemoryAndroid::IsAddressReadable(uintptr_t Address, size_t Size) const
 {
-	return PtrValidator.isPtrReadable(Address, Size);
+	if (PtrValidator.isPtrReadable(Address, Size))
+		return true;
+
+	return ProbeUnreadableMapping(Address, Size);
+}
+
+bool FMemoryAndroid::ProbeUnreadableMapping(uintptr_t Address, size_t Size) const
+{
+	if (Address == 0 || Size == 0)
+		return false;
+
+	Address = KittyUtils::untagPointer(Address);
+
+	const MemRegionInfo Region = GetAddressRegionInfo(Address);
+	if (!Region.IsValid() || Region.GetEnd() < Address + Size)
+		return false;
+
+	// Only write-only mappings get probed; anything else keeps the plain maps verdict.
+	if (Region.IsReadable() || !Region.IsWriteable())
+		return false;
+
+	const size_t PageMask = GetPageSize() - 1;
+	if (PageMask == 0)
+		return false;
+
+	const uintptr_t Page = Address & ~static_cast<uintptr_t>(PageMask);
+
+	{
+		const std::lock_guard<std::mutex> Lock(ForcedReadMutex);
+		const auto It = ForcedReadCache.find(Page);
+		if (It != ForcedReadCache.end())
+			return It->second;
+	}
+
+	uint8_t Probe[sizeof(uintptr_t)] = {};
+	const size_t ProbeLen            = Size < sizeof(Probe) ? Size : sizeof(Probe);
+	const bool bReadable             = ReadViaProcMem(Address, Probe, ProbeLen) == ProbeLen;
+
+	{
+		const std::lock_guard<std::mutex> Lock(ForcedReadMutex);
+		ForcedReadCache[Page] = bReadable;
+	}
+
+	return bReadable;
+}
+
+size_t FMemoryAndroid::ReadViaProcMem(uintptr_t Address, void* Buffer, size_t Size) const
+{
+	if (Address == 0 || !Buffer || Size == 0)
+		return 0;
+
+	const std::lock_guard<std::mutex> Lock(ProcMemMutex);
+
+	if (ProcMemFd < 0)
+	{
+		char Path[64] = {};
+		std::snprintf(Path, sizeof(Path), "/proc/%d/mem", static_cast<int>(ProcessId));
+
+		ProcMemFd = ::open(Path, O_RDONLY | O_CLOEXEC);
+		if (ProcMemFd < 0)
+			return 0;
+	}
+
+	const ssize_t Got = ::pread(ProcMemFd, Buffer, Size, static_cast<off_t>(Address));
+	return Got > 0 ? static_cast<size_t>(Got) : 0;
 }
 
 bool FMemoryAndroid::IsAddressWriteable(uintptr_t Address, size_t Size) const
@@ -159,10 +239,16 @@ size_t FMemoryAndroid::ReadBytes(uintptr_t Address, void* Buffer, size_t Size) c
 		                                             static_cast<uint8_t*>(Buffer) + TotalRead,
 		                                             ChunkSize);
 
-		TotalRead += BytesRead;
+		size_t ChunkTotal = BytesRead;
+
+		// The syscall path refuses write-only mappings; /proc/<pid>/mem does not
+		if (KittyMemOp != EK_MEM_OP_IO && ChunkTotal != ChunkSize)
+			ChunkTotal += ReadViaProcMem(Current + ChunkTotal, static_cast<uint8_t*>(Buffer) + TotalRead + ChunkTotal, ChunkSize - ChunkTotal);
+
+		TotalRead += ChunkTotal;
 
 		// Stop if this chunk wasn't completely readable.
-		if (BytesRead != ChunkSize)
+		if (ChunkTotal != ChunkSize)
 			break;
 
 		Current   += ChunkSize;
