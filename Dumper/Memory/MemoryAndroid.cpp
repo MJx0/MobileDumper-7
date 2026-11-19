@@ -208,8 +208,8 @@ size_t FMemoryAndroid::ReadBytes(uintptr_t Address, void* Buffer, size_t Size) c
 
 		size_t ChunkTotal = BytesRead;
 
-		// The syscall path refuses write-only mappings; /proc/<pid>/mem does not.
-		if (ChunkTotal != ChunkSize)
+		// The syscall path refuses write-only mappings; /proc/<pid>/mem does not
+		if (KittyMemOp != EK_MEM_OP_IO && ChunkTotal != ChunkSize)
 			ChunkTotal += ReadViaProcMem(Current + ChunkTotal, static_cast<uint8_t*>(Buffer) + TotalRead + ChunkTotal, ChunkSize - ChunkTotal);
 
 		TotalRead += ChunkTotal;
